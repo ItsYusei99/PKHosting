@@ -198,6 +198,27 @@ class Server:
         except Exception:
             self.conn_off = 0
         self.conn_open = {}
+        self._apply_file_overrides()
+
+    def _apply_file_overrides(self):
+        """backup.json por servidor sobrescribe lo de config.json."""
+        try:
+            with open(os.path.join(self.data_dir, "backup.json")) as f:
+                ov = json.load(f)
+            if not isinstance(ov, dict):
+                return
+            if ov.get("backup_dir"):
+                self.backup_dir = os.path.expanduser(ov["backup_dir"])
+            if ov.get("backup_time"):
+                self.backup_time = str(ov["backup_time"])
+            if "retention_days" in ov:
+                self.retention_days = max(1, int(ov["retention_days"]))
+            if "keep_monthly" in ov:
+                self.keep_monthly = bool(ov["keep_monthly"])
+            if "backup_enabled" in ov:
+                self.backup_enabled = bool(ov["backup_enabled"])
+        except Exception:
+            pass
         self.metrics = collections.deque(maxlen=40)
         self.cpu_prev = None
         self.tps_lock = threading.Lock()
@@ -1418,7 +1439,7 @@ def fs_list(rel=""):
                     "name": name,
                     "is_dir": is_d,
                     "size": size,
-                    "size_b": sz if not is_d else 0,
+                    "size_b": sz,
                     "mtime": int(st.st_mtime),
                 })
             except Exception:
@@ -2416,6 +2437,7 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
         <button class="cmd-btn" onclick="fsCreate('file')"><svg class="ico" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg> Nuevo archivo</button>
         <button class="cmd-btn" onclick="fsCreate('dir')"><svg class="ico" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg> Nueva carpeta</button>
         <label class="cmd-btn" style="cursor:pointer"><svg class="ico" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Subir<input type="file" id="fsUploadInput" style="display:none" multiple onchange="fsUpload()"></label>
+        <label style="font-size:12px; color:var(--text-muted); display:inline-flex; align-items:center; gap:6px; cursor:pointer"><input type="checkbox" id="fsUnzip"> Descomprimir .zip</label>
         <span style="flex:1"></span>
         <span class="fs-crumb"><a onclick="fsNavUp()">↑ Subir</a>&nbsp;<span id="fsBreadcrumb">/</span></span>
         <button class="term-tool-btn" onclick="loadFiles()">Recargar</button>
@@ -2433,6 +2455,11 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
       <div class="file-list" id="filesContainer">
         <div class="file-row"><span>Cargando archivos del servidor...</span></div>
       </div>
+      <div class="system-details-card" style="margin-top:12px">
+        <h3 style="margin-bottom:8px; font-size:14px">Mods instalados <span style="font-size:11px;color:var(--text-dim)">(activar/desactivar requiere reinicio)</span></h3>
+        <div class="file-list" id="modsList"><div class="file-row"><span class="file-name">Cargando mods...</span></div></div>
+      </div>
+    </div>
       <div id="fsEditModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:200; align-items:center; justify-content:center; padding:20px">
         <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:12px; width:min(860px,100%); max-height:90vh; display:flex; flex-direction:column; overflow:hidden">
           <div style="display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--border-color)">
@@ -2466,6 +2493,17 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
       </div>
       <div class="file-list" id="bkList">
         <div class="file-row"><span>Cargando backups...</span></div>
+      </div>
+      <div class="system-details-card" style="margin-top:12px">
+        <h3 style="margin-bottom:8px; font-size:14px">Configuración de backups</h3>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center">
+          <label style="font-size:12px;color:var(--text-muted);display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="bkEn"> Automático diario</label>
+          <input id="bkTime" placeholder="04:00" style="width:90px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 10px; color:#fff; font-family:'JetBrains Mono',monospace; font-size:12.5px">
+          <input id="bkDir" placeholder="Carpeta destino" style="flex:2; min-width:180px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:#fff; font-size:12.5px">
+          <input id="bkRet" type="number" min="1" max="365" title="Días de retención" style="width:90px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 10px; color:#fff; font-size:12.5px">
+          <label style="font-size:12px;color:var(--text-muted);display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="bkMonthly"> Mensual eterno</label>
+          <button class="cmd-btn" onclick="saveBkCfg()">Guardar</button>
+        </div>
       </div>
       <div style="font-size:11.5px; color:var(--text-dim); margin-top:8px">Se conservan los últimos 7 días; el último de cada mes se guarda para siempre (etiqueta MENSUAL).</div>
     </div>
@@ -2625,7 +2663,7 @@ function switchTab(name) {
   if (tab) tab.classList.add('active');
 
   if (name === 'metrics') renderCharts();
-  if (name === 'files') loadFiles();
+  if (name === 'files') { loadFiles(); loadMods(); }
   if (name === 'tasks') loadSchedules();
   if (name === 'console') { loadQuick(); loadModeration(); refreshCmdList(); }
   if (name === 'settings') { loadProps(); refreshPublicIp(); loadDiscord(); loadQuickCfg(); }
@@ -3184,8 +3222,9 @@ async function fsUpload() {
   const fd = new FormData();
   for (const f of inp.files) fd.append('files', f, f.name);
   showToast('Subiendo ' + inp.files.length + ' archivo(s)...');
+  const uz = document.getElementById('fsUnzip') && document.getElementById('fsUnzip').checked ? '&unzip=1' : '';
   try {
-    const res = await fetch(U('/api/upload?path=' + encodeURIComponent(fsPath)), { method: 'POST', body: fd });
+    const res = await fetch(U('/api/upload?path=' + encodeURIComponent(fsPath) + uz), { method: 'POST', body: fd });
     const r = await res.json();
     showToast(r.msg || 'OK');
   } catch (e) { showToast('Error al subir'); }
@@ -3235,10 +3274,20 @@ async function loadBackups() {
       <div class="file-row">
         <span class="file-name">${f.name}${f.monthly ? ' <span class="chart-badge sub">MENSUAL</span>' : ''}<br><span style="font-size:11px;color:var(--text-dim)">${f.date} · ${f.size}</span></span>
         <span class="file-actions">
+          <button class="icon-btn" title="Descargar" onclick="bkDownload('${f.name}')">${BK_SVG_DL}</button>
           <button class="icon-btn" title="Restaurar (detiene el server)" onclick="restoreBackup('${f.name}')">${BK_SVG_BACK}</button>
           <button class="icon-btn danger" title="Eliminar" onclick="deleteBackup('${f.name}')">${BK_SVG_TRASH}</button>
         </span>
       </div>`).join('');
+    try {
+      const c = await (await fetch(U('/api/backup-cfg'))).json();
+      const cfg = (c && c.config) || {};
+      document.getElementById('bkEn').checked = !!cfg.backup_enabled;
+      if (!document.getElementById('bkTime').value) document.getElementById('bkTime').value = cfg.backup_time || '04:00';
+      if (!document.getElementById('bkDir').value) document.getElementById('bkDir').value = cfg.backup_dir || '';
+      if (!document.getElementById('bkRet').value) document.getElementById('bkRet').value = cfg.retention_days || 7;
+      document.getElementById('bkMonthly').checked = cfg.keep_monthly !== false;
+    } catch (e) {}
   } catch (e) {
     document.getElementById('bkList').innerHTML = '<div class="file-row">Error al cargar backups</div>';
   }
@@ -3258,6 +3307,19 @@ async function restoreBackup(name) {
     showToast(r.msg || 'OK');
   } catch (e) { showToast('Error al restaurar'); }
   setTimeout(loadBackups, 2000);
+}
+function bkDownload(name) { window.open(U('/api/backup-download?name=' + encodeURIComponent(name)), '_blank'); }
+async function saveBkCfg() {
+  const body = { backup_enabled: document.getElementById('bkEn').checked,
+    backup_time: document.getElementById('bkTime').value.trim(),
+    backup_dir: document.getElementById('bkDir').value.trim(),
+    retention_days: parseInt(document.getElementById('bkRet').value) || 7,
+    keep_monthly: document.getElementById('bkMonthly').checked };
+  try {
+    const r = await (await fetch(U('/api/backup-cfg'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+    showToast(r.msg || 'OK');
+  } catch (e) { showToast('Error'); }
+  loadBackups();
 }
 async function deleteBackup(name) {
   if (!confirm(`¿Eliminar el backup "${name}"?`)) return;
@@ -3364,6 +3426,43 @@ async function skAct(action, id) {
   loadSchedules();
 }
 
+async function loadMods() {
+  try {
+    const d = await (await fetch(U('/api/mods'))).json();
+    const box = document.getElementById('modsList');
+    const mods = (d && d.mods) || [];
+    if (!mods.length) { box.innerHTML = '<div class="file-row"><span class="file-name">Sin mods</span></div>'; return; }
+    const mb = m => m > 1048576 ? (m / 1048576).toFixed(1) + ' MB' : Math.round(m / 1024) + ' KB';
+    box.innerHTML = mods.map(m => `
+      <div class="file-row">
+        <span class="file-icon ${m.enabled ? 'is-file' : ''}" style="${m.enabled ? '' : 'opacity:.4'}" title="${m.enabled ? 'Activo' : 'Desactivado'}">${SVG_FILE}</span>
+        <span class="file-name">${m.name}${m.enabled ? '' : ' <span class="chart-badge sub">OFF</span>'}</span>
+        <span class="file-size">${mb(m.size)}</span>
+        <span class="file-actions">
+          <button class="term-tool-btn" title="Activar/desactivar" onclick="modToggle('${m.name.replace(/'/g, "")}')">${m.enabled ? 'Off' : 'On'}</button>
+          <button class="icon-btn danger" title="Eliminar" onclick="modDel('${m.name.replace(/'/g, "")}')">${SVG_TRASH}</button>
+        </span>
+      </div>`).join('');
+  } catch (e) {
+    document.getElementById('modsList').innerHTML = '<div class="file-row">Error al cargar mods</div>';
+  }
+}
+async function modToggle(name) {
+  try {
+    const r = await (await fetch(U('/api/mod'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'toggle', name }) })).json();
+    showToast(r.msg || 'OK');
+  } catch (e) { showToast('Error'); }
+  loadMods();
+}
+async function modDel(name) {
+  if (!confirm(`¿Eliminar el mod "${name}"?`)) return;
+  try {
+    const r = await (await fetch(U('/api/mod'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', name }) })).json();
+    showToast(r.msg || 'OK');
+  } catch (e) { showToast('Error'); }
+  loadMods();
+}
+
 async function loadProps() {
   try {
     const res = await fetch(U('/api/file?path=server.properties'));
@@ -3431,6 +3530,60 @@ def build_page(srv=None):
     return p
 
 
+def backup_cfg_get(srv):
+    return {"backup_enabled": srv.backup_enabled, "backup_dir": srv.backup_dir,
+            "backup_time": srv.backup_time, "retention_days": srv.retention_days,
+            "keep_monthly": srv.keep_monthly}
+
+
+def backup_cfg_set(srv, payload):
+    ov = {}
+    if "backup_enabled" in payload:
+        ov["backup_enabled"] = bool(payload["backup_enabled"])
+    if payload.get("backup_dir"):
+        ov["backup_dir"] = str(payload["backup_dir"])[:300]
+    if payload.get("backup_time"):
+        t = str(payload["backup_time"])
+        if re.match(r"^([01][0-9]|2[0-3]):[0-5][0-9]$", t):
+            ov["backup_time"] = t
+        else:
+            return False, "Hora inválida (HH:MM)"
+    if "retention_days" in payload:
+        try:
+            ov["retention_days"] = max(1, min(365, int(payload["retention_days"])))
+        except Exception:
+            return False, "Retención inválida"
+    if "keep_monthly" in payload:
+        ov["keep_monthly"] = bool(payload["keep_monthly"])
+    try:
+        os.makedirs(srv.data_dir, exist_ok=True)
+        with open(os.path.join(srv.data_dir, "backup.json"), "w") as f:
+            json.dump(ov, f, indent=2)
+    except Exception as e:
+        return False, str(e)
+    srv._apply_file_overrides()
+    return True, "Configuración de backups guardada"
+
+
+def list_mods():
+    srv = S()
+    mods = os.path.join(srv.server_dir, "mods")
+    out = []
+    try:
+        for name in sorted(os.listdir(mods), key=str.lower):
+            if name.startswith("."):
+                continue
+            if name.endswith(".jar.disabled"):
+                out.append({"name": name[:-9], "enabled": False,
+                            "size": os.path.getsize(os.path.join(mods, name))})
+            elif name.endswith(".jar"):
+                out.append({"name": name, "enabled": True,
+                            "size": os.path.getsize(os.path.join(mods, name))})
+    except FileNotFoundError:
+        pass
+    return out
+
+
 def handle_upload(handler, dest_rel):
     dest_dir = safe_fs_path(dest_rel or "")
     if dest_dir is None:
@@ -3477,7 +3630,33 @@ def handle_upload(handler, dest_rel):
         return handler.send_json({"ok": False, "msg": f"Error guardando: {e}"}, code=500)
     if not saved:
         return handler.send_json({"ok": False, "msg": "No se recibió ningún archivo"}, code=400)
-    return handler.send_json({"ok": True, "msg": f"Subido(s): {', '.join(saved)}"})
+    msg = f"Subido(s): {', '.join(saved)}"
+    try:
+        want_unzip = parse_qs(urlparse(handler.path).query).get("unzip", [""])[0] == "1"
+    except Exception:
+        want_unzip = False
+    if want_unzip:
+        import zipfile as _zf
+        done = []
+        for fname in saved:
+            if not fname.lower().endswith(".zip"):
+                continue
+            zp = os.path.join(dest_dir, fname)
+            try:
+                with _zf.ZipFile(zp) as z:
+                    for m in z.infolist():
+                        # anti Zip-Slip
+                        rel = os.path.normpath(m.filename).lstrip("/")
+                        if rel.startswith("..") or os.path.isabs(m.filename):
+                            continue
+                        z.extract(m, dest_dir)
+                os.remove(zp)
+                done.append(fname)
+            except Exception as e:
+                return handler.send_json({"ok": False, "msg": f"Subido pero falló unzip de {fname}: {e}"}, code=500)
+        if done:
+            msg += f" · descomprimido(s): {', '.join(done)}"
+    return handler.send_json({"ok": True, "msg": msg})
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -3708,6 +3887,42 @@ class BisectPanelHandler(BaseHTTPRequestHandler):
         if u.path == "/api/connections":
             return self.send_json({"ok": True, "items": connection_history()})
 
+        if u.path == "/api/mods":
+            return self.send_json({"ok": True, "mods": list_mods()})
+
+        if u.path == "/api/backup-download":
+            qs = parse_qs(u.query)
+            name = os.path.basename(qs.get("name", [""])[0])
+            if not HAVE_BACKUP or not name or not bk.FNAME_RE.match(name):
+                self.send_response(404)
+                self.end_headers()
+                return
+            target = os.path.join(S().backup_dir, name)
+            if not os.path.isfile(target):
+                self.send_response(404)
+                self.end_headers()
+                return
+            try:
+                with open(target, "rb") as f:
+                    body = f.read()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Content-Disposition",
+                                 f'attachment; filename="{name}"')
+                self.end_headers()
+                try:
+                    self.wfile.write(body)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+            except Exception:
+                self.send_response(500)
+                self.end_headers()
+            return
+
+        if u.path == "/api/backup-cfg":
+            return self.send_json({"ok": True, "config": backup_cfg_get(S())})
+
         if u.path == "/api/uiconfig":
             return self.send_json({"ok": True, "quick_commands":
                 CFG.get("quick_commands") or ["say ¡Hola!", "list", "save-all"]})
@@ -3717,8 +3932,16 @@ class BisectPanelHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         u = urlparse(self.path)
+        if u.path == "/api/upload":
+            # binario: no pre-leer el cuerpo como texto
+            if u.path not in PUBLIC_PATHS and self._need_auth():
+                return
+            if not self._select_server(u):
+                return self.send_json({"error": "servidor desconocido"}, code=404)
+            qs = parse_qs(u.query)
+            return handle_upload(self, qs.get("path", [""])[0])
         length = int(self.headers.get("Content-Length", 0))
-        raw = self.rfile.read(length).decode("utf-8") if length else "{}"
+        raw = self.rfile.read(length).decode("utf-8", errors="replace") if length else "{}"
         try:
             payload = json.loads(raw)
         except Exception:
@@ -3758,10 +3981,6 @@ class BisectPanelHandler(BaseHTTPRequestHandler):
             CFG["panel_password_hash"] = hash_password(new)
             save_panel_setting("panel_password_hash", CFG["panel_password_hash"])
             return self.send_json({"ok": True, "msg": "Contraseña actualizada"})
-
-        if u.path == "/api/upload":
-            qs = parse_qs(u.query)
-            return handle_upload(self, qs.get("path", [""])[0])
 
         if u.path == "/api/start":
             ok, msg = start_server_action()
@@ -3870,6 +4089,37 @@ class BisectPanelHandler(BaseHTTPRequestHandler):
         if u.path == "/api/whitelist":
             on = bool(payload.get("on", False))
             ok, msg = send_command_action(f"whitelist {'on' if on else 'off'}")
+            return self.send_json({"ok": ok, "msg": msg})
+
+        if u.path == "/api/mod":
+            action, name = payload.get("action", ""), payload.get("name", "")
+            mods = os.path.join(S().server_dir, "mods")
+            base = os.path.basename(name)
+            if not base or "/" in name or "\\" in name or ".." in name:
+                return self.send_json({"ok": False, "msg": "Nombre inválido"}, code=400)
+            on_f = os.path.join(mods, base if base.endswith(".jar") else base + ".jar")
+            off_f = on_f + ".disabled"
+            try:
+                if action == "toggle":
+                    if os.path.isfile(on_f):
+                        os.rename(on_f, off_f)
+                        return self.send_json({"ok": True, "msg": f"{base} desactivado (requiere reinicio)"})
+                    elif os.path.isfile(off_f):
+                        os.rename(off_f, on_f)
+                        return self.send_json({"ok": True, "msg": f"{base} activado (requiere reinicio)"})
+                    return self.send_json({"ok": False, "msg": "No existe"}, code=404)
+                if action == "delete":
+                    target = on_f if os.path.isfile(on_f) else off_f
+                    if not os.path.isfile(target):
+                        return self.send_json({"ok": False, "msg": "No existe"}, code=404)
+                    os.remove(target)
+                    return self.send_json({"ok": True, "msg": f"{base} eliminado"})
+                return self.send_json({"ok": False, "msg": "Acción inválida"}, code=400)
+            except Exception as e:
+                return self.send_json({"ok": False, "msg": str(e)}, code=500)
+
+        if u.path == "/api/backup-cfg":
+            ok, msg = backup_cfg_set(S(), payload)
             return self.send_json({"ok": ok, "msg": msg})
 
         if u.path == "/api/file":
