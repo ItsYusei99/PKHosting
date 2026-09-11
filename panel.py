@@ -605,7 +605,8 @@ def _bk_progress(pct, stage):
                             updated=time.time())
 
 
-def _bk_log(m):
+def _bk_log(m, *args, **kwargs):
+    # Acepta flush=True porque backup.py llama log(msg, flush=True) como print
     with backup_lock:
         backup_state.update(msg=m, updated=time.time())
 
