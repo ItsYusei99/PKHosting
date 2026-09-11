@@ -426,6 +426,62 @@ def query_mc_players():
             pass
 
 
+LOG_TS_RE = re.compile(r"\[(\d{2})([A-Za-z]{3})(\d{4}) (\d{2}):(\d{2}):(\d{2})")
+_LOG_MONTHS = {"Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
+               "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12}
+_sessions_cache = {"ts": 0, "names": [], "data": {}}
+
+
+def _parse_log_ts(line):
+    m = LOG_TS_RE.search(line)
+    if not m:
+        return None
+    try:
+        dd, mon, yyyy, hh, mm, ss = m.groups()
+        return datetime.datetime(int(yyyy), _LOG_MONTHS[mon], int(dd),
+                                 int(hh), int(mm), int(ss)).timestamp()
+    except Exception:
+        return None
+
+
+def player_sessions(online_names):
+    """Segundos conectados por jugador (último join posterior al último leave).
+    Se cruza la lista del ping con latest.log; caché de 10 s."""
+    now = time.time()
+    online_names = list(online_names or [])
+    if (now - _sessions_cache["ts"] < 10
+            and set(_sessions_cache["names"]) == set(online_names)):
+        return _sessions_cache["data"]
+    result = {}
+    if online_names:
+        try:
+            joins, leaves = {}, {}
+            with open(LOG_FILE, encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    if "MinecraftServer" not in line:
+                        continue
+                    if "joined the game" in line:
+                        ts = _parse_log_ts(line)
+                        if ts:
+                            for n in online_names:
+                                if n in line:
+                                    joins[n] = ts
+                    elif "left the game" in line:
+                        ts = _parse_log_ts(line)
+                        if ts:
+                            for n in online_names:
+                                if n in line:
+                                    leaves[n] = ts
+            for n in online_names:
+                j = joins.get(n)
+                if j and j > (leaves.get(n) or 0):
+                    result[n] = max(0, int(now - j))
+        except Exception:
+            pass
+    _sessions_cache.update(ts=now, names=online_names, data=result)
+    return result
+
+
 PLAYER_NAME_RE = re.compile(r"^[A-Za-z0-9_]{3,16}$")
 
 
@@ -618,6 +674,7 @@ def get_server_stats_data():
         "online_players": online,
         "max_players": max_p,
         "player_names": names,
+        "sessions": player_sessions(names) if names else {},
         "system_load": ", ".join(load),
         "port": MC_PORT,
         "public_ip": get_public_ip(),
@@ -1976,6 +2033,14 @@ async function playerAction(act, name) {
   }
 }
 
+function fmtSess(sec) {
+  if (sec == null) return '';
+  if (sec < 60) return 'menos de 1 min';
+  const m = Math.floor(sec / 60), h = Math.floor(m / 60);
+  if (h > 0) return h + 'h ' + String(m % 60).padStart(2, '0') + 'm';
+  return m + ' min';
+}
+
 function clearTerminal() {
   document.getElementById('termBody').innerHTML = '';
 }
@@ -2069,10 +2134,12 @@ async function refreshStats() {
     const hasPlayers = d.online_players > 0 && d.player_names && d.player_names.length;
     if (mgmt) mgmt.style.display = hasPlayers ? 'block' : 'none';
     if (rows && hasPlayers) {
+      const sess = d.sessions || {};
       rows.innerHTML = d.player_names.map(n => {
         const safe = n.replace(/'/g, "").replace(/"/g, '&quot;');
+        const t = sess[n] != null ? `<br><span style="font-size:11px;color:var(--text-dim)">conectado ${fmtSess(sess[n])}</span>` : '';
         return `<div class="file-row">
-          <span class="file-name">${safe}</span>
+          <span class="file-name">${safe}${t}</span>
           <span class="file-actions">
             <button class="cmd-btn" title="Dar OP" onclick="playerAction('op', '${safe}')">OP</button>
             <button class="term-tool-btn" title="Quitar OP" onclick="playerAction('deop', '${safe}')">DeOP</button>
