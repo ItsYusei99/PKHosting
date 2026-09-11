@@ -674,6 +674,9 @@ def sample_tps(force=False):
         data["tps"] = round(min(20.0, 1000.0 / data["mspt"])
                             if data["mspt"] > 0 else 20.0, 1)
         data["ok"] = True
+        if data["tps"] < 15 and now - getattr(s, "last_tps_alert", 0) > 1800:
+            s.last_tps_alert = now
+            discord_notify("tps", f"⚠️ TPS bajo en **{s.name}**: {data['tps']} ({data['mspt']:.1f} mspt)")
     with s.tps_lock:
         s.tps_cache.update(ts=now, data=data)
     return data
@@ -764,6 +767,15 @@ def metrics_worker():
                         "mem": mem,
                         "status": status
                     })
+                    prev = getattr(srv, "last_status", None)
+                    if prev is None:
+                        srv.last_status = status
+                    elif prev != status:
+                        srv.last_status = status
+                        if status == "RUNNING":
+                            discord_notify("up", f"🟢 **{srv.name}** en línea")
+                        elif prev == "RUNNING":
+                            discord_notify("down", f"🔴 **{srv.name}** se detuvo")
                 finally:
                     _ctx.srv = None
         except Exception:
@@ -1004,6 +1016,8 @@ def _backup_worker(srv, mode, name=None):
                 log=_log, progress=_prog)
         else:
             ok, msg = False, "trabajo desconocido"
+        if not ok and mode == "run":
+            discord_notify("backup", f"❌ Backup fallido en **{srv.name}**: {msg[:200]}")
         with srv.backup_lock:
             srv.backup_state.update(running=False, msg=("OK " if ok else "FAIL ") + msg,
                                 pct=100 if ok else srv.backup_state.get("pct", 0),
@@ -1054,6 +1068,133 @@ def backups_status():
 
 
 MAX_FILE_READ = 2 * 1024 * 1024  # 2 MB
+
+
+# ── Discord (stdlib, webhook) ────────────────────────────────────
+def discord_config():
+    return {"webhook": CFG.get("discord_webhook", ""),
+            "events": CFG.get("discord_events", {})}
+
+
+def discord_send(text):
+    url = (CFG.get("discord_webhook", "") or "").strip()
+    if not url:
+        return False, "sin webhook configurado"
+    try:
+        import urllib.request as _url
+        req = _url.Request(url, data=json.dumps({"content": text[:1800]}).encode(),
+                           headers={"Content-Type": "application/json"})
+        with _url.urlopen(req, timeout=8):
+            pass
+        return True, "enviado"
+    except Exception as e:
+        return False, str(e)
+
+
+def discord_notify(event, text):
+    try:
+        ev = CFG.get("discord_events", {})
+        if not ev.get(event, False):
+            return
+        threading.Thread(target=discord_send, args=(text,), daemon=True).start()
+    except Exception:
+        pass
+
+
+# ── Scheduler (tareas programadas por servidor) ──────────────────
+# kinds: command | message | save | restart. El restart existe como tipo
+# pero NO se crea ninguna tarea por defecto: es 100% opt-in desde la UI.
+def _sched_file(srv):
+    return os.path.join(srv.data_dir, "schedules.json")
+
+
+def _load_schedules(srv):
+    try:
+        with open(_sched_file(srv)) as f:
+            items = json.load(f)
+            return items if isinstance(items, list) else []
+    except Exception:
+        return []
+
+
+def _save_schedules(srv, items):
+    os.makedirs(srv.data_dir, exist_ok=True)
+    tmp = _sched_file(srv) + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(items, f, indent=2)
+    os.replace(tmp, _sched_file(srv))
+
+
+def _task_due(t, now):
+    if not t.get("enabled", True):
+        return False
+    last = float(t.get("last_run") or 0)
+    if t.get("mode") == "interval":
+        every = max(5, int(t.get("every_min") or 60))
+        return now - last >= every * 60
+    at = str(t.get("at", "04:00"))
+    try:
+        hh, mm = map(int, at.split(":"))
+        day = datetime.datetime.now().replace(hour=0, minute=0, second=0,
+                                              microsecond=0).timestamp()
+        target = day + hh * 3600 + mm * 60
+        return now >= target and last < target
+    except Exception:
+        return False
+
+
+def _exec_task(srv, t):
+    _ctx.srv = srv
+    kind, payload = t.get("kind"), (t.get("payload") or "").strip()
+    if kind == "restart":
+        warn = int(t.get("warn_min") or 0)
+        if warn > 0 and find_running_mc_pid() is not None:
+            send_command_action(f"say Reinicio del servidor en {warn} min")
+            time.sleep(warn * 60)
+        restart_server_action()
+    elif kind == "save":
+        send_command_action("save-all")
+    elif kind == "message":
+        if payload:
+            send_command_action(f"say {payload}")
+    else:  # command
+        if payload:
+            send_command_action(payload)
+
+
+def scheduler_worker():
+    while True:
+        try:
+            for srv in SERVERS.values():
+                try:
+                    tasks = _load_schedules(srv)
+                except Exception:
+                    continue
+                if not tasks:
+                    continue
+                now = time.time()
+                dirty = False
+                for t in tasks:
+                    try:
+                        if _task_due(t, now):
+                            t["last_run"] = now
+                            dirty = True
+                            threading.Thread(target=_exec_task,
+                                             args=(srv, dict(t)),
+                                             daemon=True).start()
+                    except Exception:
+                        pass
+                if dirty:
+                    try:
+                        _save_schedules(srv, tasks)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        time.sleep(20)
+
+
+threading.Thread(target=scheduler_worker, daemon=True).start()
 
 _dirsize_cache = {}
 _dirsize_ttl = 30
@@ -1931,6 +2072,9 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
     <a class="nav-item" onclick="switchTab('backups')">
       <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><rect x="1" y="3" width="22" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><line x1="10" y1="12" x2="14" y2="12"/></svg></span> Backups
     </a>
+    <a class="nav-item" onclick="switchTab('tasks')">
+      <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span> Tareas
+    </a>
     </a>
     <a class="nav-item" onclick="switchTab('settings')">
       <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span> Configuración
@@ -2156,6 +2300,36 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
       <div style="font-size:11.5px; color:var(--text-dim); margin-top:8px">Se conservan los últimos 7 días; el último de cada mes se guarda para siempre (etiqueta MENSUAL).</div>
     </div>
 
+    <!-- TAB: TAREAS PROGRAMADAS -->
+    <div id="tab-tasks" class="tab-content">
+      <div class="system-details-card" style="margin-bottom:12px">
+        <h3 style="margin-bottom:8px">Nueva tarea</h3>
+        <div style="display:flex; gap:8px; flex-wrap:wrap">
+          <input id="skName" placeholder="Nombre" style="flex:2; min-width:140px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:#fff; font-size:12.5px">
+          <select id="skKind" style="flex:1; min-width:120px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 10px; color:#e2e8f0; font-size:12.5px">
+            <option value="command">Comando</option>
+            <option value="message">Anuncio (say)</option>
+            <option value="save">Guardar mundo</option>
+            <option value="restart">Reiniciar (opt-in)</option>
+          </select>
+          <select id="skMode" onchange="document.getElementById('skWhen').placeholder = this.value === 'interval' ? 'Cada N minutos' : 'Hora HH:MM'" style="flex:1; min-width:120px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 10px; color:#e2e8f0; font-size:12.5px">
+            <option value="daily">Diaria</option>
+            <option value="interval">Intervalo</option>
+          </select>
+          <input id="skWhen" placeholder="Hora HH:MM" style="flex:1; min-width:110px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:#fff; font-family:'JetBrains Mono',monospace; font-size:12.5px">
+          <button class="cmd-btn" onclick="skCreate()">Crear</button>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px">
+          <input id="skPayload" placeholder="Comando o mensaje (vacío para save/restart)" style="flex:3; min-width:200px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:#fff; font-family:'JetBrains Mono',monospace; font-size:12.5px">
+          <input id="skWarn" type="number" min="0" max="30" value="0" title="Aviso previo en minutos (solo restart)" style="flex:1; min-width:110px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:#fff; font-size:12.5px">
+        </div>
+        <div style="font-size:11.5px; color:var(--text-dim); margin-top:6px">El reinicio automático viene desactivado: solo se ejecuta si creas y activas una tarea de ese tipo.</div>
+      </div>
+      <div class="file-list" id="skList">
+        <div class="file-row"><span>Cargando tareas...</span></div>
+      </div>
+    </div>
+
     <!-- TAB 4: CONFIGURACION -->
     <div id="tab-settings" class="tab-content">
       <div class="system-details-card" style="margin-bottom:12px">
@@ -2181,6 +2355,15 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
           <input type="password" id="pwNew" placeholder="Nueva (mín. 8)" style="flex:1; min-width:140px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; color:#fff">
           <button class="cmd-btn" onclick="changePw()">Cambiar</button>
         </div>
+      </div>
+      <div class="system-details-card" style="margin-top:12px">
+        <h3 style="margin-bottom:8px">Notificaciones Discord</h3>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px">
+          <input id="dcHook" placeholder="Webhook URL de Discord" style="flex:1; min-width:220px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; color:#e2e8f0; font-size:12.5px">
+          <button class="cmd-btn" onclick="saveDiscord()">Guardar</button>
+          <button class="term-tool-btn" onclick="testDiscord()">Probar</button>
+        </div>
+        <div id="dcEvents" style="display:flex; gap:12px; flex-wrap:wrap; font-size:12.5px; color:var(--text-muted)"></div>
       </div>
     </div>
 
@@ -2257,7 +2440,7 @@ function switchTab(name) {
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
   
-  const targetNav = Array.from(document.querySelectorAll('.nav-item')).find(el => el.textContent.toLowerCase().includes(name === 'console' ? 'consola' : name === 'metrics' ? 'métrica' : name === 'files' ? 'archivo' : name === 'backups' ? 'backup' : 'config'));
+  const targetNav = Array.from(document.querySelectorAll('.nav-item')).find(el => el.textContent.toLowerCase().includes(name === 'console' ? 'consola' : name === 'metrics' ? 'métrica' : name === 'files' ? 'archivo' : name === 'backups' ? 'backup' : name === 'tasks' ? 'tarea' : 'config'));
   if (targetNav) targetNav.classList.add('active');
 
   const tab = document.getElementById('tab-' + name);
@@ -2265,8 +2448,8 @@ function switchTab(name) {
 
   if (name === 'metrics') renderCharts();
   if (name === 'files') loadFiles();
-  if (name === 'backups') loadBackups();
-  if (name === 'settings') { loadProps(); refreshPublicIp(); }
+  if (name === 'tasks') loadSchedules();
+  if (name === 'settings') { loadProps(); refreshPublicIp(); loadDiscord(); }
 }
 
 async function serverAction(act) {
@@ -2817,6 +3000,81 @@ async function changePw() {
   } catch (e) { showToast('Error'); }
 }
 
+const DC_LABELS = { up: 'Servidor en línea', down: 'Servidor detenido', tps: 'TPS bajo', backup: 'Backup fallido', join: 'Jugador entra', leave: 'Jugador sale' };
+async function loadDiscord() {
+  try {
+    const d = await (await fetch(U('/api/discord'))).json();
+    const c = (d && d.config) || {};
+    const inp = document.getElementById('dcHook');
+    if (inp && !inp.value) inp.value = c.webhook || '';
+    const box = document.getElementById('dcEvents');
+    const ev = c.events || {};
+    box.innerHTML = Object.keys(DC_LABELS).map(k =>
+      `<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-ev="${k}"${ev[k] ? ' checked' : ''}> ${DC_LABELS[k]}</label>`
+    ).join('');
+  } catch (e) {}
+}
+async function saveDiscord() {
+  const ev = {};
+  document.querySelectorAll('#dcEvents input[data-ev]').forEach(el => ev[el.dataset.ev] = el.checked);
+  try {
+    const r = await (await fetch(U('/api/discord'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ webhook: document.getElementById('dcHook').value.trim(), events: ev }) })).json();
+    showToast(r.msg || 'OK');
+  } catch (e) { showToast('Error'); }
+}
+async function testDiscord() {
+  try {
+    const r = await (await fetch(U('/api/discord-test'), { method: 'POST' })).json();
+    showToast(r.msg || 'OK');
+  } catch (e) { showToast('Error'); }
+}
+function skWhen() {
+  return document.getElementById('skMode').value === 'interval'
+    ? { every_min: parseInt(document.getElementById('skWhen').value) || 60 }
+    : { at: document.getElementById('skWhen').value.trim() || '04:00' };
+}
+async function loadSchedules() {
+  try {
+    const d = await (await fetch(U('/api/schedules'))).json();
+    const box = document.getElementById('skList');
+    const items = (d && d.tasks) || [];
+    if (!items.length) { box.innerHTML = '<div class="file-row"><span class="file-name">Sin tareas — el reinicio automático está desactivado hasta que crees una</span></div>'; return; }
+    box.innerHTML = items.map(t => {
+      const when = t.mode === 'interval' ? `cada ${t.every_min} min` : `diaria ${t.at}`;
+      return `<div class="file-row">
+        <span class="file-name">${t.name} <span class="chart-badge sub">${t.kind}</span><br><span style="font-size:11px;color:var(--text-dim)">${when} · ${t.enabled ? 'activa' : 'pausada'}</span></span>
+        <span class="file-actions">
+          <button class="term-tool-btn" title="Ejecutar ahora" onclick="skAct('run','${t.id}')">Ahora</button>
+          <button class="term-tool-btn" title="Activar/pausar" onclick="skAct('toggle','${t.id}')">${t.enabled ? 'Pausar' : 'Activar'}</button>
+          <button class="icon-btn danger" title="Eliminar" onclick="skAct('delete','${t.id}')">${BK_SVG_TRASH}</button>
+        </span>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    document.getElementById('skList').innerHTML = '<div class="file-row">Error al cargar tareas</div>';
+  }
+}
+async function skCreate() {
+  const body = { name: document.getElementById('skName').value.trim() || 'Tarea',
+    kind: document.getElementById('skKind').value, mode: document.getElementById('skMode').value,
+    payload: document.getElementById('skPayload').value.trim(),
+    warn_min: parseInt(document.getElementById('skWarn').value) || 0, ...skWhen() };
+  if (body.kind === 'restart' && !confirm('¿Crear tarea de REINICIO automático? (vendrá activada; puedes pausarla cuando quieras)')) return;
+  try {
+    const r = await (await fetch(U('/api/schedule'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'create', ...body }) })).json();
+    showToast(r.msg || 'OK');
+  } catch (e) { showToast('Error'); }
+  loadSchedules();
+}
+async function skAct(action, id) {
+  if (action === 'delete' && !confirm('¿Eliminar tarea?')) return;
+  try {
+    const r = await (await fetch(U('/api/schedule'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, id }) })).json();
+    showToast(r.msg || 'OK');
+  } catch (e) { showToast('Error'); }
+  loadSchedules();
+}
+
 async function loadProps() {
   try {
     const res = await fetch(U('/api/file?path=server.properties'));
@@ -3148,6 +3406,13 @@ class BisectPanelHandler(BaseHTTPRequestHandler):
         if u.path == "/api/tunnels":
             return self.send_json({"public_ip": get_public_ip(), "playit": get_playit_status()})
 
+        if u.path == "/api/schedules":
+            return self.send_json({"ok": True, "tasks": _load_schedules(S()),
+                "kinds": ["command", "message", "save", "restart"]})
+
+        if u.path == "/api/discord":
+            return self.send_json({"ok": True, "config": discord_config()})
+
         self.send_response(404)
         self.end_headers()
 
@@ -3240,6 +3505,61 @@ class BisectPanelHandler(BaseHTTPRequestHandler):
             return self.send_json({"ok": True,
                 "msg": "Muestreando TPS..." if started
                        else "Ya hay un muestreo en curso"})
+
+        if u.path == "/api/schedules":
+            srv = S()
+            tasks = _load_schedules(srv)
+            return self.send_json({"ok": True, "tasks": tasks,
+                "kinds": ["command", "message", "save", "restart"]})
+
+        if u.path == "/api/schedule":
+            srv = S()
+            action = payload.get("action", "")
+            tasks = _load_schedules(srv)
+            if action == "create":
+                kind = payload.get("kind", "command")
+                if kind not in ("command", "message", "save", "restart"):
+                    return self.send_json({"ok": False, "msg": "Tipo inválido"})
+                t = {"id": secrets.token_hex(6),
+                     "name": (payload.get("name") or kind)[:60],
+                     "kind": kind, "payload": (payload.get("payload") or "")[:300],
+                     "mode": "daily" if payload.get("mode") != "interval" else "interval",
+                     "at": payload.get("at") or "04:00",
+                     "every_min": max(5, int(payload.get("every_min") or 60)),
+                     "warn_min": max(0, min(30, int(payload.get("warn_min") or 0))),
+                     "enabled": True, "last_run": 0}
+                tasks.append(t)
+                _save_schedules(srv, tasks)
+                return self.send_json({"ok": True, "msg": "Tarea creada"})
+            tid = payload.get("id", "")
+            t = next((x for x in tasks if x.get("id") == tid), None)
+            if not t:
+                return self.send_json({"ok": False, "msg": "No existe"})
+            if action == "toggle":
+                t["enabled"] = not t.get("enabled", True)
+            elif action == "delete":
+                tasks = [x for x in tasks if x.get("id") != tid]
+            elif action == "run":
+                threading.Thread(target=_exec_task, args=(srv, dict(t)),
+                                 daemon=True).start()
+                return self.send_json({"ok": True, "msg": "Ejecutando ahora"})
+            else:
+                return self.send_json({"ok": False, "msg": "Acción inválida"})
+            _save_schedules(srv, tasks)
+            return self.send_json({"ok": True, "msg": "OK"})
+
+        if u.path == "/api/discord":
+            CFG["discord_webhook"] = (payload.get("webhook") or "").strip()[:300]
+            ev = payload.get("events") or {}
+            CFG["discord_events"] = {k: bool(ev.get(k)) for k in
+                                     ("up", "down", "tps", "backup", "join", "leave")}
+            save_panel_setting("discord_webhook", CFG["discord_webhook"])
+            save_panel_setting("discord_events", CFG["discord_events"])
+            return self.send_json({"ok": True, "msg": "Discord guardado"})
+
+        if u.path == "/api/discord-test":
+            ok, msg = discord_send("✅ PKHosting: prueba de webhook OK")
+            return self.send_json({"ok": ok, "msg": msg})
 
         if u.path == "/api/file":
             fname = payload.get("path", "")
