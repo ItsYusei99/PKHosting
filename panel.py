@@ -401,12 +401,14 @@ def query_mc_players():
                 if not (b & 0x80):
                     return n, size
                 sh += 7
-        plen, _ = rvi()       # largo total (incluye el packet ID)
-        _, pid_len = rvi()    # packet ID (status = 0, 1 byte)
-        need = plen - pid_len  # lo que falta es solo el JSON
+        plen, _ = rvi()       # largo total del paquete
+        pid, _ = rvi()        # packet ID (status = 0)
+        if pid != 0:
+            raise ConnectionError(f"packet id inesperado: {pid}")
+        slen, _ = rvi()       # el JSON viene como String: VarInt largo + bytes
         data = b""
-        while len(data) < need:
-            chunk = s.recv(min(4096, need - len(data)))
+        while len(data) < slen:
+            chunk = s.recv(min(4096, slen - len(data)))
             if not chunk:
                 raise ConnectionError("respuesta truncada")
             data += chunk
@@ -1715,7 +1717,7 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
           <button class="cmd-btn" onclick="submitCmd()">Enviar</button>
         </div>
       </div>
-      <div class="system-details-card" style="margin-top:12px">
+      <div class="system-details-card" id="playerMgmt" style="margin-top:12px; display:none">
         <h3 style="margin-bottom:4px; font-size:15px;">Gestión de jugadores</h3>
         <div id="onlineChips" style="display:flex; gap:8px; flex-wrap:wrap; margin:8px 0; font-size:12px; color:var(--text-muted)">Sin jugadores en línea</div>
         <div style="display:flex; gap:8px; flex-wrap:wrap">
@@ -2076,9 +2078,12 @@ async function refreshStats() {
 
     document.getElementById('cardPlayers').textContent = `${d.online_players} / ${d.max_players}`;
     document.getElementById('cardPlayersSub').textContent = d.player_names && d.player_names.length ? d.player_names.join(', ') : `Mundo: ${d.world_gb} GB`;
+    const mgmt = document.getElementById('playerMgmt');
     const chips = document.getElementById('onlineChips');
+    const hasPlayers = d.online_players > 0 && d.player_names && d.player_names.length;
+    if (mgmt) mgmt.style.display = hasPlayers ? 'block' : 'none';
     if (chips) {
-      if (d.player_names && d.player_names.length) {
+      if (hasPlayers) {
         chips.innerHTML = d.player_names.map(n =>
           `<button class="term-tool-btn" title="Usar este jugador" onclick="document.getElementById('playerName').value='${n.replace(/'/g, "")}'">${n}</button>`
         ).join('');
