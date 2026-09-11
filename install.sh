@@ -122,6 +122,70 @@ EOF
 fi
 python3 -c "import json; json.load(open('$CFG_FILE'))" || die "config.json inválido"
 
+# ── 3b. Contraseña del panel ─────────────────────────────────────
+export PK_APP_DIR="$APP_DIR" PK_CFG="$CFG_FILE"
+if [ -n "${PK_PANEL_PASSWORD:-}" ]; then
+  PANEL_PW="$PK_PANEL_PASSWORD"
+elif [ "$NON_INT" = 1 ]; then
+  PANEL_PW="$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16)"
+else
+  read -r -s -p "Contraseña del panel [vacío = generar una segura]: " PANEL_PW || true
+  echo
+  if [ -z "$PANEL_PW" ]; then
+    PANEL_PW="$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16)"
+    PANEL_GEN=1
+  else
+    read -r -s -p "Repite la contraseña: " PANEL_PW2 || true
+    echo
+    [ "$PANEL_PW" = "$PANEL_PW2" ] || die "no coinciden"
+  fi
+fi
+[ ${#PANEL_PW} -ge 8 ] || die "la contraseña del panel necesita mínimo 8 caracteres"
+HAS_HASH="$(python3 -c "import json; print('y' if json.load(open('$CFG_FILE')).get('panel_password_hash') else 'n')")"
+if [ "$HAS_HASH" = n ] || [ "$FORCE" = 1 ]; then
+  PK_APP_DIR="$APP_DIR" python3 - "$CFG_FILE" "$PANEL_PW" <<'EOF'
+import os, sys
+sys.path.insert(0, os.environ["PK_APP_DIR"])
+import panel
+panel.CONFIG_FILE = sys.argv[1]
+panel.CONFIG_DIR = os.path.dirname(sys.argv[1])
+panel.save_panel_setting("panel_password_hash", panel.hash_password(sys.argv[2]))
+print("hash guardado")
+EOF
+  say "contraseña del panel configurada"
+else
+  say "conservo contraseña del panel existente"
+  PANEL_PW=""
+  PANEL_GEN=""
+fi
+
+# ── 3c. HTTPS autofirmado (opcional, acceso remoto) ──────────────
+SSL_ANS="${PK_SSL:-}"
+if [ -z "$SSL_ANS" ] && [ "$NON_INT" = 0 ]; then
+  read -r -p "¿Generar certificado HTTPS autofirmado (acceso remoto cifrado)? [s/N]: " SSL_ANS || true
+fi
+if [[ "$SSL_ANS" =~ ^[sSyY]$ ]]; then
+  command -v openssl >/dev/null || die "falta openssl"
+  mkdir -p "$CFG_DIR/ssl"
+  openssl req -x509 -newkey rsa:2048 -nodes -days 825 \
+    -keyout "$CFG_DIR/ssl/key.pem" -out "$CFG_DIR/ssl/cert.pem" \
+    -subj "/CN=pkhosting" 2>/dev/null
+  chmod 600 "$CFG_DIR/ssl/key.pem"
+  PK_APP_DIR="$APP_DIR" python3 - "$CFG_FILE" "$CFG_DIR" <<'EOF'
+import os, sys
+sys.path.insert(0, os.environ["PK_APP_DIR"])
+import panel
+panel.CONFIG_FILE = sys.argv[1]
+panel.CONFIG_DIR = os.path.dirname(sys.argv[1])
+panel.save_panel_setting("ssl_cert", os.path.join(sys.argv[2], "ssl", "cert.pem"))
+panel.save_panel_setting("ssl_key", os.path.join(sys.argv[2], "ssl", "key.pem"))
+print("ssl guardado")
+EOF
+  say "HTTPS activado (certificado autofirmado; el navegador pedirá excepción)"
+else
+  say "HTTP local (usa túnel SSH para acceso remoto cifrado)"
+fi
+
 # ── 4. Password RCON ─────────────────────────────────────────────
 RCON_FILE="$CFG_DIR/rcon-password"
 if [ ! -f "$RCON_FILE" ]; then
@@ -197,4 +261,8 @@ cat <<EOF
   Siguiente:  enciende el server con el botón INICIAR o escribe 'start'
                en la consola. Si activaste RCON ahora, reinicia el MC.
   Opcional:   expónlo con playit.gg y pega la IP en Configuración.
+  Multi-server: añade un bloque en "servers" de config.json (ver README).
 EOF
+if [ -n "${PANEL_GEN:-}" ] || [ -n "${PK_PANEL_PASSWORD:-}" ] && [ "$NON_INT" = 1 ]; then
+  echo "  ⚠️  Contraseña del panel: $PANEL_PW  (guárdala, solo se muestra una vez)"
+fi

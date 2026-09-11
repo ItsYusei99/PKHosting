@@ -8,6 +8,7 @@
   "mc_port": 25565,
   "rcon_port": 25575,
   "max_mem_gb": 4.0,
+  "bind": "127.0.0.1",
   "backup_enabled": false,
   "backup_dir": "~/mc-backups",
   "backup_time": "04:00",

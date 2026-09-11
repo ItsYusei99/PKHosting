@@ -1,28 +1,37 @@
-# PKHosting — Panel web para tu servidor Minecraft Java
+# PKHosting — Panel web para tus servidores Minecraft Java
 
 Panel ligero (**solo Python estándar, sin dependencias**) estilo BisectHosting con
-tema Liquid Glass negro + morado. Enciende, apaga, manda comandos y revisa
-métricas y archivos de tu servidor desde el navegador.
-
-Funciona con **Vanilla, Forge, Fabric y NeoForge** (cualquier servidor Java que
-se arranque con un script y guarde logs en `logs/`).
+tema Liquid Glass negro + morado. Administra **uno o varios servidores**
+(Vanilla, Forge, Fabric, NeoForge) desde el navegador: consola, jugadores,
+TPS, archivos, mods, backups, tareas programadas y avisos a Discord.
 
 ## Funciones
 
-- Consola en vivo con envío de comandos (stdin → **RCON** → `/proc/<pid>/fd/0`).
-- Alias de nivel panel en la consola: `start`, `stop`, `restart`, `reload`, `kill`.
-- Métricas CPU/RAM que cambian de color según uso, gráficas con pico/promedio.
-- Gestor de archivos: crear, **subir** (multipart, 300 MB), descargar, renombrar,
-  eliminar y **editar** archivos de texto (`.json`, `.properties`, `.toml`…).
-- IP pública (playit.gg) configurable desde el panel.
-- Detección del proceso Java por carpeta (sobrevive a reinicios del panel).
+- **Multi-servidor:** selector en la barra lateral, un solo puerto.
+- **Acceso con contraseña** (hash PBKDF2 + sesiones) y **HTTPS** opcional.
+- Consola en vivo: autocompletado, filtros INFO/WARN/ERROR, búsqueda,
+  botones rápidos configurables e historial con ↑/↓.
+- Alias de nivel panel: `start`, `stop`, `restart`, `reload`, `kill`.
+- Jugadores: conteo real por ping, tiempo conectado, OP/DeOP/Kick/Ban por fila,
+  moderación (OPs, baneados, whitelist on/off) e historial de conexiones.
+- **TPS/MSPT** en vivo (vía `tick query`) con colores por estado.
+- Métricas CPU/RAM con colores por uso, gráficas en vivo + **historial 24 h**,
+  disco usado y red del host.
+- Gestor de archivos CRUD + **subir con descompresión .zip**, editor ≤ 2 MB,
+  **gestor de mods** (activar/desactivar/eliminar, requiere reinicio).
+- **Backups** con retención (7 días + mensual eterno), pre-backup al restaurar,
+  descarga, barra de progreso y config editable desde la UI.
+- **Tareas programadas** (comandos, anuncios, guardado, reinicio opt-in).
+- **Discord:** avisos de encendido/apagado, TPS bajo, backup fallido, joins/leaves.
+- IP pública (playit.gg) configurable desde el panel. PWA instalable.
 
 ## Requisitos
 
 - Linux con **systemd** (sesión de usuario).
 - **Python 3.8+** (`python3 --version`).
 - **Java** acorde a tu versión de Minecraft (`java -version`).
-- Un servidor Minecraft funcional con un script de arranque (ej. `start.sh`).
+- Un servidor Minecraft funcional con script de arranque (ej. `start.sh`).
+- Opcional: `openssl` (HTTPS autofirmado).
 
 ## Instalación rápida
 
@@ -32,45 +41,37 @@ cd ~/PKHosting
 ./install.sh
 ```
 
-El instalador te pregunta: nombre del servidor, carpeta del servidor, comando de
-arranque, puertos (panel/Minecraft/RCON), RAM máxima (solo visual) y genera
-todo lo demás:
+El instalador pregunta lo esencial y genera el resto:
 
-- `~/.config/pkhosting/config.json` — configuración del panel.
-- `~/.config/pkhosting/rcon-password` — password RCON (permisos 600).
+- `~/.config/pkhosting/config.json` — configuración.
+- Contraseña del panel (la muestra **una sola vez**, se guarda en hash).
+- `~/.config/pkhosting/rcon-password` — password RCON (600).
 - Activa RCON en tu `server.properties` (con backup `.bak`).
-- Crea y enciende el servicio `pkhosting.service` (usuario, con `KillMode=process`
-  para no matar al Minecraft al reiniciar el panel).
+- HTTPS autofirmado opcional.
+- Crea y enciende `pkhosting.service` (`KillMode=process`: el MC sobrevive
+  a reinicios del panel) y el timer de backups si los activas.
 
-Al terminar abre **http://127.0.0.1:8000** (o el puerto que elegiste).
+Abre **http://127.0.0.1:8000** (o tu puerto) e inicia sesión.
 
-Instalación no interactiva (valores por defecto o variables `PK_*`):
+No interactivo (variables `PK_*`):
 
 ```bash
 ./install.sh --non-interactive
-PK_SERVER_DIR=~/mi-server PK_MC_PORT=25565 ./install.sh --non-interactive --force
+PK_SERVER_DIR=~/mi-server PK_MC_PORT=25565 PK_PANEL_PASSWORD="cambia-esto" ./install.sh --non-interactive --force
 ```
 
-## Cómo configurar tu servidor
-
-### 1. Estructura esperada
+## Estructura esperada del servidor
 
 ```
 ~/minecraft-server/
-├── start.sh              # tu script de arranque (ej: java -Xmx4G -jar server.jar nogui)
+├── start.sh              # ej: java -Xmx4G -jar server.jar nogui
 ├── server.properties
-├── logs/
-│   └── latest.log
-└── world/                # nombre configurable (world_name)
+├── logs/latest.log
+├── mods/                 # opcional
+└── world/                # world_name configurable
 ```
 
-El panel lanza `start_cmd` con esa carpeta como directorio de trabajo y lee
-`logs/latest.log` (+ `logs/panel-child.log` para lo que él mismo arranca).
-
-### 2. RCON (obligatorio para consola y apagado elegante)
-
-El instalador lo configura solo, pero manualmente son 3 líneas en
-`server.properties` (debe coincidir con `config.json`):
+## RCON (obligatorio para consola y apagado elegante)
 
 ```properties
 enable-rcon=true
@@ -78,9 +79,9 @@ rcon.password=TU_PASSWORD_DE_~/.config/pkhosting/rcon-password
 rcon.port=25575
 ```
 
-> ⚠️ Reinicia el servidor Minecraft después de tocar `server.properties`.
+> ⚠️ Reinicia el Minecraft después de tocar `server.properties`.
 
-### 3. `config.json`
+## `config.json`
 
 ```json
 {
@@ -92,46 +93,72 @@ rcon.port=25575
   "panel_port": 8000,
   "mc_port": 25565,
   "rcon_port": 25575,
-  "max_mem_gb": 4.0
+  "max_mem_gb": 4.0,
+  "bind": "127.0.0.1",
+  "backup_enabled": false,
+  "backup_dir": "~/mc-backups",
+  "backup_time": "04:00",
+  "retention_days": 7,
+  "keep_monthly": true
 }
 ```
 
 Tras editarlo: `systemctl --user restart pkhosting.service`.
-Hay un ejemplo comentado en `config.example.json`.
 
-### 4. Backups automáticos (opcional)
+### Varios servidores
 
-El instalador pregunta si los quieres, dónde y a qué hora. Guarda
-`pkhosting-AAAAMMDD-HHMMSS.tar.gz` (mundo + `server.properties` + jsons de
-bans/ops + `user_jvm_args.txt`) congelando el guardado (`save-off`/`save-all`
-y tolerando archivos temporales del mundo vivo).
+```json
+{
+  "panel_port": 8000,
+  "servers": [
+    {"id": "survival", "server_name": "Survival", "server_dir": "~/srv-survival",
+     "mc_port": 25565, "rcon_port": 25575, "max_mem_gb": 4.0, ...},
+    {"id": "creativo", "server_name": "Creativo", "server_dir": "~/srv-creativo",
+     "mc_port": 25566, "rcon_port": 25576, "max_mem_gb": 4.0, ...}
+  ]
+}
+```
 
-- **Retención:** borra lo de más de 7 días, excepto el **último de cada mes**,
-  que se guarda para siempre (12 al año). `retention_days` y `keep_monthly`
-  en `config.json`.
-- **Manual:** pestaña **Backups** → *Backup ahora*; cada fila permite
-  **Restaurar** (detiene el server, hace pre-backup de seguridad y rearranca)
-  o **Eliminar**. Los mensuales llevan etiqueta MENSUAL.
-- El timer es `pkhosting-backup.timer` (`systemctl --user status pkhosting-backup.timer`).
-  Sin systemd timer también sirve: `backup.py --run/--prune/--list`.
+Cada servidor necesita su `server.properties` con su RCON (guarda cada password
+en `~/.config/pkhosting/servers/<id>/rcon-password`). Sin bloque `servers`,
+funciona como antes con un solo servidor.
 
-### 5. Exponerlo a internet (opcional, playit.gg)
+## Backups
 
-1. Instala el agente de [playit.gg](https://playit.gg) y crea un túnel TCP
-   que apunte a `127.0.0.1:<tu-mc_port>`.
-2. En el panel ve a **Configuración → IP pública** y pega la dirección
-   (ej. `algo.playit.gg:12345`). El chip de la barra lateral la mostrará
-   con botón para copiar.
+`pkhosting-AAAAMMDD-HHMMSS.tar.gz` (mundo + `server.properties` + bans/ops +
+`user_jvm_args.txt`) congelando el guardado. Retención: borra lo de más de
+`retention_days`, excepto el **último de cada mes** (12 al año). Todo editable
+en la pestaña Backups. Timer: `pkhosting-backup.timer`. CLI:
+`backup.py --run/--prune/--list`.
+
+## Tareas programadas
+
+Pestaña **Tareas**: comandos, anuncios (`say`), guardado y **reinicio**.
+El reinicio automático viene **desactivado**: solo corre si creas y activas una
+tarea de ese tipo (puedes poner aviso previo en minutos).
+
+## Discord
+
+Configuración → pega el webhook, marca eventos (online/offline, TPS bajo,
+backup fallido, joins/leaves) y usa Probar.
+
+## Exponerlo a internet
+
+1. Túnel TCP con [playit.gg](https://playit.gg) a `127.0.0.1:<mc_port>`.
+2. Pega la IP en Configuración → IP pública.
+3. Para acceso remoto al panel: activa HTTPS en la instalación o usa
+   `ssh -L 8000:localhost:8000 tu-servidor`.
 
 ## Uso diario
 
 | Acción | Dónde |
 |---|---|
-| Encender / apagar / reiniciar | Botones INICIAR, REINICIAR, RELOAD, DETENER, FORZAR APAGADO |
-| Comandos MC + alias (`start`, `reload`…) | Consola (Enter para enviar, ↑/↓ historial) |
-| Ver CPU/RAM/jugadores | Tarjetas + pestaña Métricas |
-| Subir mods, editar configs | Pestaña Archivos (flechas del navegador funcionan) |
-| Cambiar IP pública | Pestaña Configuración |
+| Encender / apagar / reiniciar | Botones de energía o alias en consola |
+| Moderar jugadores | Consola → Gestión / Moderación |
+| Ver TPS, 24 h, disco, red | Métricas |
+| Mods y archivos | Archivos (descomprime .zip al subir) |
+| Backup manual / restaurar | Backups |
+| Cambiar contraseña | Configuración |
 
 ```bash
 systemctl --user status pkhosting.service
@@ -141,31 +168,32 @@ journalctl --user -u pkhosting.service -f
 
 ## Problemas comunes
 
-| Síntoma | Causa y solución |
+| Síntoma | Solución |
 |---|---|
-| `puerto ocupado` al iniciar | Otro proceso usa `mc_port`. Detén la otra instancia. |
-| Comandos sin respuesta | RCON no activo o password desincronizado: revisa `server.properties`, reinicia el MC y compara con `~/.config/pkhosting/rcon-password`. |
-| Panel OFFLINE tras reiniciarlo | Normal si el MC no corría; usa INICIAR o escribe `start`. El MC sobrevive a reinicios del panel. |
-| `RCON auth fallida` | El password de `server.properties` ≠ el del archivo `rcon-password`. Iguala y reinicia el MC. |
-| Página no carga | `systemctl --user status pkhosting.service` y revisa el puerto en `config.json`. |
-| La RAM supera el `-Xmx` (ej. 9 GB con Xmx 8 GB) | Normal: `-Xmx` limita solo el *heap*. El panel mide RSS total = heap + *metaspace* (clases de los mods) + stacks de hilos + buffers directos + JVM. Con ~200 mods, ~1 GB extra es lo esperado. Solo preocúpate si el sistema se queda sin RAM libre. |
+| `puerto ocupado` al iniciar | Otro proceso usa `mc_port`. |
+| Comandos sin respuesta | RCON mal configurado (ver sección RCON). |
+| `RCON auth fallida` | Password de `server.properties` ≠ archivo `rcon-password`. |
+| Olvidé la contraseña del panel | Regenera el hash con `install.sh` o edítalo vía script (ver código `hash_password`). |
+| La RAM supera el `-Xmx` | Normal: `-Xmx` limita solo el heap; el panel mide RSS total. |
+| Contador de jugadores en 0 | El ping necesita `enable-status=true` (va por defecto). |
 
 ## Desinstalación
 
 ```bash
-systemctl --user disable --now pkhosting.service
-rm ~/.config/systemd/user/pkhosting.service
+systemctl --user disable --now pkhosting.service pkhosting-backup.timer
+rm ~/.config/systemd/user/pkhosting*.service ~/.config/systemd/user/pkhosting-backup.timer
 rm -rf ~/PKHosting ~/.config/pkhosting
 ```
-
-(Tu carpeta del servidor Minecraft no se toca.)
 
 ## Estructura del repo
 
 ```
-panel.py              # todo el panel (backend + frontend)
-install.sh            # instalador interactivo / no interactivo
-pkhosting.service     # plantilla de unidad systemd --user
-config.example.json   # ejemplo de configuración
-README.md             # esta guía
+panel.py                   # panel completo (backend + frontend)
+backup.py                  # motor de backups (también CLI)
+install.sh                 # instalador interactivo / no interactivo
+pkhosting.service          # plantilla systemd --user
+pkhosting-backup.service   # unidad oneshot de backup
+pkhosting-backup.timer     # plantilla del timer diario
+config.example.json        # ejemplo de configuración
+README.md                  # esta guía
 ```
