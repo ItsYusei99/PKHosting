@@ -1,0 +1,10 @@
+[Unit]
+Description=PKHosting daily backup timer
+
+[Timer]
+# PK hora diaria (la escribe install.sh)
+OnCalendar=*-*-* @BACKUP_TIME@:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

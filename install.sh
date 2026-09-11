@@ -40,8 +40,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -f "$SCRIPT_DIR/panel.py" ]; then
   say "usando código local: $SCRIPT_DIR"
   mkdir -p "$APP_DIR"
-  cp "$SCRIPT_DIR/panel.py" "$SCRIPT_DIR/pkhosting.service" "$APP_DIR/"
-  chmod +x "$APP_DIR/panel.py"
+  cp "$SCRIPT_DIR/panel.py" "$SCRIPT_DIR/backup.py" "$SCRIPT_DIR/pkhosting.service" \
+     "$SCRIPT_DIR/pkhosting-backup.service" "$SCRIPT_DIR/pkhosting-backup.timer" "$APP_DIR/"
+  chmod +x "$APP_DIR/panel.py" "$APP_DIR/backup.py"
 else
   command -v git >/dev/null || die "falta git para clonar $REPO_URL"
   if [ -d "$APP_DIR/panel.py" ] || [ -f "$APP_DIR/panel.py" ]; then
@@ -62,6 +63,25 @@ ask PANEL_PORT   "Puerto del panel"                          "${PK_PANEL_PORT:-8
 ask MC_PORT      "Puerto del servidor Minecraft"             "${PK_MC_PORT:-25565}"
 ask RCON_PORT    "Puerto RCON"                               "${PK_RCON_PORT:-25575}"
 ask MAX_MEM      "RAM máxima del servidor (GB, solo visual)" "${PK_MAX_MEM:-4.0}"
+
+# ── Backups diarios ──────────────────────────────────────────────
+BK_DEF=y
+if [ "$NON_INT" = 1 ]; then
+  BK_ANS="${PK_BACKUP:-y}"
+else
+  read -r -p "¿Activar backups diarios automáticos? [S/n]: " BK_ANS || true
+  BK_ANS="${BK_ANS:-y}"
+fi
+if [[ "$BK_ANS" =~ ^[sSyY]$ ]]; then
+  BK_ON=true
+  ask BACKUP_DIR "Carpeta de backups" "${PK_BACKUP_DIR:-$HOME/mc-backups}"
+  ask BACKUP_TIME "Hora del backup diario (HH:MM)" "${PK_BACKUP_TIME:-04:00}"
+  [[ "$BACKUP_TIME" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] || { warn "hora inválida, uso 04:00"; BACKUP_TIME="04:00"; }
+else
+  BK_ON=false
+  BACKUP_DIR="${PK_BACKUP_DIR:-$HOME/mc-backups}"
+  BACKUP_TIME="${PK_BACKUP_TIME:-04:00}"
+fi
 
 SERVER_DIR_EXP="${SERVER_DIR/#\~/$HOME}"
 [ -f "$SERVER_DIR_EXP/start.sh" ] || [ -f "$SERVER_DIR_EXP/run.sh" ] \
@@ -90,7 +110,12 @@ if [ ! -f "$CFG_FILE" ] || [ "$FORCE" = 1 ] || [[ "${ow:-}" =~ ^[sSyY]$ ]]; then
   "panel_port": $PANEL_PORT,
   "mc_port": $MC_PORT,
   "rcon_port": $RCON_PORT,
-  "max_mem_gb": $MAX_MEM
+  "max_mem_gb": $MAX_MEM,
+  "backup_enabled": $BK_ON,
+  "backup_dir": "$BACKUP_DIR",
+  "backup_time": "$BACKUP_TIME",
+  "retention_days": 7,
+  "keep_monthly": true
 }
 EOF
   say "config escrita: $CFG_FILE"
@@ -148,6 +173,15 @@ mkdir -p "$UNIT_DIR"
 sed "s|%h/PKHosting/panel.py|$APP_DIR/panel.py|" "$APP_DIR/pkhosting.service" > "$UNIT_DIR/pkhosting.service"
 systemctl --user daemon-reload
 systemctl --user enable --now pkhosting.service
+if [ "$BK_ON" = true ]; then
+  sed -e "s|@APP_DIR@|$APP_DIR|" "$APP_DIR/pkhosting-backup.service" > "$UNIT_DIR/pkhosting-backup.service"
+  sed -e "s|@BACKUP_TIME@|$BACKUP_TIME|" "$APP_DIR/pkhosting-backup.timer" > "$UNIT_DIR/pkhosting-backup.timer"
+  systemctl --user daemon-reload
+  systemctl --user enable --now pkhosting-backup.timer
+  say "backups diarios a las $BACKUP_TIME en $BACKUP_DIR (7 días + mensual eterno)"
+else
+  say "backups automáticos DESACTIVADOS (puedes hacerlos manuales desde el panel)"
+fi
 sleep 2
 systemctl --user is-active pkhosting.service >/dev/null \
   && say "panel ACTIVO → http://127.0.0.1:$PANEL_PORT" \

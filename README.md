@@ -99,7 +99,23 @@ rcon.port=25575
 Tras editarlo: `systemctl --user restart pkhosting.service`.
 Hay un ejemplo comentado en `config.example.json`.
 
-### 4. Exponerlo a internet (opcional, playit.gg)
+### 4. Backups automáticos (opcional)
+
+El instalador pregunta si los quieres, dónde y a qué hora. Guarda
+`pkhosting-AAAAMMDD-HHMMSS.tar.gz` (mundo + `server.properties` + jsons de
+bans/ops + `user_jvm_args.txt`) congelando el guardado (`save-off`/`save-all`
+y tolerando archivos temporales del mundo vivo).
+
+- **Retención:** borra lo de más de 7 días, excepto el **último de cada mes**,
+  que se guarda para siempre (12 al año). `retention_days` y `keep_monthly`
+  en `config.json`.
+- **Manual:** pestaña **Backups** → *Backup ahora*; cada fila permite
+  **Restaurar** (detiene el server, hace pre-backup de seguridad y rearranca)
+  o **Eliminar**. Los mensuales llevan etiqueta MENSUAL.
+- El timer es `pkhosting-backup.timer` (`systemctl --user status pkhosting-backup.timer`).
+  Sin systemd timer también sirve: `backup.py --run/--prune/--list`.
+
+### 5. Exponerlo a internet (opcional, playit.gg)
 
 1. Instala el agente de [playit.gg](https://playit.gg) y crea un túnel TCP
    que apunte a `127.0.0.1:<tu-mc_port>`.

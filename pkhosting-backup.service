@@ -1,0 +1,9 @@
+[Unit]
+Description=PKHosting daily backup
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# PK panel backup.py (ruta de instalación, la escribe install.sh)
+ExecStart=@APP_DIR@/backup.py --run

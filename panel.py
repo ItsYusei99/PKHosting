@@ -12,6 +12,7 @@ PKHosting — panel web instalable para servidores Minecraft Java.
 PK_VERSION = "1.0.0"
 
 import collections
+import datetime
 import html
 import json
 import os
@@ -39,6 +40,11 @@ DEFAULT_CONFIG = {
     "mc_port": 25565,
     "rcon_port": 25575,
     "max_mem_gb": 4.0,
+    "backup_enabled": False,
+    "backup_dir": "~/mc-backups",
+    "backup_time": "04:00",
+    "retention_days": 7,
+    "keep_monthly": True,
 }
 
 
@@ -577,6 +583,99 @@ def get_server_stats_data():
         "playit": get_playit_status(),
         "history": list(metrics_history)
     }
+
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    import backup as bk
+    HAVE_BACKUP = True
+except Exception as e:
+    bk = None
+    HAVE_BACKUP = False
+    print(f"[pkhosting] backup.py no disponible: {e}", flush=True)
+
+backup_state = {"running": False, "job": None, "msg": "", "updated": 0}
+
+
+def _backup_cfg():
+    c = load_config()
+    return {
+        "enabled": bool(c.get("backup_enabled", False)),
+        "dir": os.path.expanduser(c.get("backup_dir", "~/mc-backups")),
+        "retention_days": int(c.get("retention_days", 7)),
+        "keep_monthly": bool(c.get("keep_monthly", True)),
+        "time": str(c.get("backup_time", "04:00")),
+    }
+
+
+def _bk_dirs():
+    c = _backup_cfg()
+    return SERVER_DIR, WORLD_NAME, c["dir"], c["retention_days"], c["keep_monthly"]
+
+
+def _bk_send(cmd):
+    ok, msg = send_command_action(cmd)
+    return ok, msg
+
+
+def _backup_worker(mode, name=None):
+    backup_state.update(running=True, job=mode,
+                        msg="iniciando...", updated=time.time())
+    try:
+        sdir, world, bdir, ret, keepm = _bk_dirs()
+        if mode == "run":
+            ok, msg = bk.run_backup(sdir, world, bdir, send_fn=_bk_send,
+                                    retention_days=ret, keep_monthly=keepm,
+                                    log=lambda m: backup_state.update(msg=m, updated=time.time()))
+        elif mode == "restore":
+            ok, msg = bk.restore_backup(
+                sdir, bdir, name,
+                stop_fn=lambda: stop_server_action(force=False),
+                start_fn=lambda: start_server_action(),
+                is_running_fn=lambda: find_running_mc_pid() is not None,
+                pre_backup=True, retention_days=ret, keep_monthly=keepm,
+                log=lambda m: backup_state.update(msg=m, updated=time.time()))
+        else:
+            ok, msg = False, "trabajo desconocido"
+        backup_state.update(running=False, msg=("OK " if ok else "FAIL ") + msg,
+                            updated=time.time())
+    except Exception as e:
+        backup_state.update(running=False, msg=f"FAIL {e}", updated=time.time())
+
+
+def backups_status():
+    import shutil as _sh
+    c = _backup_cfg()
+    info = {"ok": HAVE_BACKUP, "enabled": c["enabled"], "dir": c["dir"],
+            "time": c["time"], "retention_days": c["retention_days"],
+            "keep_monthly": c["keep_monthly"],
+            "job": dict(backup_state), "items": []}
+    if not HAVE_BACKUP:
+        info["msg"] = "backup.py no disponible"
+        return info
+    try:
+        if c["enabled"]:
+            os.makedirs(c["dir"], exist_ok=True)
+        ok, err = bk.check_writable(c["dir"]) if os.path.isdir(c["dir"]) else (False, "carpeta inexistente")
+        info["writable"] = ok
+        info["writable_msg"] = "" if ok else err
+    except Exception as e:
+        info["writable"] = False
+        info["writable_msg"] = str(e)
+    try:
+        info["free_gb"] = round(_sh.disk_usage(c["dir"]).free / 1e9, 1) if os.path.isdir(c["dir"]) else 0
+    except Exception:
+        info["free_gb"] = 0
+    try:
+        items = bk.list_backups(c["dir"])
+        for i in items:
+            i["size"] = (f"{i['size_b']/1e9:.2f} GB" if i["size_b"] > 1e9
+                         else f"{i['size_b']/1e6:.0f} MB")
+            i["date"] = datetime.datetime.fromtimestamp(i["mtime"]).strftime("%d/%m/%Y %H:%M")
+        info["items"] = items
+    except Exception as e:
+        info["msg"] = str(e)
+    return info
 
 
 SAFE_FS_ROOT = os.path.realpath(SERVER_DIR)
@@ -1445,6 +1544,9 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
     </a>
     <a class="nav-item" onclick="switchTab('files')">
       <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span> Archivos
+    <a class="nav-item" onclick="switchTab('backups')">
+      <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><rect x="1" y="3" width="22" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><line x1="10" y1="12" x2="14" y2="12"/></svg></span> Backups
+    </a>
     </a>
     <a class="nav-item" onclick="switchTab('settings')">
       <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span> Configuración
@@ -1628,6 +1730,22 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
       </div>
     </div>
 
+    <!-- TAB: BACKUPS -->
+    <div id="tab-backups" class="tab-content">
+      <div class="system-details-card" style="margin-bottom:12px">
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center">
+          <button class="cmd-btn" onclick="backupNow()"><svg class="ico" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Backup ahora</button>
+          <button class="term-tool-btn" onclick="loadBackups()">Recargar</button>
+          <span id="bkStatus" style="font-size:12.5px; color:var(--text-muted)">Cargando estado...</span>
+        </div>
+        <div id="bkJob" style="font-size:12.5px; color:#c084fc; margin-top:8px; min-height:18px"></div>
+      </div>
+      <div class="file-list" id="bkList">
+        <div class="file-row"><span>Cargando backups...</span></div>
+      </div>
+      <div style="font-size:11.5px; color:var(--text-dim); margin-top:8px">Se conservan los últimos 7 días; el último de cada mes se guarda para siempre (etiqueta MENSUAL).</div>
+    </div>
+
     <!-- TAB 4: CONFIGURACION -->
     <div id="tab-settings" class="tab-content">
       <div class="system-details-card" style="margin-bottom:12px">
@@ -1706,7 +1824,7 @@ function switchTab(name) {
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
   
-  const targetNav = Array.from(document.querySelectorAll('.nav-item')).find(el => el.textContent.toLowerCase().includes(name === 'console' ? 'consola' : name === 'metrics' ? 'métrica' : name === 'files' ? 'archivo' : 'config'));
+  const targetNav = Array.from(document.querySelectorAll('.nav-item')).find(el => el.textContent.toLowerCase().includes(name === 'console' ? 'consola' : name === 'metrics' ? 'métrica' : name === 'files' ? 'archivo' : name === 'backups' ? 'backup' : 'config'));
   if (targetNav) targetNav.classList.add('active');
 
   const tab = document.getElementById('tab-' + name);
@@ -1714,6 +1832,7 @@ function switchTab(name) {
 
   if (name === 'metrics') renderCharts();
   if (name === 'files') loadFiles();
+  if (name === 'backups') loadBackups();
   if (name === 'settings') { loadProps(); refreshPublicIp(); }
 }
 
@@ -2118,6 +2237,60 @@ async function fsDelete(p) {
   showToast(r.msg || 'OK'); loadFiles();
 }
 
+const BK_SVG_DL = '<svg class="ico" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+const BK_SVG_BACK = '<svg class="ico" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>';
+const BK_SVG_TRASH = '<svg class="ico" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
+async function loadBackups() {
+  try {
+    const res = await fetch('/api/backups');
+    const d = await res.json();
+    const st = document.getElementById('bkStatus');
+    const w = d.writable ? '✔ destino escribible' : '✘ destino NO escribible' + (d.writable_msg ? ': ' + d.writable_msg : '');
+    st.textContent = (d.enabled ? `Automático diario ${d.time} · ` : 'Automático desactivado · ')
+      + `${d.dir} · libre ${d.free_gb} GB · ret ${d.retention_days}d${d.keep_monthly ? ' + mensual' : ''} · ${w}`;
+    const job = document.getElementById('bkJob');
+    job.textContent = (d.job && d.job.running) ? ('⏳ ' + (d.job.msg || 'trabajando...')) : ((d.job && d.job.msg) ? d.job.msg : '');
+    const box = document.getElementById('bkList');
+    const items = (d.items || []).slice().reverse();
+    if (!items.length) { box.innerHTML = '<div class="file-row"><span class="file-name">Sin backups todavía — pulsa «Backup ahora»</span></div>'; return; }
+    box.innerHTML = items.map(f => `
+      <div class="file-row">
+        <span class="file-name">${f.name}${f.monthly ? ' <span class="chart-badge sub">MENSUAL</span>' : ''}<br><span style="font-size:11px;color:var(--text-dim)">${f.date} · ${f.size}</span></span>
+        <span class="file-actions">
+          <button class="icon-btn" title="Restaurar (detiene el server)" onclick="restoreBackup('${f.name}')">${BK_SVG_BACK}</button>
+          <button class="icon-btn danger" title="Eliminar" onclick="deleteBackup('${f.name}')">${BK_SVG_TRASH}</button>
+        </span>
+      </div>`).join('');
+  } catch (e) {
+    document.getElementById('bkList').innerHTML = '<div class="file-row">Error al cargar backups</div>';
+  }
+}
+async function backupNow() {
+  showToast('Iniciando backup...');
+  try {
+    const r = await (await fetch('/api/backup-now', { method: 'POST' })).json();
+    showToast(r.msg || 'OK');
+  } catch (e) { showToast('Error al iniciar backup'); }
+  setTimeout(loadBackups, 1500);
+}
+async function restoreBackup(name) {
+  if (!confirm(`¿RESTAURAR "${name}"?\n\nDetiene el servidor, guarda un pre-backup de seguridad y sobrescribe el mundo actual.`)) return;
+  try {
+    const r = await (await fetch('/api/restore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) })).json();
+    showToast(r.msg || 'OK');
+  } catch (e) { showToast('Error al restaurar'); }
+  setTimeout(loadBackups, 2000);
+}
+async function deleteBackup(name) {
+  if (!confirm(`¿Eliminar el backup "${name}"?`)) return;
+  try {
+    const r = await (await fetch('/api/backup-delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) })).json();
+    showToast(r.msg || 'OK');
+  } catch (e) { showToast('Error al eliminar'); }
+  loadBackups();
+}
+setInterval(() => { const t = document.getElementById('tab-backups'); if (t && t.classList.contains('active')) loadBackups(); }, 5000);
+
 async function loadProps() {
   try {
     const res = await fetch('/api/file?path=server.properties');
@@ -2312,6 +2485,9 @@ class BisectPanelHandler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
 
+        if u.path == "/api/backups":
+            return self.send_json(backups_status())
+
         if u.path == "/api/public-ip":
             return self.send_json({"public_ip": get_public_ip()})
 
@@ -2442,6 +2618,39 @@ class BisectPanelHandler(BaseHTTPRequestHandler):
         if u.path == "/api/public-ip":
             ok, msg = set_public_ip(payload.get("public_ip", "") or payload.get("ip", ""))
             return self.send_json({"ok": ok, "msg": msg})
+
+        if u.path == "/api/backup-now":
+            if not HAVE_BACKUP:
+                return self.send_json({"ok": False, "msg": "backup.py no disponible"})
+            if backup_state["running"]:
+                return self.send_json({"ok": False, "msg": "ya hay un trabajo en curso: " + backup_state.get("msg", "")})
+            threading.Thread(target=_backup_worker, args=("run",), daemon=True).start()
+            return self.send_json({"ok": True, "msg": "Backup iniciado en segundo plano"})
+
+        if u.path == "/api/restore":
+            if not HAVE_BACKUP:
+                return self.send_json({"ok": False, "msg": "backup.py no disponible"})
+            if backup_state["running"]:
+                return self.send_json({"ok": False, "msg": "ya hay un trabajo en curso"})
+            name = os.path.basename(payload.get("name", ""))
+            if not name or not bk.FNAME_RE.match(name):
+                return self.send_json({"ok": False, "msg": "backup inválido"}, code=400)
+            threading.Thread(target=_backup_worker, args=("restore", name), daemon=True).start()
+            return self.send_json({"ok": True, "msg": f"Restaurando {name} (detiene el servidor, hace pre-backup y rearranca)..."})
+
+        if u.path == "/api/backup-delete":
+            if not HAVE_BACKUP:
+                return self.send_json({"ok": False, "msg": "backup.py no disponible"})
+            name = os.path.basename(payload.get("name", ""))
+            _, _, bdir, _, _ = _bk_dirs()
+            target = os.path.join(bdir, name)
+            if not name or not bk.FNAME_RE.match(name) or not os.path.isfile(target):
+                return self.send_json({"ok": False, "msg": "backup inválido"}, code=400)
+            try:
+                os.remove(target)
+                return self.send_json({"ok": True, "msg": f"Eliminado {name}"})
+            except Exception as e:
+                return self.send_json({"ok": False, "msg": str(e)}, code=500)
 
         self.send_response(404)
         self.end_headers()

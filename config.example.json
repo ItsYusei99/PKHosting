@@ -7,5 +7,10 @@
   "panel_port": 8000,
   "mc_port": 25565,
   "rcon_port": 25575,
-  "max_mem_gb": 4.0
+  "max_mem_gb": 4.0,
+  "backup_enabled": false,
+  "backup_dir": "~/mc-backups",
+  "backup_time": "04:00",
+  "retention_days": 7,
+  "keep_monthly": true
 }
