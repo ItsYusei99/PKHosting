@@ -2323,6 +2323,11 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
         <div class="terminal-topbar">
           <div>Consola del Servidor (Registro en Vivo)</div>
           <div class="terminal-topbar-tools">
+            <input id="logSearch" placeholder="Buscar…" oninput="renderConsole()" style="background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:5px; padding:4px 8px; color:#fff; font-size:11px; width:110px">
+            <button class="term-tool-btn" id="fltAll" onclick="setLogFilter('')">Todos</button>
+            <button class="term-tool-btn" onclick="setLogFilter('INFO')">INFO</button>
+            <button class="term-tool-btn" onclick="setLogFilter('WARN')">WARN</button>
+            <button class="term-tool-btn" onclick="setLogFilter('ERROR')">ERROR</button>
             <button class="term-tool-btn" onclick="toggleAutoScroll()" id="btnAutoScroll">Auto-scroll: ON</button>
             <button class="term-tool-btn" onclick="copyLogs()">Copiar registro</button>
             <button class="term-tool-btn" onclick="clearTerminal()">Limpiar</button>
@@ -2331,9 +2336,11 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
         <div class="terminal-body" id="termBody">Conectando a la consola del servidor...</div>
         <div class="terminal-input-bar">
           <span class="cmd-prompt">&gt;</span>
-          <input type="text" class="cmd-input" id="cmdInput" placeholder="Comandos MC (/say, /op, /list...) + panel: start · stop · restart · reload · kill" onkeydown="handleCmdKey(event)">
+          <input type="text" class="cmd-input" id="cmdInput" list="cmdList" placeholder="Comandos MC (/say, /op, /list...) + panel: start · stop · restart · reload · kill" onkeydown="handleCmdKey(event)" autocomplete="off">
+          <datalist id="cmdList"></datalist>
           <button class="cmd-btn" onclick="submitCmd()">Enviar</button>
         </div>
+        <div id="quickCmds" style="display:flex; gap:6px; flex-wrap:wrap; padding:8px 14px; border-top:1px solid var(--border-color)"></div>
       </div>
       <div class="system-details-card" id="playerMgmt" style="margin-top:12px; display:none">
         <h3 style="margin-bottom:8px; font-size:15px;">Gestión de jugadores</h3>
@@ -2520,6 +2527,14 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
         </div>
       </div>
       <div class="system-details-card" style="margin-top:12px">
+        <h3 style="margin-bottom:8px">Botones rápidos de consola</h3>
+        <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px">Separados por comas (máx. 12)</div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap">
+          <input id="quickInput" placeholder="say Hola, list, save-all" style="flex:1; min-width:220px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; color:#fff; font-size:12.5px">
+          <button class="cmd-btn" onclick="saveQuick()">Guardar</button>
+        </div>
+      </div>
+      <div class="system-details-card" style="margin-top:12px">
         <h3 style="margin-bottom:8px">Notificaciones Discord</h3>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px">
           <input id="dcHook" placeholder="Webhook URL de Discord" style="flex:1; min-width:220px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; color:#e2e8f0; font-size:12.5px">
@@ -2612,7 +2627,8 @@ function switchTab(name) {
   if (name === 'metrics') renderCharts();
   if (name === 'files') loadFiles();
   if (name === 'tasks') loadSchedules();
-  if (name === 'settings') { loadProps(); refreshPublicIp(); loadDiscord(); }
+  if (name === 'console') { loadQuick(); loadModeration(); refreshCmdList(); }
+  if (name === 'settings') { loadProps(); refreshPublicIp(); loadDiscord(); loadQuickCfg(); }
 }
 
 async function serverAction(act) {
@@ -2634,6 +2650,7 @@ async function submitCmd() {
   cmdHistory.push(val);
   cmdIndex = cmdHistory.length;
   input.value = '';
+  refreshCmdList();
   try {
     const res = await fetch(U('/api/cmd'), {
       method: 'POST',
@@ -2765,16 +2782,75 @@ function highlightLogLine(line) {
   return `<span class="log-info">${esc}</span>`;
 }
 
+let termLines = [];
+let logFilter = '';
+const CMD_BASE = ['help', 'list', 'say ', 'op ', 'deop ', 'kick ', 'ban ', 'pardon ', 'stop', 'save-all', 'save-on', 'save-off', 'reload', 'whitelist ', 'start', 'restart', 'reload', 'kill', 'tick query', 'profile entities'];
+function setLogFilter(f) {
+  logFilter = (logFilter === f) ? '' : f;
+  renderConsole();
+}
+function renderConsole() {
+  const q = (document.getElementById('logSearch').value || '').toLowerCase();
+  const body = document.getElementById('termBody');
+  const rows = termLines.filter(l => {
+    if (logFilter === 'INFO' && !l.includes('INFO')) return false;
+    if (logFilter === 'WARN' && !l.includes('WARN')) return false;
+    if (logFilter === 'ERROR' && !(l.includes('ERROR') || l.includes('FATAL') || l.includes('Exception'))) return false;
+    if (q && !l.toLowerCase().includes(q)) return false;
+    return true;
+  });
+  body.innerHTML = rows.length ? rows.map(highlightLogLine).join('<br>') : '<span class="log-info">Sin coincidencias</span>';
+  if (autoScroll) body.scrollTop = body.scrollHeight;
+}
 async function refreshConsole() {
   try {
     const res = await fetch(U('/api/console'));
     const data = await res.json();
-    const body = document.getElementById('termBody');
     if (data.lines && data.lines.length) {
-      body.innerHTML = data.lines.map(highlightLogLine).join('<br>');
-      if (autoScroll) body.scrollTop = body.scrollHeight;
+      termLines = data.lines;
+      renderConsole();
     }
   } catch (e) {}
+}
+function refreshCmdList() {
+  const seen = new Set();
+  const all = CMD_BASE.concat(cmdHistory.slice().reverse()).filter(c => {
+    const k = c.trim().toLowerCase();
+    if (!k || seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  }).slice(0, 30);
+  document.getElementById('cmdList').innerHTML = all.map(c => `<option value="${c.replace(/"/g, '&quot;')}">`).join('');
+}
+async function loadQuick() {
+  try {
+    const d = await (await fetch(U('/api/uiconfig'))).json();
+    const box = document.getElementById('quickCmds');
+    box.innerHTML = ((d && d.quick_commands) || []).map(c =>
+      `<button class="term-tool-btn" onclick="quickSend(this.dataset.c)" data-c="${c.replace(/"/g, '&quot;')}">${c.replace(/</g, '&lt;')}</button>`
+    ).join('');
+  } catch (e) {}
+}
+async function quickSend(c) {
+  try {
+    const r = await (await fetch(U('/api/cmd'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cmd: c }) })).json();
+    showToast(r.msg || 'OK');
+    setTimeout(refreshConsole, 700);
+  } catch (e) { showToast('Error'); }
+}
+async function loadQuickCfg() {
+  try {
+    const d = await (await fetch(U('/api/uiconfig'))).json();
+    document.getElementById('quickInput').value = ((d && d.quick_commands) || []).join(', ');
+  } catch (e) {}
+}
+async function saveQuick() {
+  const v = document.getElementById('quickInput').value.split(',').map(s => s.trim()).filter(Boolean).slice(0, 12);
+  try {
+    const r = await (await fetch(U('/api/uiconfig'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quick_commands: v }) })).json();
+    showToast(r.msg || 'OK');
+  } catch (e) { showToast('Error'); }
+  loadQuick();
 }
 
 async function refreshStats() {
@@ -3632,6 +3708,10 @@ class BisectPanelHandler(BaseHTTPRequestHandler):
         if u.path == "/api/connections":
             return self.send_json({"ok": True, "items": connection_history()})
 
+        if u.path == "/api/uiconfig":
+            return self.send_json({"ok": True, "quick_commands":
+                CFG.get("quick_commands") or ["say ¡Hola!", "list", "save-all"]})
+
         self.send_response(404)
         self.end_headers()
 
@@ -3779,6 +3859,13 @@ class BisectPanelHandler(BaseHTTPRequestHandler):
         if u.path == "/api/discord-test":
             ok, msg = discord_send("✅ PKHosting: prueba de webhook OK")
             return self.send_json({"ok": ok, "msg": msg})
+
+        if u.path == "/api/uiconfig":
+            v = payload.get("quick_commands", [])
+            v = [str(x).strip()[:120] for x in v if str(x).strip()][:12]
+            CFG["quick_commands"] = v
+            save_panel_setting("quick_commands", v)
+            return self.send_json({"ok": True, "msg": "Botones guardados"})
 
         if u.path == "/api/whitelist":
             on = bool(payload.get("on", False))
