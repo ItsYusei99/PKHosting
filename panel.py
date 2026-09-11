@@ -1562,7 +1562,7 @@ def read_console_lines(limit=250):
     return []
 
 # ══════════════════════════════════════════════════════════════════
-# PLANTILLA HTML/CSS/JS (Estilo BisectHosting / Pterodactyl)
+# PLANTILLA HTML/CSS/JS (tema Liquid Glass)
 # ══════════════════════════════════════════════════════════════════
 
 HTML_PAGE = """<!doctype html>
@@ -1822,7 +1822,7 @@ header {
   box-shadow: 0 0 8px currentColor;
 }
 
-/* POWER BUTTONS (Pterodactyl style) */
+/* POWER BUTTONS */
 .power-btn-group {
   display: flex;
   gap: 6px;
@@ -3829,7 +3829,7 @@ document.getElementById('pw').addEventListener('keydown',e=>{if(e.key==='Enter')
 PUBLIC_PATHS = ("/login", "/api/login", "/manifest.webmanifest", "/sw.js", "/icon.svg")
 
 
-class BisectPanelHandler(BaseHTTPRequestHandler):
+class PKHostingPanelHandler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
@@ -4391,7 +4391,7 @@ PWA_ICON = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs>
 
 if __name__ == "__main__":
     bind = CFG.get("bind", "127.0.0.1")
-    server = ThreadingHTTPServer((bind, PORT), BisectPanelHandler)
+    server = ThreadingHTTPServer((bind, PORT), PKHostingPanelHandler)
     cert, key = CFG.get("ssl_cert"), CFG.get("ssl_key")
     scheme = "http"
     if cert and key and os.path.isfile(cert) and os.path.isfile(key):
@@ -4400,7 +4400,7 @@ if __name__ == "__main__":
         ctx.load_cert_chain(cert, key)
         server.socket = ctx.wrap_socket(server.socket, server_side=True)
         scheme = "https"
-    print(f"[BisectPanel] Ejecutando en {scheme}://{bind}:{PORT}", flush=True)
+    print(f"[PKHosting] Ejecutando en {scheme}://{bind}:{PORT}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

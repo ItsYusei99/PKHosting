@@ -1,7 +1,7 @@
 # PKHosting — Panel web para tus servidores Minecraft Java
 
-Panel ligero (**solo Python estándar, sin dependencias**) estilo BisectHosting con
-tema Liquid Glass negro + morado. Administra **uno o varios servidores**
+Panel ligero (**solo Python estándar, sin dependencias**) con tema Liquid Glass
+negro + morado. Administra **uno o varios servidores**
 (Vanilla, Forge, Fabric, NeoForge) desde el navegador: consola, jugadores,
 TPS, archivos, mods, backups, tareas programadas y avisos a Discord.
 
