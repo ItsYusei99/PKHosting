@@ -13,10 +13,13 @@ PK_VERSION = "1.0.0"
 
 import collections
 import datetime
+import hashlib
+import hmac
 import html
 import json
 import os
 import re
+import secrets
 import signal
 import socket
 import struct
@@ -62,6 +65,76 @@ def load_config():
         print(f"[pkhosting] config inválida ({e}), usando valores por defecto)", flush=True)
     cfg["server_dir"] = os.path.expanduser(cfg["server_dir"])
     return cfg
+
+
+def _raw_config():
+    try:
+        with open(CONFIG_FILE) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_panel_setting(key, value):
+    raw = _raw_config()
+    raw[key] = value
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    tmp = CONFIG_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(raw, f, indent=2)
+        f.write("\n")
+    os.replace(tmp, CONFIG_FILE)
+
+
+def hash_password(pw):
+    salt = secrets.token_hex(16)
+    dk = hashlib.pbkdf2_hmac("sha256", pw.encode(), salt.encode(), 200_000)
+    return f"{salt}${dk.hex()}"
+
+
+def verify_password(pw, saved):
+    try:
+        salt, hexd = saved.split("$", 1)
+        dk = hashlib.pbkdf2_hmac("sha256", pw.encode(), salt.encode(), 200_000)
+        return hmac.compare_digest(dk.hex(), hexd)
+    except Exception:
+        return False
+
+
+def auth_enabled():
+    return bool(CFG.get("panel_password_hash"))
+
+
+_sessions = {}
+_sessions_lock = threading.Lock()
+SESSION_TTL = 24 * 3600
+
+
+def new_session():
+    tok = secrets.token_urlsafe(32)
+    with _sessions_lock:
+        _sessions[tok] = time.time() + SESSION_TTL
+        if len(_sessions) > 200:
+            now = time.time()
+            for k in [k for k, v in _sessions.items() if v < now]:
+                _sessions.pop(k, None)
+    return tok
+
+
+def valid_session(tok):
+    if not tok:
+        return False
+    with _sessions_lock:
+        exp = _sessions.get(tok)
+        if exp and exp > time.time():
+            return True
+        _sessions.pop(tok, None)
+        return False
+
+
+def drop_session(tok):
+    with _sessions_lock:
+        _sessions.pop(tok, None)
 
 
 CFG = load_config()
@@ -1087,6 +1160,14 @@ HTML_PAGE = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PKHosting Panel — PrankLindorf</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0a0a13">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<script>if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{});}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -1878,6 +1959,8 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
       <div class="header-subtitle">NeoForge 1.21.1 · Java 21 · Puerto 25566</div>
     </div>
 
+    <div style="display:flex; align-items:center; gap:10px">
+      <button class="term-tool-btn" onclick="logout()" title="Cerrar sesión">Salir</button>
     <div class="header-actions">
       <div class="power-btn-group">
         <button class="pbtn pbtn-start" id="btnStart" onclick="serverAction('start')">
@@ -1896,6 +1979,7 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
           <svg class="ico" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Matar
         </button>
       </div>
+    </div>
     </div>
   </header>
 
@@ -2090,6 +2174,14 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
           <button class="term-tool-btn" onclick="loadProps()">Recargar</button>
         </div>
       </div>
+      <div class="system-details-card" style="margin-top:12px">
+        <h3 style="margin-bottom:8px">Contraseña del panel</h3>
+        <div style="display:flex; gap:8px; flex-wrap:wrap">
+          <input type="password" id="pwCur" placeholder="Actual" style="flex:1; min-width:140px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; color:#fff">
+          <input type="password" id="pwNew" placeholder="Nueva (mín. 8)" style="flex:1; min-width:140px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; color:#fff">
+          <button class="cmd-btn" onclick="changePw()">Cambiar</button>
+        </div>
+      </div>
     </div>
 
   </div>
@@ -2107,6 +2199,16 @@ const SRV = new URLSearchParams(location.search).get('server') || '';
 function U(p) {
   if (!SRV) return p;
   return p + (p.includes('?') ? '&' : '?') + 'server=' + encodeURIComponent(SRV);
+}
+const _fetch = window.fetch.bind(window);
+window.fetch = async (...a) => {
+  const r = await _fetch(...a);
+  if (r.status === 401) location.reload();
+  return r;
+};
+async function logout() {
+  await _fetch(U('/api/logout'), { method: 'POST' });
+  location.reload();
 }
 function showToast(msg) {
   const t = document.getElementById('toast');
@@ -2704,6 +2806,17 @@ async function refreshTps() {
   } catch (e) { showToast('Error al muestrear'); }
 }
 
+async function changePw() {
+  const cur = document.getElementById('pwCur').value;
+  const nw = document.getElementById('pwNew').value;
+  try {
+    const r = await (await fetch(U('/api/password'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ current: cur, new: nw }) })).json();
+    showToast(r.msg || 'OK');
+    document.getElementById('pwCur').value = '';
+    document.getElementById('pwNew').value = '';
+  } catch (e) { showToast('Error'); }
+}
+
 async function loadProps() {
   try {
     const res = await fetch(U('/api/file?path=server.properties'));
@@ -2824,9 +2937,75 @@ def handle_upload(handler, dest_rel):
 # SERVIDOR HTTP API
 # ══════════════════════════════════════════════════════════════════
 
+LOGIN_PAGE = """<!doctype html><html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PKHosting — Acceso</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{min-height:100vh;display:flex;align-items:center;justify-content:center;color:#f5f3ff;
+font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',system-ui,sans-serif;
+background:radial-gradient(900px 480px at 12% -8%,rgba(124,58,237,.22),transparent 65%),radial-gradient(760px 520px at 88% 4%,rgba(168,85,247,.16),transparent 60%),#050508}
+.card{width:min(380px,92vw);padding:28px;border-radius:20px;background:linear-gradient(155deg,rgba(255,255,255,.09),rgba(255,255,255,.02) 55%,rgba(168,85,247,.06));border:1px solid rgba(255,255,255,.12);box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 12px 40px rgba(0,0,0,.55);-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px)}
+h1{font-size:22px;letter-spacing:-.5px}h1 span{background:linear-gradient(90deg,#c084fc,#a855f7);-webkit-background-clip:text;background-clip:text;color:transparent}
+p{font-size:13px;color:#a89fc7;margin:6px 0 16px}
+input{width:100%;background:#06060b;border:1px solid #2b2440;border-radius:12px;padding:11px 13px;color:#fff;font-size:14px;outline:none;margin-bottom:10px}
+input:focus{border-color:rgba(168,85,247,.6);box-shadow:0 0 0 3px rgba(168,85,247,.22)}
+button{width:100%;border:0;border-radius:12px;padding:11px;font-size:14px;font-weight:700;color:#fff;cursor:pointer;background:linear-gradient(135deg,#a855f7,#7c3aed);box-shadow:0 4px 16px rgba(168,85,247,.4)}
+#err{color:#f87171;font-size:12.5px;min-height:18px;margin-top:8px}
+</style></head><body>
+<div class="card"><h1>PK<span>Hosting</span></h1><p>Introduce la contraseña del panel</p>
+<input type="password" id="pw" placeholder="Contraseña" autofocus>
+<button onclick="login()">Entrar</button><div id="err"></div></div>
+<script>
+async function login(){
+  const r = await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:document.getElementById('pw').value})});
+  const d = await r.json();
+  if(d.ok) location.reload(); else document.getElementById('err').textContent = d.msg || 'Error';
+}
+document.getElementById('pw').addEventListener('keydown',e=>{if(e.key==='Enter')login()});
+</script></body></html>"""
+
+PUBLIC_PATHS = ("/login", "/api/login", "/manifest.webmanifest", "/sw.js", "/icon.svg")
+
+
 class BisectPanelHandler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
+
+    def _cookie_token(self):
+        try:
+            for part in (self.headers.get("Cookie", "") or "").split(";"):
+                k, _, v = part.strip().partition("=")
+                if k.strip() == "pksess":
+                    return v.strip()
+        except Exception:
+            pass
+        return None
+
+    def authed(self):
+        if not auth_enabled():
+            return True
+        return valid_session(self._cookie_token())
+
+    def _need_auth(self):
+        if self.authed():
+            return False
+        if self.path == "/" or self.path.startswith("/index.html"):
+            try:
+                body = LOGIN_PAGE.encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+        else:
+            try:
+                self.send_json({"ok": False, "error": "login requerido"}, code=401)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+        return True
 
     def send_json(self, data, code=200):
         try:
@@ -2856,6 +3035,8 @@ class BisectPanelHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         u = urlparse(self.path)
+        if u.path not in PUBLIC_PATHS and self._need_auth():
+            return
         if not self._select_server(u):
             return self.send_json({"error": "servidor desconocido"}, code=404)
         if u.path == "/" or u.path == "/index.html":
@@ -2931,6 +3112,33 @@ class BisectPanelHandler(BaseHTTPRequestHandler):
             return self.send_json({"servers": [
                 {"id": s.id, "name": s.name} for s in SERVERS.values()]})
 
+        if u.path == "/manifest.webmanifest":
+            return self.send_json(PWA_MANIFEST)
+
+        if u.path == "/sw.js":
+            body = PWA_SW.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/javascript")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            try:
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            return
+
+        if u.path == "/icon.svg":
+            body = PWA_ICON.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/svg+xml")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            try:
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            return
+
         if u.path == "/api/backups":
             return self.send_json(backups_status())
 
@@ -2951,8 +3159,42 @@ class BisectPanelHandler(BaseHTTPRequestHandler):
             payload = json.loads(raw)
         except Exception:
             payload = {}
+        if u.path == "/api/login":
+            pw = payload.get("password", "")
+            if auth_enabled() and verify_password(pw, CFG.get("panel_password_hash", "")):
+                tok = new_session()
+                body = json.dumps({"ok": True}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Set-Cookie", f"pksess={tok}; HttpOnly; Path=/; SameSite=Lax")
+                self.end_headers()
+                try:
+                    self.wfile.write(body)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                return
+            time.sleep(1)
+            return self.send_json({"ok": False, "msg": "Contraseña incorrecta"}, code=401)
+
+        if u.path not in PUBLIC_PATHS and self._need_auth():
+            return
         if not self._select_server(u, payload):
             return self.send_json({"error": "servidor desconocido"}, code=404)
+        if u.path == "/api/logout":
+            drop_session(self._cookie_token())
+            return self.send_json({"ok": True})
+
+        if u.path == "/api/password":
+            cur, new = payload.get("current", ""), payload.get("new", "")
+            if not auth_enabled() or not verify_password(cur, CFG.get("panel_password_hash", "")):
+                return self.send_json({"ok": False, "msg": "Actual incorrecta"})
+            if len(new) < 8:
+                return self.send_json({"ok": False, "msg": "Mínimo 8 caracteres"})
+            CFG["panel_password_hash"] = hash_password(new)
+            save_panel_setting("panel_password_hash", CFG["panel_password_hash"])
+            return self.send_json({"ok": True, "msg": "Contraseña actualizada"})
+
         if u.path == "/api/upload":
             qs = parse_qs(u.query)
             return handle_upload(self, qs.get("path", [""])[0])
@@ -3081,10 +3323,6 @@ class BisectPanelHandler(BaseHTTPRequestHandler):
             ok, msg = set_public_ip(payload.get("public_ip", "") or payload.get("ip", ""))
             return self.send_json({"ok": ok, "msg": msg})
 
-        if u.path == "/api/servers":
-            return self.send_json({"servers": [
-                {"id": s.id, "name": s.name} for s in SERVERS.values()]})
-
         if u.path == "/api/backup-now":
             if not HAVE_BACKUP:
                 return self.send_json({"ok": False, "msg": "backup.py no disponible"})
@@ -3122,9 +3360,28 @@ class BisectPanelHandler(BaseHTTPRequestHandler):
         self.send_response(404)
         self.end_headers()
 
+PWA_MANIFEST = {"name": "PKHosting", "short_name": "PKHosting",
+    "start_url": "/", "display": "standalone",
+    "background_color": "#050508", "theme_color": "#0a0a13",
+    "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml"}]}
+PWA_SW = """self.addEventListener('fetch',e=>{const u=new URL(e.request.url);
+if(u.pathname.startsWith('/api/')){e.respondWith(fetch(e.request));return;}
+e.respondWith(fetch(e.request).then(r=>{const c=r.clone();
+caches.open('pk1').then(ch=>ch.put(e.request,c)).catch(()=>{});return r;}).catch(()=>caches.match(e.request)));});"""
+PWA_ICON = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7c3aed"/><stop offset="1" stop-color="#a855f7"/></linearGradient></defs><rect width="64" height="64" rx="14" fill="url(#g)"/><path d="M32 12 14 22l18 10 18-10-18-10zM14 32l18 10 18-10M14 42l18 10 18-10" stroke="#fff" stroke-width="4" fill="none" stroke-linejoin="round"/></svg>"""
+
 if __name__ == "__main__":
-    server = ThreadingHTTPServer(("127.0.0.1", PORT), BisectPanelHandler)
-    print(f"[BisectPanel] Ejecutando en http://127.0.0.1:{PORT}", flush=True)
+    bind = CFG.get("bind", "127.0.0.1")
+    server = ThreadingHTTPServer((bind, PORT), BisectPanelHandler)
+    cert, key = CFG.get("ssl_cert"), CFG.get("ssl_key")
+    scheme = "http"
+    if cert and key and os.path.isfile(cert) and os.path.isfile(key):
+        import ssl as _ssl
+        ctx = _ssl.SSLContext(_ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(cert, key)
+        server.socket = ctx.wrap_socket(server.socket, server_side=True)
+        scheme = "https"
+    print(f"[BisectPanel] Ejecutando en {scheme}://{bind}:{PORT}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
