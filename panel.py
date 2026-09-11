@@ -487,111 +487,13 @@ tps_lock = threading.Lock()
 tps_cache = {"ts": 0, "data": {"ok": False}}
 tps_sampling = False
 
-_TPS_ANCHOR_RE = re.compile(r"Average tick time:\s*([\d.]+)ms")
-_TPS_ENTRY_RE = re.compile(r"^- (.+) in (.+):\s*([\d.]+)(ms)?\s*$")
-
-
-def _log_new_lines(path, offset):
-    """Lee solo los bytes añadidos desde offset. Devuelve (líneas, nuevo_offset)."""
-    try:
-        size = os.path.getsize(path)
-        if size < offset:
-            offset = 0
-        with open(path, "rb") as f:
-            f.seek(offset)
-            chunk = f.read()
-        return chunk.decode("utf-8", "replace").splitlines(), size
-    except Exception:
-        return [], offset
-
-
-def _wait_profile_block(t0, timeout=18):
-    """Espera el bloque 'Average tick time' de `profile entities` posterior a t0.
-    Devuelve dict con mspt, entities, cpu_hogs o None."""
-    offs = {}
-    for p in (CHILD_LOG, LOG_FILE):
-        try:
-            offs[p] = os.path.getsize(p)
-        except Exception:
-            offs[p] = 0
-    anchor_ts = None
-    collected = []
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        for p in (CHILD_LOG, LOG_FILE):
-            lines, offs[p] = _log_new_lines(p, offs[p])
-            for line in lines:
-                if anchor_ts is None:
-                    m = _TPS_ANCHOR_RE.search(line)
-                    if m:
-                        ts = _parse_log_ts(line)
-                        if ts and ts >= t0 - 3:
-                            anchor_ts = ts
-                            collected = [("mspt", float(m.group(1)))]
-                else:
-                    if "[Rcon:" not in line:
-                        continue
-                    body = line.split("[Rcon:", 1)[1].rstrip("]").strip()
-                    if body in ("Top 10 counts:",):
-                        collected.append(("mode", "counts"))
-                    elif body in ("Top 10 CPU hogs:",):
-                        collected.append(("mode", "cpu"))
-                    else:
-                        m = _TPS_ENTRY_RE.match(body)
-                        if m:
-                            typ, dim, val, is_ms = m.groups()
-                            collected.append(("ent", typ.strip(), dim.strip(),
-                                              float(val), bool(is_ms)))
-        if anchor_ts is not None and time.time() > deadline - (timeout - 4):
-            # dar 1-2 s extra para que llegue la cola del bloque
-            time.sleep(1.5)
-            for p in (CHILD_LOG, LOG_FILE):
-                lines, offs[p] = _log_new_lines(p, offs[p])
-                for line in lines:
-                    if "[Rcon:" not in line:
-                        continue
-                    body = line.split("[Rcon:", 1)[1].rstrip("]").strip()
-                    if body in ("Top 10 counts:",):
-                        collected.append(("mode", "counts"))
-                    elif body in ("Top 10 CPU hogs:",):
-                        collected.append(("mode", "cpu"))
-                    else:
-                        m = _TPS_ENTRY_RE.match(body)
-                        if m:
-                            typ, dim, val, is_ms = m.groups()
-                            collected.append(("ent", typ.strip(), dim.strip(),
-                                              float(val), bool(is_ms)))
-            break
-        time.sleep(1)
-    if anchor_ts is None:
-        return None
-    out = {"mspt": None, "entities": [], "cpu_hogs": []}
-    mode = "counts"
-    for item in collected:
-        if item[0] == "mspt":
-            out["mspt"] = item[1]
-        elif item[0] == "mode":
-            mode = item[1]
-        else:
-            _, typ, dim, val, is_ms = item
-            (out["cpu_hogs"] if (mode == "cpu" or is_ms)
-             else out["entities"]).append(
-                {"type": typ, "dim": dim,
-                 "ms": val} if (mode == "cpu" or is_ms)
-                else {"type": typ, "dim": dim, "count": int(val)})
-    return out
-
-
 def sample_tps(force=False):
-    """TPS/MSPT vía `tick query` + entidades vía `profile entities` (Carpet).
-    Cachea TPS_TTL s. No llamar desde el hilo HTTP (bloquea ~6-18 s)."""
+    """TPS/MSPT vía `tick query` (RCON, instantáneo). Cachea TPS_TTL s."""
     now = time.time()
     with tps_lock:
         if not force and tps_cache["data"].get("ok") and now - tps_cache["ts"] < TPS_TTL:
             return tps_cache["data"]
-    data = {"ok": False, "tps": None, "mspt": None, "p50": None, "p95": None,
-            "p99": None, "total": 0, "by_dim": {}, "entities": [],
-            "cpu_hogs": [], "updated": int(now)}
+    data = {"ok": False, "tps": None, "mspt": None, "updated": int(now)}
     if find_running_mc_pid() is None:
         with tps_lock:
             tps_cache.update(ts=now, data=data)
@@ -602,28 +504,8 @@ def sample_tps(force=False):
             m = re.search(r"Average time per tick:\s*([\d.]+)ms", resp)
             if m:
                 data["mspt"] = float(m.group(1))
-            p = re.search(r"P50:\s*([\d.]+)ms\s+P95:\s*([\d.]+)ms\s+P99:\s*([\d.]+)ms", resp)
-            if p:
-                data["p50"], data["p95"], data["p99"] = map(float, p.groups())
     except Exception:
         pass
-    t0 = time.time()
-    try:
-        send_command_action("profile entities")
-    except Exception:
-        pass
-    block = _wait_profile_block(t0)
-    if block:
-        if block.get("mspt") and not data["mspt"]:
-            data["mspt"] = block["mspt"]
-        data["entities"] = block["entities"][:10]
-        data["cpu_hogs"] = block["cpu_hogs"][:5]
-        total, by_dim = 0, {}
-        for e in block["entities"]:
-            total += e["count"]
-            by_dim[e["dim"]] = by_dim.get(e["dim"], 0) + e["count"]
-        data["total"] = total
-        data["by_dim"] = by_dim
     if data["mspt"]:
         data["tps"] = round(min(20.0, 1000.0 / data["mspt"])
                             if data["mspt"] > 0 else 20.0, 1)
@@ -1983,18 +1865,6 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
           <div class="scard-val" id="tpsVal" style="font-size:34px">—</div>
           <div class="scard-sub" id="tpsSub">Sin datos todavía</div>
           <div class="scard-bar"><div class="scard-bar-fill" id="tpsBar" style="width:0%"></div></div>
-          <div class="scard-sub" id="tpsPct" style="margin-top:8px">—</div>
-        </div>
-
-        <div class="chart-card">
-          <div class="chart-header">
-            <div class="chart-title"><svg class="ico" viewBox="0 0 24 24" style="width:16px;height:16px;vertical-align:-3px"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> Entidades activas</div>
-            <div class="chart-badge" id="entBadge">—</div>
-          </div>
-          <div class="scard-sub" id="entDims" style="margin-bottom:8px">—</div>
-          <div class="file-list" id="entList" style="max-height:220px; overflow-y:auto">
-            <div class="file-row"><span class="file-name">Sin datos todavía</span></div>
-          </div>
         </div>
       </div>
       <div class="charts-grid">
@@ -2370,7 +2240,7 @@ async function refreshStats() {
     paintBadge(document.getElementById('chartCpuBadge'), d.cpu.toFixed(1) + '%', cpuColor);
     paintBadge(document.getElementById('chartMemBadge'), d.mem_gb + ' GB', memColor);
 
-    // TPS + entidades (muestreo Carpet cada 60 s)
+    // TPS + MSPT (muestreo `tick query` cada 60 s)
     const t = d.tps || {};
     const tpsVal = document.getElementById('tpsVal');
     if (t.ok && t.tps != null) {
@@ -2384,25 +2254,9 @@ async function refreshStats() {
       const bar = document.getElementById('tpsBar');
       bar.style.width = Math.min(100, (t.tps / 20) * 100) + '%';
       bar.style.background = `linear-gradient(90deg, ${tc}99, ${tc})`;
-      const pct = (t.p50 != null) ? `P50 ${t.p50}ms · P95 ${t.p95}ms · P99 ${t.p99}ms` : 'percentiles no disponibles';
-      const age = t.updated ? Math.max(0, Math.round(Date.now() / 1000 - t.updated)) : null;
-      document.getElementById('tpsPct').textContent = `${pct} · hace ${age != null ? age + 's' : '—'}`;
     } else {
       tpsVal.textContent = d.status === 'RUNNING' ? '…' : '—';
-      document.getElementById('tpsSub').textContent = d.status === 'RUNNING' ? 'Muestreando (tarda ~10 s)…' : 'Servidor apagado';
-    }
-    const entBadge = document.getElementById('entBadge');
-    const entList = document.getElementById('entList');
-    if (t.ok && t.entities && t.entities.length) {
-      entBadge.textContent = t.total + ' en total';
-      const dims = Object.entries(t.by_dim || {}).map(([k, v]) => `${k}: ${v}`).join(' · ');
-      document.getElementById('entDims').textContent = dims || '—';
-      entList.innerHTML = t.entities.map(e =>
-        `<div class="file-row"><span class="file-name">${e.type}<br><span style="font-size:11px;color:var(--text-dim)">${e.dim}</span></span><span class="file-size">×${e.count}</span></div>`
-      ).join('');
-    } else if (entList && !t.ok) {
-      entBadge.textContent = '—';
-      entList.innerHTML = '<div class="file-row"><span class="file-name">Sin datos todavía</span></div>';
+      document.getElementById('tpsSub').textContent = d.status === 'RUNNING' ? 'Muestreando…' : 'Servidor apagado';
     }
 
     document.getElementById('detStatus').textContent = d.status;
@@ -2725,7 +2579,7 @@ async function deleteBackup(name) {
 setInterval(() => { const t = document.getElementById('tab-backups'); if (t && t.classList.contains('active')) loadBackups(); }, 5000);
 
 async function refreshTps() {
-  showToast('Muestreando TPS/entidades (~10 s)...');
+  showToast('Muestreando TPS...');
   try {
     const r = await (await fetch('/api/tps', { method: 'POST' })).json();
     showToast(r.msg || 'OK');
@@ -2989,7 +2843,7 @@ class BisectPanelHandler(BaseHTTPRequestHandler):
                 return self.send_json({"ok": False, "msg": "El servidor está apagado"})
             started = request_tps_sample()
             return self.send_json({"ok": True,
-                "msg": "Muestreando TPS/entidades..." if started
+                "msg": "Muestreando TPS..." if started
                        else "Ya hay un muestreo en curso"})
 
         if u.path == "/api/file":
