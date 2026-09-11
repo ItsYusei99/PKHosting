@@ -1861,7 +1861,11 @@ function usageColor(pct, warnAt, critAt) {
   return '#34d399';
 }
 function paintUsage(valEl, barEl, pct, color) {
-  valEl.style.background = `linear-gradient(180deg, #ffffff 15%, ${color} 95%)`;
+  // Solo el TEXTO de color: backgroundImage no resetea background-clip:text
+  // (el shorthand `background` sí lo hacía y pintaba toda la caja como barra).
+  valEl.style.backgroundImage = `linear-gradient(180deg, #ffffff 15%, ${color} 95%)`;
+  valEl.style.webkitBackgroundClip = 'text';
+  valEl.style.backgroundClip = 'text';
   valEl.style.filter = `drop-shadow(0 0 14px ${color}59)`;
   barEl.style.width = pct + '%';
   barEl.style.background = `linear-gradient(90deg, ${color}99, ${color})`;
