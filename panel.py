@@ -863,7 +863,8 @@ def get_server_stats_data():
         "max_players": max_p,
         "player_names": names,
         "sessions": player_sessions(names) if names else {},
-        "tps": tps_cache["data"],
+        # Sin proceso no hay TPS que mostrar (el caché viejo se oculta)
+        "tps": tps_cache["data"] if pid is not None else {"ok": False},
         "system_load": ", ".join(load),
         "port": MC_PORT,
         "public_ip": get_public_ip(),
