@@ -70,7 +70,7 @@ SERVER_DIR = CFG["server_dir"]
 START_CMD = CFG["start_cmd"]
 LOG_FILE = os.path.join(SERVER_DIR, "logs", "latest.log")
 CHILD_LOG = os.path.join(SERVER_DIR, "logs", "panel-child.log")
-PORT = int(CFG["panel_port"])
+PORT = int(CFG.get("panel_port", 8000))
 MC_PORT = int(CFG["mc_port"])
 RCON_HOST = "127.0.0.1"
 RCON_PORT = int(CFG["rcon_port"])
@@ -89,6 +89,106 @@ def _first_existing(*paths):
     return paths[0]
 
 
+class Server:
+    """Todo el estado y config de un servidor Minecraft gestionado."""
+
+    def __init__(self, cfg):
+        self.id = str(cfg.get("id", "main"))
+        self.name = cfg.get("server_name", "MiServidor")
+        self.subtitle = cfg.get("server_subtitle", "Minecraft Server")
+        self.server_dir = os.path.expanduser(cfg.get("server_dir", "~/minecraft-server"))
+        self.start_cmd = cfg.get("start_cmd", ["bash", "start.sh"])
+        self.world_name = cfg.get("world_name", "world")
+        self.mc_port = int(cfg.get("mc_port", 25565))
+        self.rcon_port = int(cfg.get("rcon_port", 25575))
+        self.max_mem_gb = float(cfg.get("max_mem_gb", 4.0))
+        self.backup_enabled = bool(cfg.get("backup_enabled", False))
+        self.backup_dir = os.path.expanduser(cfg.get("backup_dir", "~/mc-backups"))
+        self.backup_time = str(cfg.get("backup_time", "04:00"))
+        self.retention_days = int(cfg.get("retention_days", 7))
+        self.keep_monthly = bool(cfg.get("keep_monthly", True))
+        data_dir = os.path.join(CONFIG_DIR, "servers", self.id)
+        self.data_dir = cfg.get("data_dir", data_dir)
+        self.rcon_pass_file = cfg.get("rcon_pass_file") or _first_existing(
+            os.path.join(self.data_dir, "rcon-password"),
+            os.path.join(CONFIG_DIR, "rcon-password"),
+            os.path.expanduser("~/.config/mc-panel-rcon"))
+        self.public_ip_file = cfg.get("public_ip_file") or _first_existing(
+            os.path.join(self.data_dir, "public-ip"),
+            os.path.join(CONFIG_DIR, "public-ip"),
+            os.path.expanduser("~/.config/mc-panel-public-ip"))
+        self.lock = threading.Lock()
+        self.proc = None
+        self.stop_requested = False
+        self.metrics = collections.deque(maxlen=40)
+        self.cpu_prev = None
+        self.tps_lock = threading.Lock()
+        self.tps_cache = {"ts": 0, "data": {"ok": False}}
+        self.tps_sampling = False
+        self.backup_lock = threading.Lock()
+        self.backup_state = {"running": False, "job": None, "msg": "",
+                             "updated": 0, "pct": 0, "stage": ""}
+        self.sessions_cache = {"ts": 0, "names": [], "data": {}}
+
+    @property
+    def log_file(self):
+        return os.path.join(self.server_dir, "logs", "latest.log")
+
+    @property
+    def child_log(self):
+        return os.path.join(self.server_dir, "logs", "panel-child.log")
+
+    @property
+    def fs_root(self):
+        return os.path.realpath(self.server_dir)
+
+    def rcon_password(self):
+        try:
+            with open(self.rcon_pass_file) as f:
+                pw = f.read().strip()
+                return pw or None
+        except Exception:
+            return None
+
+    def local_ip(self):
+        return f"localhost:{self.mc_port}"
+
+
+def _server_cfgs():
+    if isinstance(CFG.get("servers"), list) and CFG["servers"]:
+        out = []
+        for i, sc in enumerate(CFG["servers"]):
+            d = dict(sc)
+            d.setdefault("id", d.get("server_name", f"srv{i}") or f"srv{i}")
+            out.append(d)
+        return out
+    d = dict(CFG)
+    d["id"] = "main"
+    return [d]
+
+
+SERVERS = {}
+for _sc in _server_cfgs():
+    try:
+        _srv = Server(_sc)
+        SERVERS[_srv.id] = _srv
+    except Exception as e:
+        print(f"[pkhosting] servidor ignorado ({e})", flush=True)
+if not SERVERS:
+    SERVERS["main"] = Server(dict(CFG, id="main"))
+
+_ctx = threading.local()
+
+
+def S():
+    """Servidor del request/hilo actual (default: el primero)."""
+    srv = getattr(_ctx, "srv", None)
+    if srv is None:
+        srv = next(iter(SERVERS.values()))
+        _ctx.srv = srv
+    return srv
+
+
 RCON_PASS_FILE = _first_existing(
     os.path.join(CONFIG_DIR, "rcon-password"),
     os.path.expanduser("~/.config/mc-panel-rcon"),  # legado
@@ -96,23 +196,19 @@ RCON_PASS_FILE = _first_existing(
 
 
 def get_rcon_password():
-    try:
-        with open(RCON_PASS_FILE) as f:
-            pw = f.read().strip()
-            return pw or None
-    except Exception:
-        return None
+    return S().rcon_password()
 
 
 def rcon_send(cmd, timeout=5):
     """Cliente RCON minimo (stdlib). Devuelve (ok, respuesta)."""
     import socket as _sock
     import struct as _struct
-    pw = get_rcon_password()
+    srv = S()
+    pw = srv.rcon_password()
     if not pw:
         return False, "RCON sin password configurado"
     try:
-        s = _sock.create_connection((RCON_HOST, RCON_PORT), timeout=timeout)
+        s = _sock.create_connection((RCON_HOST, srv.rcon_port), timeout=timeout)
         s.settimeout(timeout)
         _id = 1
 
@@ -177,7 +273,8 @@ PUBLIC_IP_FILE = _first_existing(
 
 def get_public_ip():
     """IP pública (playit.gg) configurada para mostrar en el panel."""
-    for path in (PUBLIC_IP_FILE,
+    srv = S()
+    for path in (srv.public_ip_file,
                  os.path.join(CONFIG_DIR, "public-ip"),
                  os.path.expanduser("~/.config/mc-panel-public-ip")):
         try:
@@ -187,7 +284,7 @@ def get_public_ip():
                     return ip
         except Exception:
             continue
-    return f"localhost:{MC_PORT}"
+    return srv.local_ip()
 
 
 def set_public_ip(ip):
@@ -196,11 +293,12 @@ def set_public_ip(ip):
         return False, "IP vacía"
     if len(ip) > 120 or any(c in ip for c in ("\n", "\r")):
         return False, "IP inválida"
-    os.makedirs(os.path.dirname(PUBLIC_IP_FILE), exist_ok=True)
-    with open(PUBLIC_IP_FILE, "w") as f:
+    target = S().public_ip_file
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    with open(target, "w") as f:
         f.write(ip + "\n")
     try:
-        os.chmod(PUBLIC_IP_FILE, 0o600)
+        os.chmod(target, 0o600)
     except Exception:
         pass
     return True, f"IP pública actualizada: {ip}"
@@ -231,18 +329,11 @@ def get_playit_status():
     return info
 
 
-state_lock = threading.Lock()
-proc = None
-stop_requested = False
-
-# Buffer de historial de métricas para gráficos (últimos 40 puntos = ~1 minuto)
-metrics_history = collections.deque(maxlen=40)
-cpu_prev_sample = None
-
 def find_running_mc_pid():
     """PID del java del servidor: coincide cwd con SERVER_DIR (genérico para
     Vanilla/Forge/Fabric/NeoForge). Excluye lanzadores de cliente."""
-    root = os.path.realpath(SERVER_DIR)
+    s = S()
+    root = os.path.realpath(s.server_dir)
     for pid_str in os.listdir("/proc"):
         if not pid_str.isdigit():
             continue
@@ -305,18 +396,18 @@ def is_port_listening(port):
     return False
 
 def get_server_status(pid):
-    global stop_requested
+    s = S()
     if pid is None:
-        stop_requested = False
+        s.stop_requested = False
         return "OFFLINE"
-    if stop_requested:
+    if s.stop_requested:
         return "STOPPING"
-    if is_port_listening(MC_PORT):
+    if is_port_listening(s.mc_port):
         return "RUNNING"
     return "STARTING"
 
 def calculate_cpu(pid):
-    global cpu_prev_sample
+    s = S()
     try:
         with open(f"/proc/{pid}/stat") as f:
             parts = f.read().split()
@@ -324,16 +415,16 @@ def calculate_cpu(pid):
         stime = int(parts[14])
         now = time.time()
 
-        if cpu_prev_sample is not None and cpu_prev_sample["pid"] == pid:
-            du = (utime + stime) - (cpu_prev_sample["utime"] + cpu_prev_sample["stime"])
-            dt = now - cpu_prev_sample["time"]
-            cpu_prev_sample = {"pid": pid, "utime": utime, "stime": stime, "time": now}
+        if s.cpu_prev is not None and s.cpu_prev["pid"] == pid:
+            du = (utime + stime) - (s.cpu_prev["utime"] + s.cpu_prev["stime"])
+            dt = now - s.cpu_prev["time"]
+            s.cpu_prev = {"pid": pid, "utime": utime, "stime": stime, "time": now}
             if dt > 0:
                 clk_tck = os.sysconf(os.sysconf_names.get('SC_CLK_TCK', 'SC_CLK_TCK')) or 100
                 pct = (du / float(clk_tck)) / dt * 100.0
                 return max(0.0, round(pct, 1))
         else:
-            cpu_prev_sample = {"pid": pid, "utime": utime, "stime": stime, "time": now}
+            s.cpu_prev = {"pid": pid, "utime": utime, "stime": stime, "time": now}
             return 0.0
     except Exception:
         return 0.0
@@ -362,8 +453,9 @@ def get_process_uptime(pid):
         return "-"
 
 def get_world_size_gb():
+    s = S()
     try:
-        world_path = os.path.join(SERVER_DIR, WORLD_NAME)
+        world_path = os.path.join(s.server_dir, s.world_name)
         total = sum(os.path.getsize(os.path.join(dp, f))
                     for dp, _, fns in os.walk(world_path)
                     for f in fns)
@@ -372,9 +464,10 @@ def get_world_size_gb():
         return 0.0
 
 def query_mc_players():
+    srv = S()
     s = None
     try:
-        s = socket.create_connection(("127.0.0.1", MC_PORT), timeout=2)
+        s = socket.create_connection(("127.0.0.1", srv.mc_port), timeout=2)
         def varint(n):
             n &= 0xFFFFFFFF  # soporta protocolo -1 (cualquier versión)
             out = b""
@@ -385,7 +478,7 @@ def query_mc_players():
                 if not n:
                     return out
         host = b"localhost"
-        hs = varint(0) + varint(-1) + varint(len(host)) + host + struct.pack(">H", MC_PORT) + varint(1)
+        hs = varint(0) + varint(-1) + varint(len(host)) + host + struct.pack(">H", srv.mc_port) + varint(1)
         s.sendall(varint(len(hs)) + hs)
         s.sendall(varint(1) + varint(0))
         def rvi():
@@ -429,7 +522,6 @@ def query_mc_players():
 LOG_TS_RE = re.compile(r"\[(\d{2})([A-Za-z]{3})(\d{4}) (\d{2}):(\d{2}):(\d{2})")
 _LOG_MONTHS = {"Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
                "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12}
-_sessions_cache = {"ts": 0, "names": [], "data": {}}
 
 
 def _parse_log_ts(line):
@@ -447,16 +539,17 @@ def _parse_log_ts(line):
 def player_sessions(online_names):
     """Segundos conectados por jugador (último join posterior al último leave).
     Se cruza la lista del ping con latest.log; caché de 10 s."""
+    s = S()
     now = time.time()
     online_names = list(online_names or [])
-    if (now - _sessions_cache["ts"] < 10
-            and set(_sessions_cache["names"]) == set(online_names)):
-        return _sessions_cache["data"]
+    if (now - s.sessions_cache["ts"] < 10
+            and set(s.sessions_cache["names"]) == set(online_names)):
+        return s.sessions_cache["data"]
     result = {}
     if online_names:
         try:
             joins, leaves = {}, {}
-            with open(LOG_FILE, encoding="utf-8", errors="replace") as f:
+            with open(s.log_file, encoding="utf-8", errors="replace") as f:
                 for line in f:
                     if "MinecraftServer" not in line:
                         continue
@@ -478,25 +571,23 @@ def player_sessions(online_names):
                     result[n] = max(0, int(now - j))
         except Exception:
             pass
-    _sessions_cache.update(ts=now, names=online_names, data=result)
+    s.sessions_cache.update(ts=now, names=online_names, data=result)
     return result
 
 
 TPS_TTL = 60
-tps_lock = threading.Lock()
-tps_cache = {"ts": 0, "data": {"ok": False}}
-tps_sampling = False
 
 def sample_tps(force=False):
     """TPS/MSPT vía `tick query` (RCON, instantáneo). Cachea TPS_TTL s."""
+    s = S()
     now = time.time()
-    with tps_lock:
-        if not force and tps_cache["data"].get("ok") and now - tps_cache["ts"] < TPS_TTL:
-            return tps_cache["data"]
+    with s.tps_lock:
+        if not force and s.tps_cache["data"].get("ok") and now - s.tps_cache["ts"] < TPS_TTL:
+            return s.tps_cache["data"]
     data = {"ok": False, "tps": None, "mspt": None, "updated": int(now)}
     if find_running_mc_pid() is None:
-        with tps_lock:
-            tps_cache.update(ts=now, data=data)
+        with s.tps_lock:
+            s.tps_cache.update(ts=now, data=data)
         return data
     try:
         ok, resp = rcon_send("tick query")
@@ -510,26 +601,26 @@ def sample_tps(force=False):
         data["tps"] = round(min(20.0, 1000.0 / data["mspt"])
                             if data["mspt"] > 0 else 20.0, 1)
         data["ok"] = True
-    with tps_lock:
-        tps_cache.update(ts=now, data=data)
+    with s.tps_lock:
+        s.tps_cache.update(ts=now, data=data)
     return data
 
 
 def request_tps_sample():
     """Dispara un muestreo en segundo plano (no bloquea)."""
-    global tps_sampling
-    with tps_lock:
-        if tps_sampling:
-            return False
-        tps_sampling = True
+    s = S()
 
     def _run():
-        global tps_sampling
+        _ctx.srv = s
         try:
             sample_tps(force=True)
         finally:
-            with tps_lock:
-                tps_sampling = False
+            with s.tps_lock:
+                s.tps_sampling = False
+    with s.tps_lock:
+        if s.tps_sampling:
+            return False
+        s.tps_sampling = True
     threading.Thread(target=_run, daemon=True).start()
     return True
 
@@ -537,13 +628,18 @@ def request_tps_sample():
 def tps_worker():
     while True:
         try:
-            if find_running_mc_pid() is not None:
-                with tps_lock:
-                    busy = tps_sampling
-                    fresh = (tps_cache["data"].get("ok")
-                             and time.time() - tps_cache["ts"] < TPS_TTL)
-                if not busy and not fresh:
-                    request_tps_sample()
+            for srv in SERVERS.values():
+                _ctx.srv = srv
+                try:
+                    if find_running_mc_pid() is not None:
+                        with srv.tps_lock:
+                            busy = srv.tps_sampling
+                            fresh = (srv.tps_cache["data"].get("ok")
+                                     and time.time() - srv.tps_cache["ts"] < TPS_TTL)
+                        if not busy and not fresh:
+                            request_tps_sample()
+                finally:
+                    _ctx.srv = None
         except Exception:
             pass
         time.sleep(10)
@@ -581,17 +677,22 @@ def metrics_worker():
     """Hilo de fondo que muestrea métricas cada 1.5s de forma continua."""
     while True:
         try:
-            pid = find_running_mc_pid()
-            status = get_server_status(pid)
-            cpu = calculate_cpu(pid) if pid else 0.0
-            mem = get_memory_mb(pid) if pid else 0
-            now_str = time.strftime("%H:%M:%S")
-            metrics_history.append({
-                "time": now_str,
-                "cpu": cpu,
-                "mem": mem,
-                "status": status
-            })
+            for srv in SERVERS.values():
+                _ctx.srv = srv
+                try:
+                    pid = find_running_mc_pid()
+                    status = get_server_status(pid)
+                    cpu = calculate_cpu(pid) if pid else 0.0
+                    mem = get_memory_mb(pid) if pid else 0
+                    now_str = time.strftime("%H:%M:%S")
+                    srv.metrics.append({
+                        "time": now_str,
+                        "cpu": cpu,
+                        "mem": mem,
+                        "status": status
+                    })
+                finally:
+                    _ctx.srv = None
         except Exception:
             pass
         time.sleep(1.5)
@@ -599,51 +700,51 @@ def metrics_worker():
 threading.Thread(target=metrics_worker, daemon=True).start()
 
 def start_server_action():
-    global proc, stop_requested
-    with state_lock:
+    s = S()
+    with s.lock:
         current_pid = find_running_mc_pid()
         if current_pid is not None:
             return False, f"El servidor ya está en ejecución (PID {current_pid})"
         try:
-            logf = open(CHILD_LOG, "ab", buffering=0)
-            proc = subprocess.Popen(
-                START_CMD, cwd=SERVER_DIR,
+            logf = open(s.child_log, "ab", buffering=0)
+            s.proc = subprocess.Popen(
+                s.start_cmd, cwd=s.server_dir,
                 stdin=subprocess.PIPE, stdout=logf, stderr=subprocess.STDOUT,
                 close_fds=True
             )
-            stop_requested = False
-            return True, f"Servidor iniciando (PID {proc.pid})..."
+            s.stop_requested = False
+            return True, f"Servidor iniciando (PID {s.proc.pid})..."
         except Exception as e:
-            proc = None
+            s.proc = None
             return False, f"Error al iniciar: {e}"
 
 def stop_server_action(force=False):
-    global proc, stop_requested
-    with state_lock:
+    s = S()
+    with s.lock:
         pid = find_running_mc_pid()
         if pid is None:
-            stop_requested = False
+            s.stop_requested = False
             return False, "El servidor ya está apagado"
-        stop_requested = True
+        s.stop_requested = True
         try:
             if force:
                 # Intentar stop elegante por RCON primero, luego SIGKILL
                 ok, _ = rcon_send("stop", timeout=3)
                 time.sleep(2)
                 if find_running_mc_pid() is None:
-                    stop_requested = False
+                    s.stop_requested = False
                     return True, "Servidor detenido (RCON stop)"
                 try:
                     os.kill(pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
-                stop_requested = False
+                s.stop_requested = False
                 return True, "Servidor terminado forzosamente (SIGKILL)"
             # Apagado elegante en cascada: stdin -> RCON -> SIGTERM
-            if proc is not None and proc.poll() is None and proc.stdin:
+            if s.proc is not None and s.proc.poll() is None and s.proc.stdin:
                 try:
-                    proc.stdin.write(b"stop\n")
-                    proc.stdin.flush()
+                    s.proc.stdin.write(b"stop\n")
+                    s.proc.stdin.flush()
                     return True, "Enviada orden de apagado segura (stdin, guardando mundo)..."
                 except Exception:
                     pass
@@ -653,7 +754,7 @@ def stop_server_action(force=False):
             try:
                 os.kill(pid, signal.SIGTERM)
             except ProcessLookupError:
-                stop_requested = False
+                s.stop_requested = False
                 return False, "El servidor ya está apagado"
             return True, f"Enviada señal SIGTERM (RCON no disponible: {resp})..."
         except Exception as e:
@@ -671,7 +772,7 @@ def restart_server_action():
 
 
 def send_command_action(cmd):
-    global proc
+    s = S()
     cmd = (cmd or "").strip()
     if not cmd:
         return False, "Comando vacío"
@@ -697,10 +798,10 @@ def send_command_action(cmd):
     if pid is None:
         return False, "El servidor está apagado (usa 'start' para encenderlo)"
     # Nivel 1: stdin directo si el panel lanzó el proceso
-    if proc is not None and proc.poll() is None and proc.stdin:
+    if s.proc is not None and s.proc.poll() is None and s.proc.stdin:
         try:
-            proc.stdin.write((cmd + "\n").encode("utf-8"))
-            proc.stdin.flush()
+            s.proc.stdin.write((cmd + "\n").encode("utf-8"))
+            s.proc.stdin.flush()
             return True, f"Comando enviado: {cmd}"
         except Exception:
             pass  # caer a RCON
@@ -718,13 +819,14 @@ def send_command_action(cmd):
     return False, f"No se pudo enviar ({rcon_err} / {msg2})"
 
 def get_server_stats_data():
+    srv = S()
     pid = find_running_mc_pid()
     status = get_server_status(pid)
     uptime = get_process_uptime(pid)
     world_gb = get_world_size_gb()
     online, max_p, names = query_mc_players() if status == "RUNNING" else (0, 20, [])
-    
-    latest_metric = list(metrics_history)[-1] if metrics_history else {"cpu": 0.0, "mem": 0}
+
+    latest_metric = list(srv.metrics)[-1] if srv.metrics else {"cpu": 0.0, "mem": 0}
     
     try:
         with open("/proc/loadavg") as f:
@@ -739,19 +841,21 @@ def get_server_stats_data():
         "cpu": latest_metric["cpu"],
         "mem_mb": latest_metric["mem"],
         "mem_gb": round(latest_metric["mem"] / 1024.0, 2),
-        "max_mem_gb": MAX_MEM_GB,
+        "max_mem_gb": srv.max_mem_gb,
         "world_gb": world_gb,
         "online_players": online,
         "max_players": max_p,
         "player_names": names,
         "sessions": player_sessions(names) if names else {},
         # Sin proceso no hay TPS que mostrar (el caché viejo se oculta)
-        "tps": tps_cache["data"] if pid is not None else {"ok": False},
+        "tps": srv.tps_cache["data"] if pid is not None else {"ok": False},
         "system_load": ", ".join(load),
-        "port": MC_PORT,
+        "port": srv.mc_port,
         "public_ip": get_public_ip(),
         "playit": get_playit_status(),
-        "history": list(metrics_history)
+        "history": list(srv.metrics),
+        "server_id": srv.id,
+        "server_name": srv.name
     }
 
 
@@ -764,37 +868,17 @@ except Exception as e:
     HAVE_BACKUP = False
     print(f"[pkhosting] backup.py no disponible: {e}", flush=True)
 
-backup_lock = threading.Lock()
-backup_state = {"running": False, "job": None, "msg": "", "updated": 0,
-                "pct": 0, "stage": ""}
-
-
 def _bk_progress(pct, stage):
-    with backup_lock:
-        backup_state.update(pct=max(0, min(100, int(pct))), stage=stage,
-                            updated=time.time())
+    s = S()
+    with s.backup_lock:
+        s.backup_state.update(pct=max(0, min(100, int(pct))), stage=stage,
+                              updated=time.time())
 
 
 def _bk_log(m, *args, **kwargs):
     # Acepta flush=True porque backup.py llama log(msg, flush=True) como print
-    with backup_lock:
-        backup_state.update(msg=m, updated=time.time())
-
-
-def _backup_cfg():
-    c = load_config()
-    return {
-        "enabled": bool(c.get("backup_enabled", False)),
-        "dir": os.path.expanduser(c.get("backup_dir", "~/mc-backups")),
-        "retention_days": int(c.get("retention_days", 7)),
-        "keep_monthly": bool(c.get("keep_monthly", True)),
-        "time": str(c.get("backup_time", "04:00")),
-    }
-
-
-def _bk_dirs():
-    c = _backup_cfg()
-    return SERVER_DIR, WORLD_NAME, c["dir"], c["retention_days"], c["keep_monthly"]
+    with S().backup_lock:
+        S().backup_state.update(msg=m, updated=time.time())
 
 
 def _bk_send(cmd):
@@ -802,44 +886,72 @@ def _bk_send(cmd):
     return ok, msg
 
 
-def _backup_worker(mode, name=None):
-    with backup_lock:
-        backup_state.update(running=True, job=mode, msg="iniciando...",
-                            pct=0, stage="iniciando", updated=time.time())
+def _backup_worker(srv, mode, name=None):
+    _ctx.srv = srv
+    with srv.backup_lock:
+        srv.backup_state.update(running=True, job=mode, msg="iniciando...",
+                                pct=0, stage="iniciando", updated=time.time())
+
+    def _prog(pct, stage):
+        _ctx.srv = srv
+        _bk_progress(pct, stage)
+
+    def _log(m, *a, **k):
+        _ctx.srv = srv
+        _bk_log(m)
+
+    def _send(cmd):
+        _ctx.srv = srv
+        return _bk_send(cmd)
+
+    def _stop():
+        _ctx.srv = srv
+        return stop_server_action(force=False)
+
+    def _start():
+        _ctx.srv = srv
+        return start_server_action()
+
+    def _running():
+        _ctx.srv = srv
+        return find_running_mc_pid() is not None
     try:
-        sdir, world, bdir, ret, keepm = _bk_dirs()
         if mode == "run":
-            ok, msg = bk.run_backup(sdir, world, bdir, send_fn=_bk_send,
-                                    retention_days=ret, keep_monthly=keepm,
-                                    log=_bk_log, progress=_bk_progress)
+            ok, msg = bk.run_backup(srv.server_dir, srv.world_name, srv.backup_dir,
+                                    send_fn=_send,
+                                    retention_days=srv.retention_days,
+                                    keep_monthly=srv.keep_monthly,
+                                    log=_log, progress=_prog)
         elif mode == "restore":
             ok, msg = bk.restore_backup(
-                sdir, bdir, name,
-                stop_fn=lambda: stop_server_action(force=False),
-                start_fn=lambda: start_server_action(),
-                is_running_fn=lambda: find_running_mc_pid() is not None,
-                pre_backup=True, retention_days=ret, keep_monthly=keepm,
-                log=_bk_log, progress=_bk_progress)
+                srv.server_dir, srv.backup_dir, name,
+                stop_fn=_stop, start_fn=_start, is_running_fn=_running,
+                pre_backup=True, retention_days=srv.retention_days,
+                keep_monthly=srv.keep_monthly,
+                log=_log, progress=_prog)
         else:
             ok, msg = False, "trabajo desconocido"
-        with backup_lock:
-            backup_state.update(running=False, msg=("OK " if ok else "FAIL ") + msg,
-                                pct=100 if ok else backup_state.get("pct", 0),
+        with srv.backup_lock:
+            srv.backup_state.update(running=False, msg=("OK " if ok else "FAIL ") + msg,
+                                pct=100 if ok else srv.backup_state.get("pct", 0),
                                 stage="completado" if ok else "error",
                                 updated=time.time())
     except Exception as e:
-        with backup_lock:
-            backup_state.update(running=False, msg=f"FAIL {e}",
-                                stage="error", updated=time.time())
+        with srv.backup_lock:
+            srv.backup_state.update(running=False, msg=f"FAIL {e}",
+                                    stage="error", updated=time.time())
 
 
 def backups_status():
     import shutil as _sh
-    c = _backup_cfg()
+    srv = S()
+    c = {"enabled": srv.backup_enabled, "dir": srv.backup_dir,
+         "retention_days": srv.retention_days, "keep_monthly": srv.keep_monthly,
+         "time": srv.backup_time}
     info = {"ok": HAVE_BACKUP, "enabled": c["enabled"], "dir": c["dir"],
             "time": c["time"], "retention_days": c["retention_days"],
             "keep_monthly": c["keep_monthly"],
-            "job": dict(backup_state), "items": []}
+            "job": dict(srv.backup_state), "items": []}
     if not HAVE_BACKUP:
         info["msg"] = "backup.py no disponible"
         return info
@@ -868,7 +980,6 @@ def backups_status():
     return info
 
 
-SAFE_FS_ROOT = os.path.realpath(SERVER_DIR)
 MAX_FILE_READ = 2 * 1024 * 1024  # 2 MB
 
 _dirsize_cache = {}
@@ -910,9 +1021,10 @@ def dir_size_b(path):
 
 
 def safe_fs_path(rel):
+    root = S().fs_root
     rel = (rel or "").lstrip("/")
-    target = os.path.realpath(os.path.join(SAFE_FS_ROOT, rel))
-    if target != SAFE_FS_ROOT and not target.startswith(SAFE_FS_ROOT + os.sep):
+    target = os.path.realpath(os.path.join(root, rel))
+    if target != root and not target.startswith(root + os.sep):
         return None
     return target
 
@@ -953,7 +1065,8 @@ def fs_list(rel=""):
         return None, str(e)
 
 def read_console_lines(limit=250):
-    for fpath in (CHILD_LOG, LOG_FILE):
+    srv = S()
+    for fpath in (srv.child_log, srv.log_file):
         if os.path.exists(fpath):
             try:
                 with open(fpath, "r", encoding="utf-8", errors="replace") as f:
@@ -1990,6 +2103,11 @@ let historyBuffer = [];
 let cmdHistory = [];
 let cmdIndex = -1;
 
+const SRV = new URLSearchParams(location.search).get('server') || '';
+function U(p) {
+  if (!SRV) return p;
+  return p + (p.includes('?') ? '&' : '?') + 'server=' + encodeURIComponent(SRV);
+}
 function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -2006,7 +2124,7 @@ function copyIp() {
 }
 async function refreshPublicIp() {
   try {
-    const res = await fetch('/api/tunnels');
+    const res = await fetch(U('/api/tunnels'));
     const d = await res.json();
     if (d.public_ip) {
       currentPublicIp = d.public_ip;
@@ -2026,7 +2144,7 @@ async function refreshPublicIp() {
 async function savePublicIp() {
   const v = document.getElementById('publicIpInput').value.trim();
   try {
-    const res = await fetch('/api/public-ip', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ public_ip: v }) });
+    const res = await fetch(U('/api/public-ip'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ public_ip: v }) });
     const data = await res.json();
     showToast(data.msg || 'OK');
     refreshPublicIp();
@@ -2052,7 +2170,7 @@ function switchTab(name) {
 async function serverAction(act) {
   showToast('Enviando acción: ' + act.toUpperCase() + '...');
   try {
-    const res = await fetch('/api/' + act, { method: 'POST' });
+    const res = await fetch(U('/api/' + act), { method: 'POST' });
     const data = await res.json();
     showToast(data.msg || 'OK');
     setTimeout(refreshStats, 1200);
@@ -2069,7 +2187,7 @@ async function submitCmd() {
   cmdIndex = cmdHistory.length;
   input.value = '';
   try {
-    const res = await fetch('/api/cmd', {
+    const res = await fetch(U('/api/cmd'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ cmd: val })
@@ -2106,7 +2224,7 @@ async function playerAction(act, name) {
   if (!name) { showToast('Jugador no válido'); return; }
   if ((act === 'kick' || act === 'ban') && !confirm(`¿${act === 'ban' ? 'BANEAR' : 'Expulsar'} a "${name}"?`)) return;
   try {
-    const res = await fetch('/api/player', {
+    const res = await fetch(U('/api/player'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: act, name })
@@ -2152,7 +2270,7 @@ function highlightLogLine(line) {
 
 async function refreshConsole() {
   try {
-    const res = await fetch('/api/console');
+    const res = await fetch(U('/api/console'));
     const data = await res.json();
     const body = document.getElementById('termBody');
     if (data.lines && data.lines.length) {
@@ -2164,7 +2282,7 @@ async function refreshConsole() {
 
 async function refreshStats() {
   try {
-    const res = await fetch('/api/stats');
+    const res = await fetch(U('/api/stats'));
     const d = await res.json();
     
     // Status Badge
@@ -2418,7 +2536,7 @@ function fsGoto(p) { fsNav(p, true); }
 async function loadFiles(push = true) {
   const container = document.getElementById('filesContainer');
   try {
-    const res = await fetch('/api/files?path=' + encodeURIComponent(fsPath));
+    const res = await fetch(U('/api/files?path=' + encodeURIComponent(fsPath)));
     const data = await res.json();
     const files = fsApplySort(Array.isArray(data) ? data : (data.entries || []));
     const cur = (data && typeof data === 'object' && data.path !== undefined) ? data.path : fsPath;
@@ -2477,7 +2595,7 @@ function fsDownloadCurrent() {
   if (p && p !== '—') fsDownload(p);
 }
 async function fsPost(action, extra) {
-  const res = await fetch('/api/fs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, ...extra }) });
+  const res = await fetch(U('/api/fs'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, ...extra }) });
   return res.json();
 }
 async function fsCreate(kind) {
@@ -2494,14 +2612,14 @@ async function fsUpload() {
   for (const f of inp.files) fd.append('files', f, f.name);
   showToast('Subiendo ' + inp.files.length + ' archivo(s)...');
   try {
-    const res = await fetch('/api/upload?path=' + encodeURIComponent(fsPath), { method: 'POST', body: fd });
+    const res = await fetch(U('/api/upload?path=' + encodeURIComponent(fsPath)), { method: 'POST', body: fd });
     const r = await res.json();
     showToast(r.msg || 'OK');
   } catch (e) { showToast('Error al subir'); }
   inp.value = '';
   loadFiles();
 }
-function fsDownload(p) { window.open('/api/download?path=' + encodeURIComponent(p), '_blank'); }
+function fsDownload(p) { window.open(U('/api/download?path=' + encodeURIComponent(p)), '_blank'); }
 async function fsRename(p) {
   const dest = (prompt('Renombrar / mover a (ruta relativa):', p) || '').trim();
   if (!dest || dest === p) return;
@@ -2519,7 +2637,7 @@ const BK_SVG_BACK = '<svg class="ico" viewBox="0 0 24 24"><polyline points="1 4 
 const BK_SVG_TRASH = '<svg class="ico" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
 async function loadBackups() {
   try {
-    const res = await fetch('/api/backups');
+    const res = await fetch(U('/api/backups'));
     const d = await res.json();
     const st = document.getElementById('bkStatus');
     const w = d.writable ? '✔ destino escribible' : '✘ destino NO escribible' + (d.writable_msg ? ': ' + d.writable_msg : '');
@@ -2555,7 +2673,7 @@ async function loadBackups() {
 async function backupNow() {
   showToast('Iniciando backup...');
   try {
-    const r = await (await fetch('/api/backup-now', { method: 'POST' })).json();
+    const r = await (await fetch(U('/api/backup-now'), { method: 'POST' })).json();
     showToast(r.msg || 'OK');
   } catch (e) { showToast('Error al iniciar backup'); }
   setTimeout(loadBackups, 1500);
@@ -2563,7 +2681,7 @@ async function backupNow() {
 async function restoreBackup(name) {
   if (!confirm(`¿RESTAURAR "${name}"?\n\nDetiene el servidor, guarda un pre-backup de seguridad y sobrescribe el mundo actual.`)) return;
   try {
-    const r = await (await fetch('/api/restore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) })).json();
+    const r = await (await fetch(U('/api/restore'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) })).json();
     showToast(r.msg || 'OK');
   } catch (e) { showToast('Error al restaurar'); }
   setTimeout(loadBackups, 2000);
@@ -2571,7 +2689,7 @@ async function restoreBackup(name) {
 async function deleteBackup(name) {
   if (!confirm(`¿Eliminar el backup "${name}"?`)) return;
   try {
-    const r = await (await fetch('/api/backup-delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) })).json();
+    const r = await (await fetch(U('/api/backup-delete'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) })).json();
     showToast(r.msg || 'OK');
   } catch (e) { showToast('Error al eliminar'); }
   loadBackups();
@@ -2581,14 +2699,14 @@ setInterval(() => { const t = document.getElementById('tab-backups'); if (t && t
 async function refreshTps() {
   showToast('Muestreando TPS...');
   try {
-    const r = await (await fetch('/api/tps', { method: 'POST' })).json();
+    const r = await (await fetch(U('/api/tps'), { method: 'POST' })).json();
     showToast(r.msg || 'OK');
   } catch (e) { showToast('Error al muestrear'); }
 }
 
 async function loadProps() {
   try {
-    const res = await fetch('/api/file?path=server.properties');
+    const res = await fetch(U('/api/file?path=server.properties'));
     const data = await res.json();
     document.getElementById('propsText').value = data.content || '';
   } catch (e) {}
@@ -2597,7 +2715,7 @@ async function loadProps() {
 async function saveProps() {
   const content = document.getElementById('propsText').value;
   try {
-    const res = await fetch('/api/file', {
+    const res = await fetch(U('/api/file'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: 'server.properties', content: content })
@@ -2621,23 +2739,35 @@ refreshConsole();
 MAX_UPLOAD = 300 * 1024 * 1024  # 300 MB
 
 
-def build_page():
-    """HTML con los valores de config.json (nombre, subtítulo, puertos, dir)."""
+def build_page(srv=None):
+    """HTML con los valores del servidor (nombre, subtítulo, puertos, dir)."""
+    srv = srv or S()
     p = HTML_PAGE
-    local_ip = f"localhost:{MC_PORT}"
+    local_ip = srv.local_ip()
     repl = {
-        "PrankLindorf": SERVER_NAME,
+        "PrankLindorf": srv.name,
         "NeoForge 1.21.1 · Java 21 · Puerto 25566":
-            f"{CFG['server_subtitle']} · Puerto {MC_PORT}",
+            f"{srv.subtitle} · Puerto {srv.mc_port}",
         "localhost:25566": local_ip,
-        "25566 (TCP / UDP)": f"{MC_PORT} (TCP / UDP)",
-        "(puerto 25566)": f"(puerto {MC_PORT})",
-        "~/PrankLindorf-NeoForge": CFG["server_dir"],
+        "25566 (TCP / UDP)": f"{srv.mc_port} (TCP / UDP)",
+        "(puerto 25566)": f"(puerto {srv.mc_port})",
+        "~/PrankLindorf-NeoForge": srv.server_dir,
         "16 núcleos disponibles": f"{os.cpu_count() or '?'} núcleos disponibles",
-        "PKHosting Panel — " + SERVER_NAME: f"PKHosting Panel — {SERVER_NAME}",
+        "PKHosting Panel — " + srv.name: f"PKHosting Panel — {srv.name}",
     }
     for old, new in repl.items():
         p = p.replace(old, new)
+    if len(SERVERS) > 1:
+        opts = "".join(
+            f'<option value="{s.id}"{" selected" if s.id == srv.id else ""}>{s.name}</option>'
+            for s in SERVERS.values())
+        switcher = (
+            '<div class="server-switcher" style="padding:10px 20px;border-bottom:1px solid var(--border-color)">'
+            '<select id="srvSel" onchange="location.search=\'?server=\'+encodeURIComponent(this.value)" '
+            'style="width:100%;background:var(--bg-terminal);border:1px solid var(--border-color);'
+            'border-radius:8px;padding:8px 10px;color:#e2e8f0;font-size:13px">'
+            + opts + '</select></div>')
+        p = p.replace('<div class="server-selector">', switcher + '<div class="server-selector">', 1)
     return p
 
 
@@ -2709,8 +2839,25 @@ class BisectPanelHandler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
 
+    def _select_server(self, u, payload=None):
+        sid = None
+        qs = parse_qs(u.query)
+        if "server" in qs and qs["server"]:
+            sid = qs["server"][0]
+        elif isinstance(payload, dict) and payload.get("server"):
+            sid = payload["server"]
+        if sid is None:
+            _ctx.srv = next(iter(SERVERS.values()))
+        elif sid in SERVERS:
+            _ctx.srv = SERVERS[sid]
+        else:
+            return False
+        return True
+
     def do_GET(self):
         u = urlparse(self.path)
+        if not self._select_server(u):
+            return self.send_json({"error": "servidor desconocido"}, code=404)
         if u.path == "/" or u.path == "/index.html":
             try:
                 body = build_page().encode("utf-8")
@@ -2780,6 +2927,10 @@ class BisectPanelHandler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
 
+        if u.path == "/api/servers":
+            return self.send_json({"servers": [
+                {"id": s.id, "name": s.name} for s in SERVERS.values()]})
+
         if u.path == "/api/backups":
             return self.send_json(backups_status())
 
@@ -2794,15 +2945,17 @@ class BisectPanelHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         u = urlparse(self.path)
+        length = int(self.headers.get("Content-Length", 0))
+        raw = self.rfile.read(length).decode("utf-8") if length else "{}"
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            payload = {}
+        if not self._select_server(u, payload):
+            return self.send_json({"error": "servidor desconocido"}, code=404)
         if u.path == "/api/upload":
             qs = parse_qs(u.query)
             return handle_upload(self, qs.get("path", [""])[0])
-        length = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(length).decode("utf-8") if length else "{}"
-        try:
-            payload = json.loads(body)
-        except Exception:
-            payload = {}
 
         if u.path == "/api/start":
             ok, msg = start_server_action()
@@ -2911,7 +3064,7 @@ class BisectPanelHandler(BaseHTTPRequestHandler):
                 if action == "delete":
                     import shutil as _shutil
                     target = safe_fs_path(rel)
-                    if target is None or os.path.realpath(target) == SAFE_FS_ROOT:
+                    if target is None or os.path.realpath(target) == S().fs_root:
                         return self.send_json({"ok": False, "msg": "No se puede borrar la raíz"}, code=400)
                     if not os.path.exists(target):
                         return self.send_json({"ok": False, "msg": "No existe"}, code=404)
@@ -2928,31 +3081,36 @@ class BisectPanelHandler(BaseHTTPRequestHandler):
             ok, msg = set_public_ip(payload.get("public_ip", "") or payload.get("ip", ""))
             return self.send_json({"ok": ok, "msg": msg})
 
+        if u.path == "/api/servers":
+            return self.send_json({"servers": [
+                {"id": s.id, "name": s.name} for s in SERVERS.values()]})
+
         if u.path == "/api/backup-now":
             if not HAVE_BACKUP:
                 return self.send_json({"ok": False, "msg": "backup.py no disponible"})
-            if backup_state["running"]:
-                return self.send_json({"ok": False, "msg": "ya hay un trabajo en curso: " + backup_state.get("msg", "")})
-            threading.Thread(target=_backup_worker, args=("run",), daemon=True).start()
+            srv = S()
+            if srv.backup_state["running"]:
+                return self.send_json({"ok": False, "msg": "ya hay un trabajo en curso: " + srv.backup_state.get("msg", "")})
+            threading.Thread(target=_backup_worker, args=(srv, "run"), daemon=True).start()
             return self.send_json({"ok": True, "msg": "Backup iniciado en segundo plano"})
 
         if u.path == "/api/restore":
             if not HAVE_BACKUP:
                 return self.send_json({"ok": False, "msg": "backup.py no disponible"})
-            if backup_state["running"]:
+            srv = S()
+            if srv.backup_state["running"]:
                 return self.send_json({"ok": False, "msg": "ya hay un trabajo en curso"})
             name = os.path.basename(payload.get("name", ""))
             if not name or not bk.FNAME_RE.match(name):
                 return self.send_json({"ok": False, "msg": "backup inválido"}, code=400)
-            threading.Thread(target=_backup_worker, args=("restore", name), daemon=True).start()
+            threading.Thread(target=_backup_worker, args=(srv, "restore", name), daemon=True).start()
             return self.send_json({"ok": True, "msg": f"Restaurando {name} (detiene el servidor, hace pre-backup y rearranca)..."})
 
         if u.path == "/api/backup-delete":
             if not HAVE_BACKUP:
                 return self.send_json({"ok": False, "msg": "backup.py no disponible"})
             name = os.path.basename(payload.get("name", ""))
-            _, _, bdir, _, _ = _bk_dirs()
-            target = os.path.join(bdir, name)
+            target = os.path.join(S().backup_dir, name)
             if not name or not bk.FNAME_RE.match(name) or not os.path.isfile(target):
                 return self.send_json({"ok": False, "msg": "backup inválido"}, code=400)
             try:
