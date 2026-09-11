@@ -132,6 +132,7 @@ journalctl --user -u pkhosting.service -f
 | Panel OFFLINE tras reiniciarlo | Normal si el MC no corría; usa INICIAR o escribe `start`. El MC sobrevive a reinicios del panel. |
 | `RCON auth fallida` | El password de `server.properties` ≠ el del archivo `rcon-password`. Iguala y reinicia el MC. |
 | Página no carga | `systemctl --user status pkhosting.service` y revisa el puerto en `config.json`. |
+| La RAM supera el `-Xmx` (ej. 9 GB con Xmx 8 GB) | Normal: `-Xmx` limita solo el *heap*. El panel mide RSS total = heap + *metaspace* (clases de los mods) + stacks de hilos + buffers directos + JVM. Con ~200 mods, ~1 GB extra es lo esperado. Solo preocúpate si el sistema se queda sin RAM libre. |
 
 ## Desinstalación
 
