@@ -1,11 +1,12 @@
 [Unit]
-Description=PrankLindorf Panel (estilo BisectHosting)
+Description=PKHosting Panel
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /home/itsyusei99/mc-panel/panel.py
+# PK panel.py (ruta de instalación, la escribe install.sh)
+ExecStart=%h/PKHosting/panel.py
 Restart=on-failure
 RestartSec=10
 # No matar el servidor Minecraft al reiniciar/detener el panel:

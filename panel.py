@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """
-Panel estilo BisectHosting / Pterodactyl para PrankLindorf (NeoForge 1.21.1)
+PKHosting — panel web instalable para servidores Minecraft Java.
 - Estado en tiempo real (RUNNING / OFFLINE / STARTING / STOPPING)
 - Métricas en vivo con gráficos de CPU y RAM
-- Página de consola dedicada con historial y envío de comandos
-- Explorador de archivos del servidor
-- Sin contraseña (acceso local directo en http://127.0.0.1:8000)
+- Consola dedicada con alias de nivel panel (start/stop/restart/reload/kill)
+- Explorador de archivos con CRUD + subida multipart + editor
+- RCON persistente (sobrevive a reinicios del panel)
+- Configuración en ~/.config/pkhosting/config.json (ver config.example.json)
 """
+
+PK_VERSION = "1.0.0"
 
 import collections
 import html
@@ -23,14 +26,67 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
 
-SERVER_DIR = os.path.expanduser("~/PrankLindorf-NeoForge")
-START_CMD = ["bash", "start.sh"]
+CONFIG_DIR = os.path.expanduser("~/.config/pkhosting")
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
+
+DEFAULT_CONFIG = {
+    "server_name": "MiServidor",
+    "server_subtitle": "Minecraft Server",
+    "server_dir": "~/minecraft-server",
+    "start_cmd": ["bash", "start.sh"],
+    "world_name": "world",
+    "panel_port": 8000,
+    "mc_port": 25565,
+    "rcon_port": 25575,
+    "max_mem_gb": 4.0,
+}
+
+
+def load_config():
+    cfg = dict(DEFAULT_CONFIG)
+    try:
+        with open(CONFIG_FILE) as f:
+            user = json.load(f)
+        for k in cfg:
+            if k in user:
+                cfg[k] = user[k]
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        print(f"[pkhosting] config inválida ({e}), usando valores por defecto)", flush=True)
+    cfg["server_dir"] = os.path.expanduser(cfg["server_dir"])
+    return cfg
+
+
+CFG = load_config()
+
+SERVER_DIR = CFG["server_dir"]
+START_CMD = CFG["start_cmd"]
 LOG_FILE = os.path.join(SERVER_DIR, "logs", "latest.log")
 CHILD_LOG = os.path.join(SERVER_DIR, "logs", "panel-child.log")
-PORT = 8000
+PORT = int(CFG["panel_port"])
+MC_PORT = int(CFG["mc_port"])
 RCON_HOST = "127.0.0.1"
-RCON_PORT = 25575
-RCON_PASS_FILE = os.path.expanduser("~/.config/mc-panel-rcon")
+RCON_PORT = int(CFG["rcon_port"])
+MAX_MEM_GB = float(CFG["max_mem_gb"])
+SERVER_NAME = CFG["server_name"]
+WORLD_NAME = CFG["world_name"]
+
+
+def _first_existing(*paths):
+    for p in paths:
+        try:
+            if p and os.path.isfile(p):
+                return p
+        except Exception:
+            continue
+    return paths[0]
+
+
+RCON_PASS_FILE = _first_existing(
+    os.path.join(CONFIG_DIR, "rcon-password"),
+    os.path.expanduser("~/.config/mc-panel-rcon"),  # legado
+)
 
 
 def get_rcon_password():
@@ -107,19 +163,25 @@ def write_stdin_fallback(pid, text):
         except Exception:
             pass
 
-PUBLIC_IP_FILE = os.path.expanduser("~/.config/mc-panel-public-ip")
+PUBLIC_IP_FILE = _first_existing(
+    os.path.join(CONFIG_DIR, "public-ip"),
+    os.path.expanduser("~/.config/mc-panel-public-ip"),  # legado
+)
 
 
 def get_public_ip():
     """IP pública (playit.gg) configurada para mostrar en el panel."""
-    try:
-        with open(PUBLIC_IP_FILE) as f:
-            ip = f.read().strip()
-            if ip:
-                return ip
-    except Exception:
-        pass
-    return "localhost:25566"
+    for path in (PUBLIC_IP_FILE,
+                 os.path.join(CONFIG_DIR, "public-ip"),
+                 os.path.expanduser("~/.config/mc-panel-public-ip")):
+        try:
+            with open(path) as f:
+                ip = f.read().strip()
+                if ip:
+                    return ip
+        except Exception:
+            continue
+    return f"localhost:{MC_PORT}"
 
 
 def set_public_ip(ip):
@@ -172,28 +234,58 @@ metrics_history = collections.deque(maxlen=40)
 cpu_prev_sample = None
 
 def find_running_mc_pid():
-    """Encuentra el PID del servidor dedicado (excluye cliente Modrinth/Theseus)."""
+    """PID del java del servidor: coincide cwd con SERVER_DIR (genérico para
+    Vanilla/Forge/Fabric/NeoForge). Excluye lanzadores de cliente."""
+    root = os.path.realpath(SERVER_DIR)
     for pid_str in os.listdir("/proc"):
         if not pid_str.isdigit():
             continue
         try:
-            cmdline_path = f"/proc/{pid_str}/cmdline"
-            with open(cmdline_path, "rb") as f:
+            with open(f"/proc/{pid_str}/cmdline", "rb") as f:
                 cmd = f.read().decode("utf-8", "ignore")
             if not cmd:
                 continue
             low = cmd.lower()
-            # Excluir lanzadores de cliente
+            if "theseus" in low or "forgeclient" in low or "modrinthapp" in low:
+                continue
+            try:
+                exe = os.path.basename(os.readlink(f"/proc/{pid_str}/exe"))
+            except Exception:
+                exe = ""
+            if not exe.startswith("java"):
+                continue
+            try:
+                cwd = os.path.realpath(f"/proc/{pid_str}/cwd")
+            except Exception:
+                continue
+            if cwd == root:
+                return int(pid_str)
+        except Exception:
+            continue
+    # Fallback: heurística NeoForge solo si el cwd no es legible o coincide
+    # (evita secuestrar OTRO servidor con distinto directorio en multi-instancia).
+    for pid_str in os.listdir("/proc"):
+        if not pid_str.isdigit():
+            continue
+        try:
+            with open(f"/proc/{pid_str}/cmdline", "rb") as f:
+                cmd = f.read().decode("utf-8", "ignore")
+            low = cmd.lower()
             if "theseus" in low or "forgeclient" in low or "modrinthapp" in low:
                 continue
             if "unix_args.txt" in cmd and "libraries" in cmd:
-                return int(pid_str)
+                try:
+                    cwd = os.path.realpath(f"/proc/{pid_str}/cwd")
+                except Exception:
+                    cwd = None
+                if cwd is None or cwd == root:
+                    return int(pid_str)
         except Exception:
             continue
     return None
 
-def is_port_listening(port=25566):
-    """Verifica si el puerto 25566 está en estado LISTEN directamente en /proc/net."""
+def is_port_listening(port):
+    """Verifica si un puerto está en estado LISTEN directamente en /proc/net."""
     hex_port = f":{port:04X}"
     for net_file in ("/proc/net/tcp", "/proc/net/tcp6"):
         try:
@@ -213,7 +305,7 @@ def get_server_status(pid):
         return "OFFLINE"
     if stop_requested:
         return "STOPPING"
-    if is_port_listening(25566):
+    if is_port_listening(MC_PORT):
         return "RUNNING"
     return "STARTING"
 
@@ -265,7 +357,7 @@ def get_process_uptime(pid):
 
 def get_world_size_gb():
     try:
-        world_path = os.path.join(SERVER_DIR, "PrankLindorf")
+        world_path = os.path.join(SERVER_DIR, WORLD_NAME)
         total = sum(os.path.getsize(os.path.join(dp, f))
                     for dp, _, fns in os.walk(world_path)
                     for f in fns)
@@ -275,8 +367,9 @@ def get_world_size_gb():
 
 def query_mc_players():
     try:
-        s = socket.create_connection(("127.0.0.1", 25566), timeout=2)
+        s = socket.create_connection(("127.0.0.1", MC_PORT), timeout=2)
         def varint(n):
+            n &= 0xFFFFFFFF  # soporta protocolo -1 (cualquier versión)
             out = b""
             while True:
                 b = n & 0x7F
@@ -285,7 +378,7 @@ def query_mc_players():
                 if not n:
                     return out
         host = b"localhost"
-        hs = varint(0) + varint(767) + varint(len(host)) + host + struct.pack(">H", 25566) + varint(1)
+        hs = varint(0) + varint(-1) + varint(len(host)) + host + struct.pack(">H", MC_PORT) + varint(1)
         s.sendall(varint(len(hs)) + hs)
         s.sendall(varint(1) + varint(0))
         def rvi():
@@ -473,13 +566,13 @@ def get_server_stats_data():
         "cpu": latest_metric["cpu"],
         "mem_mb": latest_metric["mem"],
         "mem_gb": round(latest_metric["mem"] / 1024.0, 2),
-        "max_mem_gb": 8.0,
+        "max_mem_gb": MAX_MEM_GB,
         "world_gb": world_gb,
         "online_players": online,
         "max_players": max_p,
         "player_names": names,
         "system_load": ", ".join(load),
-        "port": 25566,
+        "port": MC_PORT,
         "public_ip": get_public_ip(),
         "playit": get_playit_status(),
         "history": list(metrics_history)
@@ -2060,6 +2153,26 @@ refreshConsole();
 MAX_UPLOAD = 300 * 1024 * 1024  # 300 MB
 
 
+def build_page():
+    """HTML con los valores de config.json (nombre, subtítulo, puertos, dir)."""
+    p = HTML_PAGE
+    local_ip = f"localhost:{MC_PORT}"
+    repl = {
+        "PrankLindorf": SERVER_NAME,
+        "NeoForge 1.21.1 · Java 21 · Puerto 25566":
+            f"{CFG['server_subtitle']} · Puerto {MC_PORT}",
+        "localhost:25566": local_ip,
+        "25566 (TCP / UDP)": f"{MC_PORT} (TCP / UDP)",
+        "(puerto 25566)": f"(puerto {MC_PORT})",
+        "~/PrankLindorf-NeoForge": CFG["server_dir"],
+        "16 núcleos disponibles": f"{os.cpu_count() or '?'} núcleos disponibles",
+        "PKHosting Panel — " + SERVER_NAME: f"PKHosting Panel — {SERVER_NAME}",
+    }
+    for old, new in repl.items():
+        p = p.replace(old, new)
+    return p
+
+
 def handle_upload(handler, dest_rel):
     dest_dir = safe_fs_path(dest_rel or "")
     if dest_dir is None:
@@ -2132,7 +2245,7 @@ class BisectPanelHandler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         if u.path == "/" or u.path == "/index.html":
             try:
-                body = HTML_PAGE.encode("utf-8")
+                body = build_page().encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))

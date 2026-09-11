@@ -1,0 +1,11 @@
+{
+  "server_name": "MiServidor",
+  "server_subtitle": "Minecraft Server · Java 21",
+  "server_dir": "~/minecraft-server",
+  "start_cmd": ["bash", "start.sh"],
+  "world_name": "world",
+  "panel_port": 8000,
+  "mc_port": 25565,
+  "rcon_port": 25575,
+  "max_mem_gb": 4.0
+}
