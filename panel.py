@@ -372,6 +372,7 @@ def get_world_size_gb():
         return 0.0
 
 def query_mc_players():
+    s = None
     try:
         s = socket.create_connection(("127.0.0.1", MC_PORT), timeout=2)
         def varint(n):
@@ -388,27 +389,65 @@ def query_mc_players():
         s.sendall(varint(len(hs)) + hs)
         s.sendall(varint(1) + varint(0))
         def rvi():
-            n = sh = 0
+            # Devuelve (valor, bytes consumidos)
+            n = sh = size = 0
             while True:
                 chunk = s.recv(1)
                 if not chunk:
                     raise ConnectionError()
+                size += 1
                 b = chunk[0]
                 n |= (b & 0x7F) << sh
                 if not (b & 0x80):
-                    return n
+                    return n, size
                 sh += 7
-        ln, _ = rvi(), rvi()
+        plen, _ = rvi()       # largo total (incluye el packet ID)
+        _, pid_len = rvi()    # packet ID (status = 0, 1 byte)
+        need = plen - pid_len  # lo que falta es solo el JSON
         data = b""
-        while len(data) < ln:
-            data += s.recv(min(4096, ln - len(data)))
-        s.close()
+        while len(data) < need:
+            chunk = s.recv(min(4096, need - len(data)))
+            if not chunk:
+                raise ConnectionError("respuesta truncada")
+            data += chunk
         info = json.loads(data.decode("utf-8", "ignore"))
         players = info.get("players", {})
         names = [p.get("name", "?") for p in players.get("sample", []) or []]
         return players.get("online", 0), players.get("max", 20), names
     except Exception:
         return 0, 20, []
+    finally:
+        try:
+            if s is not None:
+                s.close()
+        except Exception:
+            pass
+
+
+PLAYER_NAME_RE = re.compile(r"^[A-Za-z0-9_]{3,16}$")
+
+
+def player_action(action, name, reason=""):
+    """op / deop / kick / ban con validación. Devuelve (ok, msg)."""
+    action = (action or "").lower()
+    name = (name or "").strip()
+    reason = (reason or "").strip().replace("\n", " ")[:100]
+    if action not in ("op", "deop", "kick", "ban"):
+        return False, "acción inválida"
+    if not PLAYER_NAME_RE.match(name):
+        return False, "nombre de jugador inválido (3-16 letras, números o _)"
+    if find_running_mc_pid() is None:
+        return False, "El servidor está apagado"
+    if action in ("kick", "ban") and reason:
+        cmd = f"{action} {name} {reason}"
+    else:
+        cmd = f"{action} {name}"
+    ok, msg = send_command_action(cmd)
+    if ok:
+        labels = {"op": "OP otorgado a", "deop": "OP retirado a",
+                  "kick": "Expulsado", "ban": "Baneado"}
+        return True, f"{labels[action]} {name}"
+    return False, msg
 
 def metrics_worker():
     """Hilo de fondo que muestrea métricas cada 1.5s de forma continua."""
@@ -1676,6 +1715,20 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
           <button class="cmd-btn" onclick="submitCmd()">Enviar</button>
         </div>
       </div>
+      <div class="system-details-card" style="margin-top:12px">
+        <h3 style="margin-bottom:4px; font-size:15px;">Gestión de jugadores</h3>
+        <div id="onlineChips" style="display:flex; gap:8px; flex-wrap:wrap; margin:8px 0; font-size:12px; color:var(--text-muted)">Sin jugadores en línea</div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap">
+          <input type="text" id="playerName" maxlength="16" placeholder="Nombre del jugador" style="flex:1; min-width:160px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:#fff; font-family:'JetBrains Mono',monospace; font-size:12.5px">
+          <input type="text" id="playerReason" maxlength="100" placeholder="Motivo (kick/ban, opcional)" style="flex:1; min-width:160px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:#fff; font-family:'JetBrains Mono',monospace; font-size:12.5px">
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px">
+          <button class="cmd-btn" onclick="playerAction('op')">OP</button>
+          <button class="term-tool-btn" onclick="playerAction('deop')">DeOP</button>
+          <button class="term-tool-btn" onclick="playerAction('kick')">Kick</button>
+          <button class="term-tool-btn" style="color:#f87171; border-color:#7f1d1d" onclick="playerAction('ban')">Ban</button>
+        </div>
+      </div>
     </div>
 
     <!-- TAB 2: METRICAS -->
@@ -1914,6 +1967,26 @@ function handleCmdKey(e) {
   }
 }
 
+async function playerAction(act) {
+  const nameEl = document.getElementById('playerName');
+  const name = nameEl.value.trim();
+  if (!name) { showToast('Escribe el nombre del jugador'); nameEl.focus(); return; }
+  const reason = document.getElementById('playerReason').value.trim();
+  if ((act === 'kick' || act === 'ban') && !confirm(`¿${act === 'ban' ? 'BANEAR' : 'Expulsar'} a "${name}"?${reason ? '\\nMotivo: ' + reason : ''}`)) return;
+  try {
+    const res = await fetch('/api/player', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: act, name, reason })
+    });
+    const data = await res.json();
+    showToast(data.msg || (data.ok ? 'OK' : 'Error'));
+    setTimeout(refreshConsole, 700);
+  } catch (e) {
+    showToast('Fallo al enviar acción');
+  }
+}
+
 function clearTerminal() {
   document.getElementById('termBody').innerHTML = '';
 }
@@ -2003,6 +2076,16 @@ async function refreshStats() {
 
     document.getElementById('cardPlayers').textContent = `${d.online_players} / ${d.max_players}`;
     document.getElementById('cardPlayersSub').textContent = d.player_names && d.player_names.length ? d.player_names.join(', ') : `Mundo: ${d.world_gb} GB`;
+    const chips = document.getElementById('onlineChips');
+    if (chips) {
+      if (d.player_names && d.player_names.length) {
+        chips.innerHTML = d.player_names.map(n =>
+          `<button class="term-tool-btn" title="Usar este jugador" onclick="document.getElementById('playerName').value='${n.replace(/'/g, "")}'">${n}</button>`
+        ).join('');
+      } else {
+        chips.textContent = d.status === 'RUNNING' ? 'Sin jugadores en línea' : 'Servidor apagado';
+      }
+    }
 
     // Metrics tab badges
     paintBadge(document.getElementById('chartCpuBadge'), d.cpu.toFixed(1) + '%', cpuColor);
@@ -2571,6 +2654,12 @@ class BisectPanelHandler(BaseHTTPRequestHandler):
         if u.path == "/api/cmd":
             cmd = payload.get("cmd", "")
             ok, msg = send_command_action(cmd)
+            return self.send_json({"ok": ok, "msg": msg})
+
+        if u.path == "/api/player":
+            ok, msg = player_action(payload.get("action", ""),
+                                    payload.get("name", ""),
+                                    payload.get("reason", ""))
             return self.send_json({"ok": ok, "msg": msg})
 
         if u.path == "/api/file":
