@@ -193,6 +193,11 @@ class Server:
         self.lock = threading.Lock()
         self.proc = None
         self.stop_requested = False
+        try:
+            self.conn_off = os.path.getsize(os.path.join(self.server_dir, "logs", "latest.log"))
+        except Exception:
+            self.conn_off = 0
+        self.conn_open = {}
         self.metrics = collections.deque(maxlen=40)
         self.cpu_prev = None
         self.tps_lock = threading.Lock()
@@ -727,27 +732,171 @@ threading.Thread(target=tps_worker, daemon=True).start()
 PLAYER_NAME_RE = re.compile(r"^[A-Za-z0-9_]{3,16}$")
 
 
+PLAYER_CMDS = {"op": "op {n}", "deop": "deop {n}", "kick": "kick {n}",
+               "ban": "ban {n}", "pardon": "pardon {n}",
+               "wladd": "whitelist add {n}", "wlremove": "whitelist remove {n}"}
+
+
 def player_action(action, name, reason=""):
-    """op / deop / kick / ban con validación. Devuelve (ok, msg)."""
+    """op/deop/kick/ban/pardon/wladd/wlremove con validación. Devuelve (ok, msg)."""
     action = (action or "").lower()
     name = (name or "").strip()
     reason = (reason or "").strip().replace("\n", " ")[:100]
-    if action not in ("op", "deop", "kick", "ban"):
+    if action not in PLAYER_CMDS:
         return False, "acción inválida"
     if not PLAYER_NAME_RE.match(name):
         return False, "nombre de jugador inválido (3-16 letras, números o _)"
     if find_running_mc_pid() is None:
         return False, "El servidor está apagado"
+    cmd = PLAYER_CMDS[action].format(n=name)
     if action in ("kick", "ban") and reason:
-        cmd = f"{action} {name} {reason}"
-    else:
-        cmd = f"{action} {name}"
+        cmd += f" {reason}"
     ok, msg = send_command_action(cmd)
     if ok:
         labels = {"op": "OP otorgado a", "deop": "OP retirado a",
-                  "kick": "Expulsado", "ban": "Baneado"}
+                  "kick": "Expulsado", "ban": "Baneado", "pardon": "Desbaneado",
+                  "wladd": "Añadido a la whitelist", "wlremove": "Quitado de la whitelist"}
         return True, f"{labels[action]} {name}"
     return False, msg
+
+
+def _read_name_list(fname):
+    try:
+        with open(os.path.join(S().server_dir, fname)) as f:
+            data = json.load(f)
+        return [e.get("name", "?") for e in data if isinstance(e, dict) and e.get("name")]
+    except Exception:
+        return []
+
+
+def _read_bans():
+    try:
+        with open(os.path.join(S().server_dir, "banned-players.json")) as f:
+            data = json.load(f)
+        return [{"name": e.get("name", "?"), "reason": e.get("reason") or "—"}
+                for e in data if isinstance(e, dict) and e.get("name")]
+    except Exception:
+        return []
+
+
+def moderation_lists():
+    wl_on = False
+    try:
+        with open(os.path.join(S().server_dir, "server.properties")) as f:
+            for line in f:
+                if line.startswith("white-list="):
+                    wl_on = line.strip().split("=", 1)[1].lower() == "true"
+                    break
+    except Exception:
+        pass
+    return {"ops": _read_name_list("ops.json"), "banned": _read_bans(),
+            "whitelist": _read_name_list("whitelist.json"), "whitelist_on": wl_on}
+
+
+_CONN_EVT_RE = re.compile(r"([A-Za-z0-9_]{3,16})[^A-Za-z0-9_]*\b(joined|left) the game")
+
+
+def _conn_file(srv):
+    return os.path.join(srv.data_dir, "connections.jsonl")
+
+
+def _conn_scan(srv):
+    """Lee joins/leaves nuevos del log y los persiste. Devuelve eventos nuevos."""
+    off = getattr(srv, "conn_off", 0)
+    try:
+        size = os.path.getsize(srv.log_file)
+        if size < off:
+            off = 0
+        with open(srv.log_file, "rb") as f:
+            f.seek(off)
+            chunk = f.read()
+        srv.conn_off = size
+    except Exception:
+        return []
+    oj = getattr(srv, "conn_open", None)
+    if oj is None:
+        oj = {}
+        srv.conn_open = oj
+    new = []
+    for line in chunk.decode("utf-8", "replace").splitlines():
+        if "MinecraftServer" not in line:
+            continue
+        m = None
+        for mm in _CONN_EVT_RE.finditer(line):
+            m = mm
+        if not m:
+            continue
+        ts = _parse_log_ts(line)
+        if not ts:
+            continue
+        name, ev = m.group(1), m.group(2)
+        if ev == "joined":
+            oj[name] = ts
+            new.append({"t": int(ts), "name": name, "ev": "join", "dur": 0})
+        else:
+            dur = int(ts - oj.pop(name, ts))
+            new.append({"t": int(ts), "name": name, "ev": "leave", "dur": max(0, dur)})
+    if new:
+        try:
+            os.makedirs(srv.data_dir, exist_ok=True)
+            seen = set()
+            try:
+                with open(_conn_file(srv)) as f:
+                    for line in f:
+                        try:
+                            o = json.loads(line)
+                            seen.add((o.get("t"), o.get("name"), o.get("ev")))
+                        except Exception:
+                            continue
+            except FileNotFoundError:
+                pass
+            new = [e for e in new if (e["t"], e["name"], e["ev"]) not in seen]
+            if not new:
+                return []
+            with open(_conn_file(srv), "a") as f:
+                for e in new:
+                    f.write(json.dumps(e) + "\n")
+            with open(_conn_file(srv)) as f:
+                lines = f.readlines()
+            if len(lines) > 300:
+                with open(_conn_file(srv), "w") as f:
+                    f.writelines(lines[-300:])
+        except Exception:
+            pass
+        for e in new:
+            if e["ev"] == "join":
+                discord_notify("join", f"➡️ **{e['name']}** entró a **{srv.name}**")
+            else:
+                discord_notify("leave", f"⬅️ **{e['name']}** salió de **{srv.name}**")
+    return new
+
+
+def connection_history(limit=30):
+    srv = S()
+    _conn_scan(srv)
+    try:
+        with open(_conn_file(srv)) as f:
+            items = [json.loads(l) for l in f.readlines() if l.strip()]
+        return items[-limit:][::-1]
+    except Exception:
+        return []
+
+
+def connections_worker():
+    while True:
+        try:
+            for srv in SERVERS.values():
+                _ctx.srv = srv
+                try:
+                    _conn_scan(srv)
+                finally:
+                    _ctx.srv = None
+        except Exception:
+            pass
+        time.sleep(15)
+
+
+threading.Thread(target=connections_worker, daemon=True).start()
 
 def metrics_worker():
     """Hilo de fondo que muestrea métricas cada 1.5s de forma continua."""
@@ -2190,6 +2339,20 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
         <h3 style="margin-bottom:8px; font-size:15px;">Gestión de jugadores</h3>
         <div class="file-list" id="playerRows"></div>
       </div>
+      <div class="system-details-card" style="margin-top:12px">
+        <h3 style="margin-bottom:8px; font-size:15px;">Moderación</h3>
+        <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:10px" id="modLists">
+          <div><div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;margin-bottom:4px">OPs</div><div id="modOps" style="font-size:12.5px">—</div></div>
+          <div><div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;margin-bottom:4px">Baneados</div><div id="modBans" style="font-size:12.5px">—</div></div>
+          <div><div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;margin-bottom:4px">Whitelist <a onclick="wlToggle()" style="color:var(--accent-cyan);cursor:pointer" id="wlState"></a></div><div id="modWl" style="font-size:12.5px">—</div></div>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px">
+          <input id="wlName" maxlength="16" placeholder="Añadir a whitelist" style="flex:1; min-width:160px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:#fff; font-family:'JetBrains Mono',monospace; font-size:12.5px">
+          <button class="cmd-btn" onclick="wlAdd()">Añadir</button>
+        </div>
+        <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;margin-bottom:4px">Historial de conexiones</div>
+        <div class="file-list" id="connHist"><div class="file-row"><span class="file-name">Sin registros</span></div></div>
+      </div>
     </div>
 
     <!-- TAB 2: METRICAS -->
@@ -2528,6 +2691,55 @@ function fmtSess(sec) {
   const m = Math.floor(sec / 60), h = Math.floor(m / 60);
   if (h > 0) return h + 'h ' + String(m % 60).padStart(2, '0') + 'm';
   return m + ' min';
+}
+
+let _wlOn = false;
+async function loadModeration() {
+  try {
+    const d = await (await fetch(U('/api/lists'))).json();
+    const chip = (n, act, danger) => `<button class="term-tool-btn"${danger ? ' style="color:#f87171;border-color:#7f1d1d"' : ''} title="${act}" onclick="modAct('${act}','${n.replace(/'/g, "")}')">${n} ✕</button>`;
+    document.getElementById('modOps').innerHTML = (d.ops && d.ops.length) ? d.ops.map(n => chip(n, 'deop')).join(' ') : '—';
+    document.getElementById('modBans').innerHTML = (d.banned && d.banned.length) ? d.banned.map(b => chip(b.name, 'pardon', true)).join(' ') : '—';
+    _wlOn = !!d.whitelist_on;
+    document.getElementById('wlState').textContent = _wlOn ? '[ON]' : '[OFF]';
+    document.getElementById('modWl').innerHTML = (d.whitelist && d.whitelist.length) ? d.whitelist.map(n => chip(n, 'wlremove')).join(' ') : '—';
+  } catch (e) {}
+  try {
+    const h = await (await fetch(U('/api/connections'))).json();
+    const box = document.getElementById('connHist');
+    const items = (h && h.items) || [];
+    if (!items.length) { box.innerHTML = '<div class="file-row"><span class="file-name">Sin registros</span></div>'; return; }
+    box.innerHTML = items.slice(0, 15).map(e => {
+      const dt = new Date(e.t * 1000).toLocaleString();
+      const what = e.ev === 'join' ? 'entró' : `salió (${fmtSess(e.dur || 0)})`;
+      return `<div class="file-row"><span class="file-name">${e.name} ${what}</span><span class="file-size">${dt}</span></div>`;
+    }).join('');
+  } catch (e) {}
+}
+async function modAct(act, name) {
+  if ((act === 'wlremove') && !confirm(`¿Quitar a "${name}" de la whitelist?`)) return;
+  try {
+    const r = await (await fetch(U('/api/player'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: act, name }) })).json();
+    showToast(r.msg || 'OK');
+  } catch (e) { showToast('Error'); }
+  loadModeration();
+}
+async function wlAdd() {
+  const v = document.getElementById('wlName').value.trim();
+  if (!v) return;
+  try {
+    const r = await (await fetch(U('/api/player'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'wladd', name: v }) })).json();
+    showToast(r.msg || 'OK');
+    document.getElementById('wlName').value = '';
+  } catch (e) { showToast('Error'); }
+  loadModeration();
+}
+async function wlToggle() {
+  try {
+    const r = await (await fetch(U('/api/whitelist'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: !_wlOn }) })).json();
+    showToast(r.msg || 'OK');
+  } catch (e) { showToast('Error'); }
+  setTimeout(loadModeration, 1200);
 }
 
 function clearTerminal() {
@@ -2980,6 +3192,7 @@ async function deleteBackup(name) {
   loadBackups();
 }
 setInterval(() => { const t = document.getElementById('tab-backups'); if (t && t.classList.contains('active')) loadBackups(); }, 5000);
+setInterval(() => { const t = document.getElementById('tab-console'); if (t && t.classList.contains('active')) loadModeration(); }, 10000);
 
 async function refreshTps() {
   showToast('Muestreando TPS...');
@@ -3413,6 +3626,12 @@ class BisectPanelHandler(BaseHTTPRequestHandler):
         if u.path == "/api/discord":
             return self.send_json({"ok": True, "config": discord_config()})
 
+        if u.path == "/api/lists":
+            return self.send_json({"ok": True, **moderation_lists()})
+
+        if u.path == "/api/connections":
+            return self.send_json({"ok": True, "items": connection_history()})
+
         self.send_response(404)
         self.end_headers()
 
@@ -3559,6 +3778,11 @@ class BisectPanelHandler(BaseHTTPRequestHandler):
 
         if u.path == "/api/discord-test":
             ok, msg = discord_send("✅ PKHosting: prueba de webhook OK")
+            return self.send_json({"ok": ok, "msg": msg})
+
+        if u.path == "/api/whitelist":
+            on = bool(payload.get("on", False))
+            ok, msg = send_command_action(f"whitelist {'on' if on else 'off'}")
             return self.send_json({"ok": ok, "msg": msg})
 
         if u.path == "/api/file":
