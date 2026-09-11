@@ -174,11 +174,21 @@ def rcon_send(host, port, password, cmd, timeout=5):
 
 
 def run_backup(server_dir, world_name, backup_dir, send_fn=None,
-               tag=None, retention_days=7, keep_monthly=True, log=None):
-    """Backup completo + purga. send_fn(cmd)->(ok,resp) o None (sin freeze)."""
+               tag=None, retention_days=7, keep_monthly=True, log=None,
+               progress=None):
+    """Backup completo + purga. send_fn(cmd)->(ok,resp) o None (sin freeze).
+    progress(pct 0-100, stage) se llama en cada etapa (para la barra del panel)."""
     def say(m):
         (log or print)(f"[backup] {m}", flush=True)
 
+    def prog(pct, stage):
+        try:
+            if progress:
+                progress(int(pct), stage)
+        except Exception:
+            pass
+
+    prog(2, "preparando")
     ok, err = check_writable(backup_dir)
     if not ok:
         return False, f"destino no escribible ({backup_dir}): {err}"
@@ -190,10 +200,13 @@ def run_backup(server_dir, world_name, backup_dir, send_fn=None,
         pass
 
     if send_fn:
+        prog(4, "congelando guardado del mundo")
         say("congelando guardado (save-off + save-all flush)...")
         send_fn("save-off")
         send_fn("save-all flush")
         _time.sleep(5)
+    else:
+        prog(4, "listando archivos")
 
     name = f"pkhosting-{_now_tag()}{('-' + tag) if tag else ''}.tar.gz"
     # tag con guion podría romper FNAME_RE en prune si tiene mayúsculas: normalizar
@@ -206,17 +219,23 @@ def run_backup(server_dir, world_name, backup_dir, send_fn=None,
         if not rels:
             return False, "nada que respaldar (¿world_name correcto?)"
         say(f"comprimiendo {len(rels)} archivos → {name} ...")
+        prog(8, f"comprimiendo 0/{len(rels)} archivos")
         skipped = 0
+        n = len(rels)
+        step = max(1, n // 200)  # ~200 actualizaciones como máximo
         with _tarfile.open(dest, "w:gz", compresslevel=3) as tf:
-            for r in rels:
+            for i, r in enumerate(rels, 1):
                 try:
                     tf.add(_os.path.join(server_dir, r), arcname=r)
                 except (FileNotFoundError, NotADirectoryError, _tarfile.TarError, OSError):
                     # Mundo vivo: el server crea/borra temporales a mitad del tar
                     skipped += 1
+                if i % step == 0 or i == n:
+                    prog(8 + int(80 * i / n), f"comprimiendo {i}/{n} archivos")
         if skipped:
             say(f"omitidos {skipped} temporales que el server borró a mitad del backup")
         size = _os.path.getsize(dest) / 1e9
+        prog(90, f"verificando ({size:.2f} GB)")
         say(f"OK {name} ({size:.2f} GB)")
     except Exception as e:
         try:
@@ -228,18 +247,28 @@ def run_backup(server_dir, world_name, backup_dir, send_fn=None,
         if send_fn:
             send_fn("save-on")
 
+    prog(93, "aplicando retención")
     kept, deleted = prune_backups(backup_dir, retention_days, keep_monthly)
     say(f"purga: {len(deleted)} borrados, {len(kept)} conservados")
+    prog(100, "completado")
     return True, f"{name} ({size:.2f} GB), purga: {len(deleted)} borrados"
 
 
 def restore_backup(server_dir, backup_dir, name, stop_fn=None, start_fn=None,
                    is_running_fn=None, pre_backup=True, retention_days=7,
-                   keep_monthly=True, log=None):
+                   keep_monthly=True, log=None, progress=None):
     """Restaura un backup: stop → (pre-backup) → extraer → start."""
     def say(m):
         (log or print)(f"[restore] {m}", flush=True)
 
+    def prog(pct, stage):
+        try:
+            if progress:
+                progress(int(pct), stage)
+        except Exception:
+            pass
+
+    prog(2, "validando")
     if "/" in name or "\\" in name or ".." in name or not FNAME_RE.match(name):
         return False, "nombre de backup inválido"
     src = _os.path.join(backup_dir, name)
@@ -247,6 +276,7 @@ def restore_backup(server_dir, backup_dir, name, stop_fn=None, start_fn=None,
         return False, "backup no encontrado"
 
     if stop_fn:
+        prog(5, "deteniendo servidor")
         say("deteniendo servidor...")
         ok, msg = stop_fn()
         say(f"stop: {msg}")
@@ -254,30 +284,44 @@ def restore_backup(server_dir, backup_dir, name, stop_fn=None, start_fn=None,
         for _ in range(60):
             if not is_running_fn():
                 break
+            prog(8, "esperando apagado del servidor")
             _time.sleep(2)
         if is_running_fn():
             return False, "el servidor no se detuvo a tiempo, abortado"
+    prog(12, "servidor detenido")
     if pre_backup:
         # Captura de seguridad del estado actual (no congela: el server ya paró)
         say("backup de seguridad previo...")
+        def pre_prog(p, s):
+            prog(12 + int(p * 0.43), "pre-backup: " + s)  # 12 → 55
         ok, msg = run_backup(server_dir, _world_of(server_dir, src),
                              backup_dir, send_fn=None, tag="pre-restore",
                              retention_days=retention_days,
-                             keep_monthly=keep_monthly, log=log)
+                             keep_monthly=keep_monthly, log=log,
+                             progress=pre_prog)
         say(f"pre-restore: {msg}")
         if not ok:
             return False, f"abortado (falló pre-backup): {msg}"
     try:
         say(f"extrayendo {name} ...")
         with _tarfile.open(src, "r:gz") as tf:
-            tf.extractall(path=server_dir, filter="data")
+            members = tf.getmembers()
+            n = len(members) or 1
+            step = max(1, n // 100)
+            for i, m in enumerate(members, 1):
+                tf.extract(m, path=server_dir, filter="data")
+                if i % step == 0 or i == n:
+                    prog(55 + int(35 * i / n), f"extrayendo {i}/{n}")
+        prog(92, "verificando extracción")
         say("extracción OK")
     except Exception as e:
         return False, f"error extrayendo: {e}"
     if start_fn:
+        prog(95, "arrancando servidor")
         say("arrancando servidor...")
         ok, msg = start_fn()
         say(f"start: {msg}")
+    prog(100, "completado")
     return True, f"restaurado {name}"
 
 

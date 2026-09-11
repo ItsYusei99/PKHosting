@@ -594,7 +594,20 @@ except Exception as e:
     HAVE_BACKUP = False
     print(f"[pkhosting] backup.py no disponible: {e}", flush=True)
 
-backup_state = {"running": False, "job": None, "msg": "", "updated": 0}
+backup_lock = threading.Lock()
+backup_state = {"running": False, "job": None, "msg": "", "updated": 0,
+                "pct": 0, "stage": ""}
+
+
+def _bk_progress(pct, stage):
+    with backup_lock:
+        backup_state.update(pct=max(0, min(100, int(pct))), stage=stage,
+                            updated=time.time())
+
+
+def _bk_log(m):
+    with backup_lock:
+        backup_state.update(msg=m, updated=time.time())
 
 
 def _backup_cfg():
@@ -619,14 +632,15 @@ def _bk_send(cmd):
 
 
 def _backup_worker(mode, name=None):
-    backup_state.update(running=True, job=mode,
-                        msg="iniciando...", updated=time.time())
+    with backup_lock:
+        backup_state.update(running=True, job=mode, msg="iniciando...",
+                            pct=0, stage="iniciando", updated=time.time())
     try:
         sdir, world, bdir, ret, keepm = _bk_dirs()
         if mode == "run":
             ok, msg = bk.run_backup(sdir, world, bdir, send_fn=_bk_send,
                                     retention_days=ret, keep_monthly=keepm,
-                                    log=lambda m: backup_state.update(msg=m, updated=time.time()))
+                                    log=_bk_log, progress=_bk_progress)
         elif mode == "restore":
             ok, msg = bk.restore_backup(
                 sdir, bdir, name,
@@ -634,13 +648,18 @@ def _backup_worker(mode, name=None):
                 start_fn=lambda: start_server_action(),
                 is_running_fn=lambda: find_running_mc_pid() is not None,
                 pre_backup=True, retention_days=ret, keep_monthly=keepm,
-                log=lambda m: backup_state.update(msg=m, updated=time.time()))
+                log=_bk_log, progress=_bk_progress)
         else:
             ok, msg = False, "trabajo desconocido"
-        backup_state.update(running=False, msg=("OK " if ok else "FAIL ") + msg,
-                            updated=time.time())
+        with backup_lock:
+            backup_state.update(running=False, msg=("OK " if ok else "FAIL ") + msg,
+                                pct=100 if ok else backup_state.get("pct", 0),
+                                stage="completado" if ok else "error",
+                                updated=time.time())
     except Exception as e:
-        backup_state.update(running=False, msg=f"FAIL {e}", updated=time.time())
+        with backup_lock:
+            backup_state.update(running=False, msg=f"FAIL {e}",
+                                stage="error", updated=time.time())
 
 
 def backups_status():
@@ -1739,6 +1758,12 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
           <span id="bkStatus" style="font-size:12.5px; color:var(--text-muted)">Cargando estado...</span>
         </div>
         <div id="bkJob" style="font-size:12.5px; color:#c084fc; margin-top:8px; min-height:18px"></div>
+        <div id="bkProgWrap" style="display:none; margin-top:8px">
+          <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--text-muted); margin-bottom:4px">
+            <span id="bkStage">…</span><span id="bkPct">0%</span>
+          </div>
+          <div class="scard-bar" style="height:8px"><div class="scard-bar-fill" id="bkBar" style="width:0%"></div></div>
+        </div>
       </div>
       <div class="file-list" id="bkList">
         <div class="file-row"><span>Cargando backups...</span></div>
@@ -2250,6 +2275,16 @@ async function loadBackups() {
       + `${d.dir} · libre ${d.free_gb} GB · ret ${d.retention_days}d${d.keep_monthly ? ' + mensual' : ''} · ${w}`;
     const job = document.getElementById('bkJob');
     job.textContent = (d.job && d.job.running) ? ('⏳ ' + (d.job.msg || 'trabajando...')) : ((d.job && d.job.msg) ? d.job.msg : '');
+    const wrap = document.getElementById('bkProgWrap');
+    const showBar = !!(d.job && (d.job.running || (d.job.pct > 0 && d.job.stage && d.job.stage !== '')));
+    wrap.style.display = showBar ? 'block' : 'none';
+    if (showBar) {
+      const pct = Math.max(0, Math.min(100, d.job.pct || 0));
+      document.getElementById('bkBar').style.width = pct + '%';
+      document.getElementById('bkPct').textContent = pct + '%';
+      document.getElementById('bkStage').textContent = d.job.stage || d.job.job || 'trabajando...';
+      if (d.job.running) { clearTimeout(window._bkT); window._bkT = setTimeout(loadBackups, 1500); }
+    }
     const box = document.getElementById('bkList');
     const items = (d.items || []).slice().reverse();
     if (!items.length) { box.innerHTML = '<div class="file-row"><span class="file-name">Sin backups todavía — pulsa «Backup ahora»</span></div>'; return; }
