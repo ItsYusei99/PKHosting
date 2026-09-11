@@ -919,6 +919,104 @@ def connections_worker():
 
 threading.Thread(target=connections_worker, daemon=True).start()
 
+
+# ── Historial 24h + disco + red ────────────────────────────────
+def _hist_file(srv):
+    return os.path.join(srv.data_dir, "history.jsonl")
+
+
+def history_append(srv, cpu, mem, tps, players):
+    try:
+        os.makedirs(srv.data_dir, exist_ok=True)
+        with open(_hist_file(srv), "a") as f:
+            f.write(json.dumps({"t": int(time.time()), "cpu": round(cpu, 1),
+                                "mem": mem, "tps": tps,
+                                "players": players}) + "\n")
+        with open(_hist_file(srv)) as f:
+            lines = f.readlines()
+        if len(lines) > 1600:
+            with open(_hist_file(srv), "w") as f:
+                f.writelines(lines[-1440:])
+    except Exception:
+        pass
+
+
+def history_read(srv, limit=1440):
+    try:
+        with open(_hist_file(srv)) as f:
+            lines = f.readlines()[-limit:]
+        items = [json.loads(l) for l in lines if l.strip()]
+        return {"times": [i["t"] for i in items],
+                "cpu": [i.get("cpu", 0) for i in items],
+                "mem": [round(i.get("mem", 0) / 1024.0, 2) for i in items],
+                "tps": [i.get("tps") for i in items],
+                "players": [i.get("players", 0) for i in items]}
+    except Exception:
+        return {"times": [], "cpu": [], "mem": [], "tps": [], "players": []}
+
+
+def history_worker():
+    while True:
+        try:
+            for srv in SERVERS.values():
+                _ctx.srv = srv
+                try:
+                    m = list(srv.metrics)[-1] if srv.metrics else None
+                    t = srv.tps_cache["data"]
+                    history_append(srv, m["cpu"] if m else 0.0,
+                                   m["mem"] if m else 0,
+                                   t.get("tps") if t.get("ok") else None,
+                                   query_mc_players()[0] if get_server_status(
+                                       find_running_mc_pid()) == "RUNNING" else 0)
+                finally:
+                    _ctx.srv = None
+        except Exception:
+            pass
+        time.sleep(60)
+
+
+threading.Thread(target=history_worker, daemon=True).start()
+
+
+_net_prev = {}
+
+
+def net_rates():
+    """kB/s RX/TX del host (todas las interfaces menos lo)."""
+    try:
+        rx = tx = 0
+        with open("/proc/net/dev") as f:
+            for line in f.readlines()[2:]:
+                if ":" not in line:
+                    continue
+                iface, vals = line.split(":", 1)
+                if iface.strip() == "lo":
+                    continue
+                parts = vals.split()
+                rx += int(parts[0])
+                tx += int(parts[8])
+        now = time.time()
+        prev = _net_prev.get("v")
+        _net_prev["v"] = (rx, tx, now)
+        if not prev:
+            return 0.0, 0.0
+        dt = max(1, now - prev[2])
+        return round((rx - prev[0]) / dt / 1024, 1), round((tx - prev[1]) / dt / 1024, 1)
+    except Exception:
+        return 0.0, 0.0
+
+
+_disk_cache = {}
+
+
+def server_disk_gb(srv):
+    hit = _disk_cache.get(srv.id)
+    if hit and time.time() - hit[0] < 600:
+        return hit[1]
+    gb = round(dir_size_b(srv.server_dir) / 1e9, 2)
+    _disk_cache[srv.id] = (time.time(), gb)
+    return gb
+
 def metrics_worker():
     """Hilo de fondo que muestrea métricas cada 1.5s de forma continua."""
     while True:
@@ -1110,7 +1208,9 @@ def get_server_stats_data():
         "playit": get_playit_status(),
         "history": list(srv.metrics),
         "server_id": srv.id,
-        "server_name": srv.name
+        "server_name": srv.name,
+        "disk_gb": server_disk_gb(srv),
+        "net": net_rates(),
     }
 
 
@@ -2417,6 +2517,23 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
         </div>
       </div>
 
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-header">
+            <div class="chart-title">CPU — últimas 24 h</div>
+            <div class="chart-badge" id="h24CpuBadge">—</div>
+          </div>
+          <canvas id="canvasH24Cpu"></canvas>
+        </div>
+        <div class="chart-card">
+          <div class="chart-header">
+            <div class="chart-title">RAM — últimas 24 h</div>
+            <div class="chart-badge" id="h24MemBadge">—</div>
+          </div>
+          <canvas id="canvasH24Mem"></canvas>
+        </div>
+      </div>
+
       <div class="system-details-card">
         <h3 style="margin-bottom:14px; font-size:16px;">Información del Servidor y Entorno</h3>
         <table class="details-table">
@@ -2424,6 +2541,8 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
           <tr><td>Identificador de Proceso (PID)</td><td id="detPid">-</td></tr>
           <tr><td>Carga del Sistema (1m, 5m, 15m)</td><td id="detLoad">-</td></tr>
           <tr><td>Tamaño del Mundo (PrankLindorf)</td><td id="detWorld">-</td></tr>
+          <tr><td>Disco usado (servidor)</td><td id="detDisk">-</td></tr>
+          <tr><td>Red host (RX/TX)</td><td id="detNet">-</td></tr>
           <tr><td>Puerto Minecraft</td><td>25566 (TCP / UDP)</td></tr>
           <tr><td>Entorno Java</td><td>OpenJDK 21 (64-Bit Server VM)</td></tr>
           <tr><td>Directorio</td><td>~/PrankLindorf-NeoForge</td></tr>
@@ -2992,6 +3111,8 @@ async function refreshStats() {
     document.getElementById('detPid').textContent = d.pid || '-';
     document.getElementById('detLoad').textContent = d.system_load;
     document.getElementById('detWorld').textContent = d.world_gb + ' GB';
+    document.getElementById('detDisk').textContent = (d.disk_gb != null ? d.disk_gb + ' GB' : '—');
+    document.getElementById('detNet').textContent = (d.net ? d.net[0] + ' / ' + d.net[1] + ' kB/s' : '—');
 
     historyBuffer = d.history || [];
     if (document.getElementById('tab-metrics').classList.contains('active')) {
@@ -3094,7 +3215,21 @@ function paintBadge(el, text, color) {
   el.style.color = color;
   el.style.borderColor = color + '66';
 }
-function renderCharts() {
+let h24At = 0;
+async function renderCharts() {
+  if (Date.now() - h24At > 60000) {
+    h24At = Date.now();
+    try {
+      const h = await (await fetch(U('/api/history'))).json();
+      if (h.cpu && h.cpu.length > 1) {
+        drawSmoothChart('canvasH24Cpu', h.cpu, 100.0, '#a855f7', 'rgba(168,85,247,0.25)', '%');
+        drawSmoothChart('canvasH24Mem', h.mem, 8.0, '#7c3aed', 'rgba(124,58,237,0.30)', 'GB');
+        document.getElementById('h24CpuBadge').textContent = h.cpu[h.cpu.length - 1].toFixed(1) + '%';
+        const mm = h.mem[h.mem.length - 1];
+        document.getElementById('h24MemBadge').textContent = mm + ' GB';
+      }
+    } catch (e) {}
+  }
   if (!historyBuffer || historyBuffer.length < 2) return;
   const cpuVals = historyBuffer.map(h => h.cpu || 0);
   const memVals = historyBuffer.map(h => (h.mem || 0) / 1024.0);
@@ -3926,6 +4061,9 @@ class BisectPanelHandler(BaseHTTPRequestHandler):
         if u.path == "/api/uiconfig":
             return self.send_json({"ok": True, "quick_commands":
                 CFG.get("quick_commands") or ["say ¡Hola!", "list", "save-all"]})
+
+        if u.path == "/api/history":
+            return self.send_json({"ok": True, **history_read(S())})
 
         self.send_response(404)
         self.end_headers()
