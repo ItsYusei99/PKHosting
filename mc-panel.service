@@ -1,0 +1,16 @@
+[Unit]
+Description=PrankLindorf Panel (estilo BisectHosting)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /home/itsyusei99/mc-panel/panel.py
+Restart=on-failure
+RestartSec=10
+# No matar el servidor Minecraft al reiniciar/detener el panel:
+# el MC queda adoptado y el panel lo re-detecta via /proc + RCON.
+KillMode=process
+
+[Install]
+WantedBy=default.target
