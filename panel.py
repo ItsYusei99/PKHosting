@@ -1695,7 +1695,6 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
           <span class="scard-ico"><svg class="ico" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
         </div>
         <div class="scard-val" id="cardPlayers">0 / 20</div>
-        <div class="scard-sub" id="cardPlayersSub">Mundo: 6.6 GB</div>
       </div>
     </div>
 
@@ -1718,18 +1717,8 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
         </div>
       </div>
       <div class="system-details-card" id="playerMgmt" style="margin-top:12px; display:none">
-        <h3 style="margin-bottom:4px; font-size:15px;">Gestión de jugadores</h3>
-        <div id="onlineChips" style="display:flex; gap:8px; flex-wrap:wrap; margin:8px 0; font-size:12px; color:var(--text-muted)">Sin jugadores en línea</div>
-        <div style="display:flex; gap:8px; flex-wrap:wrap">
-          <input type="text" id="playerName" maxlength="16" placeholder="Nombre del jugador" style="flex:1; min-width:160px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:#fff; font-family:'JetBrains Mono',monospace; font-size:12.5px">
-          <input type="text" id="playerReason" maxlength="100" placeholder="Motivo (kick/ban, opcional)" style="flex:1; min-width:160px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:#fff; font-family:'JetBrains Mono',monospace; font-size:12.5px">
-        </div>
-        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px">
-          <button class="cmd-btn" onclick="playerAction('op')">OP</button>
-          <button class="term-tool-btn" onclick="playerAction('deop')">DeOP</button>
-          <button class="term-tool-btn" onclick="playerAction('kick')">Kick</button>
-          <button class="term-tool-btn" style="color:#f87171; border-color:#7f1d1d" onclick="playerAction('ban')">Ban</button>
-        </div>
+        <h3 style="margin-bottom:8px; font-size:15px;">Gestión de jugadores</h3>
+        <div class="file-list" id="playerRows"></div>
       </div>
     </div>
 
@@ -1969,17 +1958,15 @@ function handleCmdKey(e) {
   }
 }
 
-async function playerAction(act) {
-  const nameEl = document.getElementById('playerName');
-  const name = nameEl.value.trim();
-  if (!name) { showToast('Escribe el nombre del jugador'); nameEl.focus(); return; }
-  const reason = document.getElementById('playerReason').value.trim();
-  if ((act === 'kick' || act === 'ban') && !confirm(`¿${act === 'ban' ? 'BANEAR' : 'Expulsar'} a "${name}"?${reason ? '\\nMotivo: ' + reason : ''}`)) return;
+async function playerAction(act, name) {
+  name = (name || '').trim();
+  if (!name) { showToast('Jugador no válido'); return; }
+  if ((act === 'kick' || act === 'ban') && !confirm(`¿${act === 'ban' ? 'BANEAR' : 'Expulsar'} a "${name}"?`)) return;
   try {
     const res = await fetch('/api/player', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: act, name, reason })
+      body: JSON.stringify({ action: act, name })
     });
     const data = await res.json();
     showToast(data.msg || (data.ok ? 'OK' : 'Error'));
@@ -2077,19 +2064,23 @@ async function refreshStats() {
     document.getElementById('cardMemSub').textContent = `Límite: ${d.max_mem_gb} GB (${d.mem_mb} MB)`;
 
     document.getElementById('cardPlayers').textContent = `${d.online_players} / ${d.max_players}`;
-    document.getElementById('cardPlayersSub').textContent = d.player_names && d.player_names.length ? d.player_names.join(', ') : `Mundo: ${d.world_gb} GB`;
     const mgmt = document.getElementById('playerMgmt');
-    const chips = document.getElementById('onlineChips');
+    const rows = document.getElementById('playerRows');
     const hasPlayers = d.online_players > 0 && d.player_names && d.player_names.length;
     if (mgmt) mgmt.style.display = hasPlayers ? 'block' : 'none';
-    if (chips) {
-      if (hasPlayers) {
-        chips.innerHTML = d.player_names.map(n =>
-          `<button class="term-tool-btn" title="Usar este jugador" onclick="document.getElementById('playerName').value='${n.replace(/'/g, "")}'">${n}</button>`
-        ).join('');
-      } else {
-        chips.textContent = d.status === 'RUNNING' ? 'Sin jugadores en línea' : 'Servidor apagado';
-      }
+    if (rows && hasPlayers) {
+      rows.innerHTML = d.player_names.map(n => {
+        const safe = n.replace(/'/g, "").replace(/"/g, '&quot;');
+        return `<div class="file-row">
+          <span class="file-name">${safe}</span>
+          <span class="file-actions">
+            <button class="cmd-btn" title="Dar OP" onclick="playerAction('op', '${safe}')">OP</button>
+            <button class="term-tool-btn" title="Quitar OP" onclick="playerAction('deop', '${safe}')">DeOP</button>
+            <button class="term-tool-btn" title="Expulsar" onclick="playerAction('kick', '${safe}')">Kick</button>
+            <button class="term-tool-btn" style="color:#f87171; border-color:#7f1d1d" title="Banear" onclick="playerAction('ban', '${safe}')">Ban</button>
+          </span>
+        </div>`;
+      }).join('');
     }
 
     // Metrics tab badges
