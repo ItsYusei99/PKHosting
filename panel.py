@@ -1583,6 +1583,7 @@ HTML_PAGE = """<!doctype html>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{});}</script>
+<script>window.onerror=function(){/* noop: sin telemetría */};</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -2596,7 +2597,6 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
           </div>
         </div>
       </div>
-    </div>
 
     <!-- TAB: BACKUPS -->
     <div id="tab-backups" class="tab-content">
@@ -2795,7 +2795,8 @@ async function savePublicIp() {
   } catch (e) { showToast('Error al guardar IP'); }
 }
 
-function switchTab(name) {
+function switchTab(name, fromHash) {
+  if (!fromHash) syncHash(name);
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
   
@@ -3685,10 +3686,42 @@ async function saveProps() {
   }
 }
 
+const TAB_HASH = { consola: 'console', metricas: 'metrics', sistema: 'metrics', archivos: 'files', backups: 'backups', tareas: 'tasks', configuracion: 'settings', ajustes: 'settings' };
+const TAB_SLUG = { console: 'consola', metrics: 'metricas', files: 'archivos', backups: 'backups', tasks: 'tareas', settings: 'configuracion' };
+function tabFromHash() {
+  const h = (location.hash || '').replace(/^#/, '');
+  const m = /^[a-z]+/.exec(h);
+  const t = m ? (TAB_HASH[m[0]] || null) : null;
+  if (t === 'files' && h.includes('/')) {
+    try { fsPath = decodeURIComponent(h.split('/').slice(1).join('/')); }
+    catch (e) { fsPath = h.split('/').slice(1).join('/'); }
+  }
+  return t;
+}
+function syncHash(name) {
+  try {
+    const want = '#' + (TAB_SLUG[name] || name);
+    if ((location.hash || '').replace(/[^a-z]/g, '') !== want.slice(1)) history.replaceState(null, '', want);
+  } catch (e) {}
+}
+window.addEventListener('hashchange', () => { const t = tabFromHash(); if (t) switchTab(t, true); });
 setInterval(refreshStats, 2000);
 setInterval(refreshConsole, 2500);
 refreshStats();
 refreshConsole();
+(function initTab() {
+  try {
+    const t = tabFromHash();
+    if (t) switchTab(t, true);
+  } catch (e) {}
+})();
+window.addEventListener('load', () => {
+  try {
+    const t = tabFromHash();
+    const cur = document.querySelector('.tab-content.active');
+    if (t && (!cur || cur.id !== 'tab-' + t)) switchTab(t, true);
+  } catch (e) {}
+});
 </script>
 </body>
 </html>
