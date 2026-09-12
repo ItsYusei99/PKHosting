@@ -1327,11 +1327,15 @@ def backups_status():
         info["free_gb"] = 0
     try:
         items = bk.list_backups(c["dir"])
+        total_b = 0
         for i in items:
+            total_b += i["size_b"]
             i["size"] = (f"{i['size_b']/1e9:.2f} GB" if i["size_b"] > 1e9
                          else f"{i['size_b']/1e6:.0f} MB")
             i["date"] = datetime.datetime.fromtimestamp(i["mtime"]).strftime("%d/%m/%Y %H:%M")
         info["items"] = items
+        info["total_b"] = total_b
+        info["monthly"] = sum(1 for i in items if i.get("monthly"))
     except Exception as e:
         info["msg"] = str(e)
     return info
@@ -2596,11 +2600,28 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
 
     <!-- TAB: BACKUPS -->
     <div id="tab-backups" class="tab-content">
+      <div class="stats-cards" style="grid-template-columns:repeat(3,1fr); margin-bottom:16px">
+        <div class="scard">
+          <div class="scard-label"><span>Próximo automático</span></div>
+          <div class="scard-val" id="bkNext" style="font-size:19px">—</div>
+          <div class="scard-sub" id="bkNextSub">—</div>
+        </div>
+        <div class="scard">
+          <div class="scard-label"><span>Espacio en backups</span></div>
+          <div class="scard-val" id="bkSpace" style="font-size:19px">—</div>
+          <div class="scard-sub" id="bkSpaceSub">—</div>
+        </div>
+        <div class="scard">
+          <div class="scard-label"><span>Copias guardadas</span></div>
+          <div class="scard-val" id="bkCount" style="font-size:19px">—</div>
+          <div class="scard-sub" id="bkCountSub">—</div>
+        </div>
+      </div>
       <div class="system-details-card" style="margin-bottom:12px">
         <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center">
           <button class="cmd-btn" onclick="backupNow()"><svg class="ico" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Backup ahora</button>
           <button class="term-tool-btn" onclick="loadBackups()">Recargar</button>
-          <span id="bkStatus" style="font-size:12.5px; color:var(--text-muted)">Cargando estado...</span>
+          <span id="bkStatus" style="font-size:12px; color:var(--text-muted)">Cargando estado...</span>
         </div>
         <div id="bkJob" style="font-size:12.5px; color:#c084fc; margin-top:8px; min-height:18px"></div>
         <div id="bkProgWrap" style="display:none; margin-top:8px">
@@ -2610,12 +2631,15 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
           <div class="scard-bar" style="height:8px"><div class="scard-bar-fill" id="bkBar" style="width:0%"></div></div>
         </div>
       </div>
-      <div class="file-list" id="bkList">
-        <div class="file-row"><span>Cargando backups...</span></div>
+      <div class="system-details-card" style="margin-bottom:12px">
+        <h3 style="margin-bottom:10px; font-size:14px">Copias de seguridad</h3>
+        <div class="file-list" id="bkList" style="background:transparent; border:0">
+          <div class="file-row"><span>Cargando backups...</span></div>
+        </div>
       </div>
-      <div class="system-details-card" style="margin-top:12px">
-        <h3 style="margin-bottom:8px; font-size:14px">Configuración de backups</h3>
-        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center">
+      <details class="system-details-card" style="margin-top:0">
+        <summary style="cursor:pointer; font-size:14px; font-weight:700">Configuración avanzada</summary>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px">
           <label style="font-size:12px;color:var(--text-muted);display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="bkEn"> Automático diario</label>
           <input id="bkTime" placeholder="04:00" style="width:90px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 10px; color:#fff; font-family:'JetBrains Mono',monospace; font-size:12.5px">
           <input id="bkDir" placeholder="Carpeta destino" style="flex:2; min-width:180px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:#fff; font-size:12.5px">
@@ -2623,8 +2647,8 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
           <label style="font-size:12px;color:var(--text-muted);display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="bkMonthly"> Mensual eterno</label>
           <button class="cmd-btn" onclick="saveBkCfg()">Guardar</button>
         </div>
-      </div>
-      <div style="font-size:11.5px; color:var(--text-dim); margin-top:8px">Se conservan los últimos 7 días; el último de cada mes se guarda para siempre (etiqueta MENSUAL).</div>
+        <div style="font-size:11.5px; color:var(--text-dim); margin-top:8px" id="bkRetNote"></div>
+      </details>
     </div>
 
     <!-- TAB: TAREAS PROGRAMADAS -->
@@ -3382,14 +3406,49 @@ async function fsDelete(p) {
 const BK_SVG_DL = '<svg class="ico" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
 const BK_SVG_BACK = '<svg class="ico" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>';
 const BK_SVG_TRASH = '<svg class="ico" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
+function fmtBytes(b) {
+  if (b == null) return '—';
+  if (b > 1e9) return (b / 1e9).toFixed(2) + ' GB';
+  if (b > 1e6) return Math.round(b / 1e6) + ' MB';
+  return Math.round(b / 1024) + ' KB';
+}
+function bkNextRun(timeStr) {
+  const m = /^([01][0-9]|2[0-3]):([0-5][0-9])$/.exec(timeStr || '');
+  if (!m) return null;
+  const n = new Date();
+  const t = new Date(n);
+  t.setHours(parseInt(m[1]), parseInt(m[2]), 0, 0);
+  if (t <= n) t.setDate(t.getDate() + 1);
+  return t;
+}
+function bkCountdown(t) {
+  const s = Math.max(0, Math.round((t - Date.now()) / 1000));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  if (h > 0) return `en ${h}h ${String(m).padStart(2, '0')}m`;
+  if (m > 0) return `en ${m} min`;
+  return 'en menos de 1 min';
+}
 async function loadBackups() {
   try {
     const res = await fetch(U('/api/backups'));
     const d = await res.json();
-    const st = document.getElementById('bkStatus');
+    const items = (d.items || []).slice().reverse();
+    // Resumen superior
+    if (d.enabled) {
+      const nx = bkNextRun(d.time);
+      document.getElementById('bkNext').textContent = nx ? bkCountdown(nx) : '—';
+      document.getElementById('bkNextSub').textContent = nx ? `hoy/mañana · ${d.time}` : `hora inválida (${d.time})`;
+    } else {
+      document.getElementById('bkNext').textContent = 'Desactivado';
+      document.getElementById('bkNextSub').textContent = 'actívalo en Configuración avanzada';
+    }
+    document.getElementById('bkSpace').textContent = fmtBytes(d.total_b || 0);
+    document.getElementById('bkSpaceSub').textContent = `libre en disco: ${d.free_gb} GB`;
+    document.getElementById('bkCount').textContent = items.length;
+    document.getElementById('bkCountSub').textContent = `${d.monthly || 0} mensuales eternos`;
     const w = d.writable ? '✔ destino escribible' : '✘ destino NO escribible' + (d.writable_msg ? ': ' + d.writable_msg : '');
-    st.textContent = (d.enabled ? `Automático diario ${d.time} · ` : 'Automático desactivado · ')
-      + `${d.dir} · libre ${d.free_gb} GB · ret ${d.retention_days}d${d.keep_monthly ? ' + mensual' : ''} · ${w}`;
+    document.getElementById('bkStatus').textContent =
+      `${d.dir} · ret ${d.retention_days}d${d.keep_monthly ? ' + mensual' : ''} · ${w}`;
     const job = document.getElementById('bkJob');
     job.textContent = (d.job && d.job.running) ? ('⏳ ' + (d.job.msg || 'trabajando...')) : ((d.job && d.job.msg) ? d.job.msg : '');
     const wrap = document.getElementById('bkProgWrap');
@@ -3403,17 +3462,19 @@ async function loadBackups() {
       if (d.job.running) { clearTimeout(window._bkT); window._bkT = setTimeout(loadBackups, 1500); }
     }
     const box = document.getElementById('bkList');
-    const items = (d.items || []).slice().reverse();
-    if (!items.length) { box.innerHTML = '<div class="file-row"><span class="file-name">Sin backups todavía — pulsa «Backup ahora»</span></div>'; return; }
-    box.innerHTML = items.map(f => `
-      <div class="file-row">
-        <span class="file-name">${f.name}${f.monthly ? ' <span class="chart-badge sub">MENSUAL</span>' : ''}<br><span style="font-size:11px;color:var(--text-dim)">${f.date} · ${f.size}</span></span>
-        <span class="file-actions">
-          <button class="icon-btn" title="Descargar" onclick="bkDownload('${f.name}')">${BK_SVG_DL}</button>
-          <button class="icon-btn" title="Restaurar (detiene el server)" onclick="restoreBackup('${f.name}')">${BK_SVG_BACK}</button>
-          <button class="icon-btn danger" title="Eliminar" onclick="deleteBackup('${f.name}')">${BK_SVG_TRASH}</button>
-        </span>
-      </div>`).join('');
+    if (!items.length) { box.innerHTML = '<div class="file-row"><span class="file-name">Sin backups todavía — pulsa «Backup ahora»</span></div>'; }
+    else {
+      box.innerHTML = items.map(f => `
+        <div class="file-row" style="align-items:flex-start; padding:14px 18px">
+          <span class="file-icon is-file" title="Backup">${BK_SVG_DL}</span>
+          <span class="file-name" style="font-size:13.5px">${f.name}${f.monthly ? ' <span class="chart-badge sub">MENSUAL</span>' : ''}<br><span style="font-size:11.5px;color:var(--text-dim)">${f.date} · ${f.size}</span></span>
+          <span class="file-actions" style="gap:8px">
+            <button class="term-tool-btn" onclick="bkDownload('${f.name}')">Descargar</button>
+            <button class="term-tool-btn" onclick="restoreBackup('${f.name}')">Restaurar</button>
+            <button class="icon-btn danger" title="Eliminar" onclick="deleteBackup('${f.name}')">${BK_SVG_TRASH}</button>
+          </span>
+        </div>`).join('');
+    }
     try {
       const c = await (await fetch(U('/api/backup-cfg'))).json();
       const cfg = (c && c.config) || {};
@@ -3422,6 +3483,9 @@ async function loadBackups() {
       if (!document.getElementById('bkDir').value) document.getElementById('bkDir').value = cfg.backup_dir || '';
       if (!document.getElementById('bkRet').value) document.getElementById('bkRet').value = cfg.retention_days || 7;
       document.getElementById('bkMonthly').checked = cfg.keep_monthly !== false;
+      const ret = cfg.retention_days || 7;
+      document.getElementById('bkRetNote').textContent =
+        `Se conservan los últimos ${ret} días; ${cfg.keep_monthly !== false ? 'el último de cada mes se guarda para siempre (MENSUAL).' : 'sin copias mensuales.'}`;
     } catch (e) {}
   } catch (e) {
     document.getElementById('bkList').innerHTML = '<div class="file-row">Error al cargar backups</div>';
