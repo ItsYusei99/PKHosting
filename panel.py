@@ -2117,25 +2117,44 @@ svg.ico { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: r
 .fs-crumb { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-muted); }
 .fs-crumb a { color: var(--accent-cyan); cursor: pointer; text-decoration: none; }
 
-/* TOAST MESSAGE */
-#toast {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  background: #1e293b;
-  color: #fff;
-  padding: 12px 20px;
-  border-radius: 8px;
-  font-size: 13px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-  border-left: 4px solid var(--accent-cyan);
-  opacity: 0;
-  transform: translateY(10px);
-  transition: all 0.25s ease;
-  pointer-events: none;
-  z-index: 100;
-}
-#toast.show { opacity: 1; transform: translateY(0); }
+/* TOASTS estilo Sileo (apilados, resorte, blob morphing) */
+#toaster { position: fixed; top: 18px; right: 18px; z-index: 400;
+  display: flex; flex-direction: column; gap: 10px; width: min(360px, 92vw); }
+.toast { display: flex; gap: 12px; align-items: flex-start; padding: 13px 14px;
+  border-radius: 16px; background: rgba(20,14,34,0.9); color: #fff;
+  border: 1px solid rgba(255,255,255,0.12);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.55);
+  animation: toast-in 0.5s cubic-bezier(0.34,1.56,0.5,1);
+  cursor: pointer; overflow: hidden; position: relative; }
+.toast.out { animation: toast-out 0.28s ease-in forwards; }
+@keyframes toast-in {
+  from { transform: translateX(120%) scale(0.92); opacity: 0; }
+  60% { transform: translateX(-10px) scale(1.015); opacity: 1; }
+  to { transform: none; opacity: 1; } }
+@keyframes toast-out { to { transform: translateX(120%); opacity: 0; } }
+.toast .tk-blob { width: 34px; height: 34px; flex-shrink: 0; display: flex;
+  align-items: center; justify-content: center; color: #fff;
+  animation: blob-morph 5s ease-in-out infinite; }
+.toast .tk-blob svg { width: 17px; height: 17px; }
+@keyframes blob-morph {
+  0%, 100% { border-radius: 58% 42% 55% 45%/52% 58% 42% 48%; }
+  50% { border-radius: 45% 55% 42% 58%/58% 42% 58% 42%; } }
+.toast.info .tk-blob { background: linear-gradient(135deg, #a855f7, #7c3aed); }
+.toast.success .tk-blob { background: linear-gradient(135deg, #10b981, #059669); }
+.toast.error .tk-blob { background: linear-gradient(135deg, #ef4444, #b91c1c); }
+.toast.warning .tk-blob { background: linear-gradient(135deg, #f59e0b, #b45309); }
+.toast .tk-body { flex: 1; min-width: 0; }
+.toast .tk-title { font-size: 13px; font-weight: 700; }
+.toast .tk-desc { font-size: 12px; color: var(--text-muted); margin-top: 2px; word-break: break-word; }
+.toast .tk-bar { position: absolute; bottom: 0; left: 0; height: 2px; width: 100%;
+  transform-origin: left; animation: tk-shrink linear forwards; }
+.toast.info .tk-bar { background: #a855f7; }
+.toast.success .tk-bar { background: #10b981; }
+.toast.error .tk-bar { background: #ef4444; }
+.toast.warning .tk-bar { background: #f59e0b; }
+@keyframes tk-shrink { from { transform: scaleX(1); } to { transform: scaleX(0); } }
 
 /* LOG HIGHLIGHTS */
 .log-info { color: #94a3b8; }
@@ -2350,7 +2369,7 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
 .dur input { width: 56px; text-align: center; background: transparent; border: 0; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; padding: 9px 2px; outline: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .orbs i, .g-letter, .file-icon.is-folder svg { animation: none !important; transition: none !important; }
+  .orbs i, .g-letter, .file-icon.is-folder svg, .toast, .toast .tk-blob { animation: none !important; transition: none !important; }
 }
 </style>
 </head>
@@ -2781,7 +2800,7 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
   </div>
 </main>
 
-<div id="toast"></div>
+<div id="toaster" aria-live="polite"></div>
 
 <script>
 let autoScroll = true;
@@ -2804,12 +2823,73 @@ async function logout() {
   await _fetch(U('/api/logout'), { method: 'POST' });
   location.reload();
 }
-function showToast(msg) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 2600);
+const SILEO_ICONS = {
+  info: '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+  success: '<svg class="ico" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>',
+  error: '<svg class="ico" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+  warning: '<svg class="ico" viewBox="0 0 24 24"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'
+};
+function escToast(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function sileoShow({ title, description, type, duration, action } = {}) {
+  type = SILEO_ICONS[type] ? type : 'info';
+  if (duration === undefined) duration = 3400;
+  const box = document.getElementById('toaster');
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.innerHTML = `<div class="tk-blob">${SILEO_ICONS[type]}</div><div class="tk-body">`
+    + (title ? `<div class="tk-title">${escToast(title)}</div>` : '')
+    + (description ? `<div class="tk-desc">${escToast(description)}</div>` : '')
+    + (action ? `<button class="term-tool-btn" style="margin-top:8px">${escToast(action.label)}</button>` : '')
+    + `</div><div class="tk-bar" style="animation-duration:${duration}ms"></div>`;
+  let gone = false;
+  const dismiss = () => {
+    if (gone) return;
+    gone = true;
+    clearTimeout(timer);
+    el.classList.add('out');
+    setTimeout(() => el.remove(), 300);
+  };
+  let timer = null, left = duration, started = Date.now();
+  const tick = () => {
+    if (duration == null) return;
+    timer = setTimeout(dismiss, left);
+  };
+  if (duration != null) tick();
+  el.addEventListener('mouseenter', () => { clearTimeout(timer); if (duration != null) left -= Date.now() - started; });
+  el.addEventListener('mouseleave', () => { started = Date.now(); tick(); });
+  el.addEventListener('click', e => {
+    if (e.target.tagName === 'BUTTON' && action) { try { action.onClick(); } catch (err) {} }
+    dismiss();
+  });
+  box.appendChild(el);
+  while (box.children.length > 4) box.firstChild.remove();
+  return dismiss;
 }
+function showToast(msg, type) {
+  sileoShow({ description: msg, type: type || 'info' });
+}
+const sileo = {
+  show: sileoShow,
+  success: (title, desc, o) => sileoShow({ title, description: desc, type: 'success', ...(o || {}) }),
+  error: (title, desc, o) => sileoShow({ title, description: desc, type: 'error', ...(o || {}) }),
+  warning: (title, desc, o) => sileoShow({ title, description: desc, type: 'warning', ...(o || {}) }),
+  info: (title, desc, o) => sileoShow({ title, description: desc, type: 'info', ...(o || {}) }),
+  promise: async (p, { loading, success, error } = {}) => {
+    const stop = sileoShow({ title: loading || 'Cargando…', type: 'info', duration: null });
+    try {
+      const r = await p;
+      stop();
+      const msg = typeof success === 'function' ? success(r) : (success || 'Listo');
+      sileoShow({ title: msg, type: 'success' });
+      return r;
+    } catch (e) {
+      stop();
+      const msg = typeof error === 'function' ? error(e) : (error || 'Falló la operación');
+      sileoShow({ title: String(msg), type: 'error' });
+      throw e;
+    }
+  }
+};
 
 let currentPublicIp = 'localhost:25566';
 function copyIp() {
@@ -2895,7 +2975,7 @@ async function submitCmd() {
     showToast(data.msg || (data.ok ? 'Comando enviado' : 'Error'));
     setTimeout(refreshConsole, 700);
   } catch (e) {
-    showToast('Fallo al enviar comando');
+    showToast('Fallo al enviar comando', 'error');
   }
 }
 
@@ -2932,7 +3012,7 @@ async function playerAction(act, name) {
     showToast(data.msg || (data.ok ? 'OK' : 'Error'));
     setTimeout(refreshConsole, 700);
   } catch (e) {
-    showToast('Fallo al enviar acción');
+    showToast('Fallo al enviar acción', 'error');
   }
 }
 
@@ -3546,19 +3626,28 @@ async function loadBackups() {
   }
 }
 async function backupNow() {
-  showToast('Iniciando backup...');
   try {
-    const r = await (await fetch(U('/api/backup-now'), { method: 'POST' })).json();
-    showToast(r.msg || 'OK');
-  } catch (e) { showToast('Error al iniciar backup'); }
+    await sileo.promise(
+      fetch(U('/api/backup-now'), { method: 'POST' }).then(async r => {
+        const d = await r.json();
+        if (!d.ok) throw new Error(d.msg || 'Error');
+        return d.msg || 'Backup iniciado';
+      }),
+      { loading: 'Iniciando backup…', success: m => m, error: e => e.message });
+  } catch (e) {}
   setTimeout(loadBackups, 1500);
 }
 async function restoreBackup(name) {
   if (!confirm(`¿RESTAURAR "${name}"?\n\nDetiene el servidor, guarda un pre-backup de seguridad y sobrescribe el mundo actual.`)) return;
   try {
-    const r = await (await fetch(U('/api/restore'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) })).json();
-    showToast(r.msg || 'OK');
-  } catch (e) { showToast('Error al restaurar'); }
+    await sileo.promise(
+      fetch(U('/api/restore'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) }).then(async r => {
+        const d = await r.json();
+        if (!d.ok) throw new Error(d.msg || 'Error');
+        return d.msg || 'Restaurando…';
+      }),
+      { loading: `Restaurando ${name}…`, success: m => m, error: e => e.message });
+  } catch (e) {}
   setTimeout(loadBackups, 2000);
 }
 function bkDownload(name) { window.open(U('/api/backup-download?name=' + encodeURIComponent(name)), '_blank'); }
