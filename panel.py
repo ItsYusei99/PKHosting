@@ -2313,9 +2313,50 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* ═══ RARE UI · microinteracciones ═══ */
+.orbs { position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+.orbs i { position: absolute; width: 44vmax; height: 44vmax; border-radius: 50%; filter: blur(90px); opacity: 0.5; }
+.orbs i:first-child { left: -12vmax; top: -14vmax; background: radial-gradient(circle, rgba(124,58,237,0.5), transparent 65%); animation: orb-a 14s ease-in-out infinite alternate; }
+.orbs i:last-child { right: -14vmax; bottom: -16vmax; background: radial-gradient(circle, rgba(217,70,239,0.35), transparent 65%); animation: orb-b 18s ease-in-out infinite alternate; }
+@keyframes orb-a { to { transform: translate(9vmax, 7vmax) scale(1.15); } }
+@keyframes orb-b { to { transform: translate(-8vmax, -6vmax) scale(1.1); } }
+
+#scrollProgress { position: fixed; top: 0; left: 0; height: 3px; width: 0%; z-index: 300;
+  background: linear-gradient(90deg, #7c3aed, #d946ef); box-shadow: 0 0 12px rgba(168,85,247,0.8); }
+
+.nav-item { --prox: 0; transform: translateX(calc(var(--prox) * 7px));
+  background: rgba(168,85,247, calc(var(--prox) * 0.13)); transition: transform 0.18s ease-out, background 0.18s ease-out, color 0.15s; }
+.nav-item.active { --prox: 0; transform: none; }
+
+.file-row:hover .file-icon.is-folder svg { transform: scale(1.18) rotate(-5deg); color: #e9d5ff; filter: drop-shadow(0 0 8px rgba(168,85,247,0.7)); }
+.file-icon.is-folder svg { transition: transform 0.25s cubic-bezier(0.34, 1.8, 0.4, 1), color 0.2s; }
+
+.g-letter { display: inline-block; transition: transform 0.45s cubic-bezier(0.34, 1.9, 0.4, 1); }
+.brand-grav:hover .g-letter { transform: translateY(-7px); }
+.brand-grav:hover .g-letter:nth-child(2n) { transform: translateY(5px) rotate(6deg); }
+.brand-grav:hover .g-letter:nth-child(3n) { transform: translateY(-10px) rotate(-5deg); transition-delay: 0.03s; }
+.brand-grav:hover .g-letter:nth-child(4n) { transition-delay: 0.06s; }
+
+.heat { display: flex; gap: 5px; align-items: flex-end; }
+.heat-cell { flex: 1; min-width: 0; border-radius: 5px; background: rgba(168,85,247,0.12);
+  border: 1px solid rgba(168,85,247,0.18); position: relative; transition: transform 0.15s; }
+.heat-cell:hover { transform: scaleY(1.08); }
+.heat-cell.has-bk { border-color: rgba(52,211,153,0.55); }
+
+.dur { display: inline-flex; align-items: stretch; border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; background: var(--bg-terminal); }
+.dur button { background: rgba(168,85,247,0.12); color: #d8b4fe; border: 0; width: 30px; font-size: 15px; cursor: pointer; }
+.dur button:hover { background: rgba(168,85,247,0.3); }
+.dur input { width: 56px; text-align: center; background: transparent; border: 0; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; padding: 9px 2px; outline: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .orbs i, .g-letter, .file-icon.is-folder svg { animation: none !important; transition: none !important; }
+}
 </style>
 </head>
 <body>
+<div class="orbs" aria-hidden="true"><i></i><i></i></div>
+<div id="scrollProgress"></div>
 
 <!-- SIDEBAR -->
 <aside>
@@ -2539,6 +2580,17 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
         </div>
       </div>
 
+      <div class="chart-card" style="margin-bottom:20px">
+        <div class="chart-header">
+          <div class="chart-title">Actividad — últimos 14 días</div>
+          <div class="chart-badge" id="heatBadge">—</div>
+        </div>
+        <div class="heat" id="heatMap" style="height:74px"></div>
+        <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--text-dim); margin-top:6px">
+          <span>menos</span><span><span style="color:#c084fc">■</span> joins · <span style="color:#34d399">■</span> día con backup</span><span>más</span>
+        </div>
+      </div>
+
       <div class="system-details-card">
         <h3 style="margin-bottom:14px; font-size:16px;">Información del Servidor y Entorno</h3>
         <table class="details-table">
@@ -2643,7 +2695,7 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
           <label style="font-size:12px;color:var(--text-muted);display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="bkEn"> Automático diario</label>
           <input id="bkTime" placeholder="04:00" style="width:90px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 10px; color:#fff; font-family:'JetBrains Mono',monospace; font-size:12.5px">
           <input id="bkDir" placeholder="Carpeta destino" style="flex:2; min-width:180px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:#fff; font-size:12.5px">
-          <input id="bkRet" type="number" min="1" max="365" title="Días de retención" style="width:90px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 10px; color:#fff; font-size:12.5px">
+          <span class="dur" title="Días de retención"><button onclick="durStep('bkRet',-1,1,365)">−</button><input id="bkRet" value="7" readonly><button onclick="durStep('bkRet',1,1,365)">+</button></span>
           <label style="font-size:12px;color:var(--text-muted);display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="bkMonthly"> Mensual eterno</label>
           <button class="cmd-btn" onclick="saveBkCfg()">Guardar</button>
         </div>
@@ -2672,7 +2724,7 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px">
           <input id="skPayload" placeholder="Comando o mensaje (vacío para save/restart)" style="flex:3; min-width:200px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:#fff; font-family:'JetBrains Mono',monospace; font-size:12.5px">
-          <input id="skWarn" type="number" min="0" max="30" value="0" title="Aviso previo en minutos (solo restart)" style="flex:1; min-width:110px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:#fff; font-size:12.5px">
+          <span class="dur" title="Aviso previo en minutos (solo restart)"><button onclick="durStep('skWarn',-1,0,30)">−</button><input id="skWarn" value="0" readonly><button onclick="durStep('skWarn',1,0,30)">+</button></span>
         </div>
         <div style="font-size:11.5px; color:var(--text-dim); margin-top:6px">El reinicio automático viene desactivado: solo se ejecuta si creas y activas una tarea de ese tipo.</div>
       </div>
@@ -2806,7 +2858,7 @@ function switchTab(name, fromHash) {
   const tab = document.getElementById('tab-' + name);
   if (tab) tab.classList.add('active');
 
-  if (name === 'metrics') renderCharts();
+  if (name === 'metrics') { renderCharts(); loadHeat(); }
   if (name === 'files') { loadFiles(); loadMods(); }
   if (name === 'tasks') loadSchedules();
   if (name === 'console') { loadQuick(); loadModeration(); refreshCmdList(); }
@@ -3482,7 +3534,8 @@ async function loadBackups() {
       document.getElementById('bkEn').checked = !!cfg.backup_enabled;
       if (!document.getElementById('bkTime').value) document.getElementById('bkTime').value = cfg.backup_time || '04:00';
       if (!document.getElementById('bkDir').value) document.getElementById('bkDir').value = cfg.backup_dir || '';
-      if (!document.getElementById('bkRet').value) document.getElementById('bkRet').value = cfg.retention_days || 7;
+      const bkRetEl = document.getElementById('bkRet');
+      if (!bkRetEl.dataset.dirty) bkRetEl.value = cfg.retention_days || 7;
       document.getElementById('bkMonthly').checked = cfg.keep_monthly !== false;
       const ret = cfg.retention_days || 7;
       document.getElementById('bkRetNote').textContent =
@@ -3661,6 +3714,52 @@ async function modDel(name) {
     showToast(r.msg || 'OK');
   } catch (e) { showToast('Error'); }
   loadMods();
+}
+
+function durStep(id, delta, min, max) {
+  const el = document.getElementById(id);
+  el.dataset.dirty = 1;
+  el.value = Math.max(min, Math.min(max, (parseInt(el.value) || 0) + delta));
+}
+// Sidebar por proximidad (estilo Rare UI)
+document.querySelector('aside').addEventListener('mousemove', e => {
+  document.querySelectorAll('.nav-item').forEach(el => {
+    const r = el.getBoundingClientRect();
+    const dx = e.clientX - (r.left + r.width / 2);
+    const dy = e.clientY - (r.top + r.height / 2);
+    const dist = Math.hypot(dx, dy);
+    el.style.setProperty('--prox', Math.max(0, 1 - dist / 220).toFixed(2));
+  });
+});
+document.querySelector('aside').addEventListener('mouseleave', () => {
+  document.querySelectorAll('.nav-item').forEach(el => el.style.setProperty('--prox', 0));
+});
+// Progreso de scroll del contenido
+document.querySelector('main').addEventListener('scroll', e => {
+  const m = e.target;
+  const p = m.scrollHeight - m.clientHeight > 0 ? (m.scrollTop / (m.scrollHeight - m.clientHeight)) * 100 : 0;
+  document.getElementById('scrollProgress').style.width = p + '%';
+});
+let heatAt = 0;
+async function loadHeat() {
+  if (Date.now() - heatAt < 60000) return;
+  heatAt = Date.now();
+  try {
+    const d = await (await fetch(U('/api/activity?days=14'))).json();
+    const days = (d && d.days) || [];
+    const box = document.getElementById('heatMap');
+    if (!days.length) { box.innerHTML = ''; return; }
+    const mx = Math.max(1, ...days.map(x => x.joins));
+    let joins = 0, bks = 0;
+    box.innerHTML = days.map(x => {
+      joins += x.joins;
+      if (x.backups) bks++;
+      const a = 0.1 + 0.9 * (x.joins / mx);
+      const h = 22 + 52 * (x.joins / mx);
+      return `<div class="heat-cell${x.backups ? ' has-bk' : ''}" style="height:${h}px; background:rgba(168,85,247,${a.toFixed(2)})" title="${x.date}: ${x.joins} joins${x.backups ? ` · ${x.backups} backup(s)` : ''}"></div>`;
+    }).join('');
+    document.getElementById('heatBadge').textContent = `${joins} joins · ${bks} días con backup`;
+  } catch (e) {}
 }
 
 async function loadProps() {
@@ -3904,14 +4003,14 @@ body{min-height:100vh;display:flex;align-items:center;justify-content:center;col
 font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',system-ui,sans-serif;
 background:radial-gradient(900px 480px at 12% -8%,rgba(124,58,237,.22),transparent 65%),radial-gradient(760px 520px at 88% 4%,rgba(168,85,247,.16),transparent 60%),#050508}
 .card{width:min(380px,92vw);padding:28px;border-radius:20px;background:linear-gradient(155deg,rgba(255,255,255,.09),rgba(255,255,255,.02) 55%,rgba(168,85,247,.06));border:1px solid rgba(255,255,255,.12);box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 12px 40px rgba(0,0,0,.55);-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px)}
-h1{font-size:22px;letter-spacing:-.5px}h1 span{background:linear-gradient(90deg,#c084fc,#a855f7);-webkit-background-clip:text;background-clip:text;color:transparent}
+h1{font-size:22px;letter-spacing:-.5px}h1 span span.g-letter{background:linear-gradient(90deg,#c084fc,#a855f7);-webkit-background-clip:text;background-clip:text;color:transparent}
 p{font-size:13px;color:#a89fc7;margin:6px 0 16px}
 input{width:100%;background:#06060b;border:1px solid #2b2440;border-radius:12px;padding:11px 13px;color:#fff;font-size:14px;outline:none;margin-bottom:10px}
 input:focus{border-color:rgba(168,85,247,.6);box-shadow:0 0 0 3px rgba(168,85,247,.22)}
 button{width:100%;border:0;border-radius:12px;padding:11px;font-size:14px;font-weight:700;color:#fff;cursor:pointer;background:linear-gradient(135deg,#a855f7,#7c3aed);box-shadow:0 4px 16px rgba(168,85,247,.4)}
 #err{color:#f87171;font-size:12.5px;min-height:18px;margin-top:8px}
 </style></head><body>
-<div class="card"><h1>PK<span>Hosting</span></h1><p>Introduce la contraseña del panel</p>
+<div class="card"><h1 class="brand-grav"><span class="g-letter">P</span><span class="g-letter">K</span><span><span class="g-letter">H</span><span class="g-letter">o</span><span class="g-letter">s</span><span class="g-letter">t</span><span class="g-letter">i</span><span class="g-letter">n</span><span class="g-letter">g</span></span></h1><p>Introduce la contraseña del panel</p>
 <input type="password" id="pw" placeholder="Contraseña" autofocus>
 <button onclick="login()">Entrar</button><div id="err"></div></div>
 <script>
@@ -4118,6 +4217,46 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
 
         if u.path == "/api/connections":
             return self.send_json({"ok": True, "items": connection_history()})
+
+        if u.path == "/api/activity":
+            srv = S()
+            days = []
+            try:
+                n_days = max(1, min(30, int(parse_qs(u.query).get("days", ["14"])[0])))
+            except Exception:
+                n_days = 14
+            today = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            joins = {}
+            try:
+                with open(_conn_file(srv)) as f:
+                    for line in f:
+                        try:
+                            o = json.loads(line)
+                            if o.get("ev") == "join":
+                                joins[datetime.datetime.fromtimestamp(
+                                    o["t"]).strftime("%Y-%m-%d")] = joins.get(
+                                    datetime.datetime.fromtimestamp(
+                                        o["t"]).strftime("%Y-%m-%d"), 0) + 1
+                        except Exception:
+                            continue
+            except Exception:
+                pass
+            bks = {}
+            if HAVE_BACKUP:
+                try:
+                    for i in bk.list_backups(srv.backup_dir):
+                        bks[datetime.datetime.fromtimestamp(
+                            i["mtime"]).strftime("%Y-%m-%d")] = bks.get(
+                            datetime.datetime.fromtimestamp(
+                                i["mtime"]).strftime("%Y-%m-%d"), 0) + 1
+                except Exception:
+                    pass
+            for d in range(n_days - 1, -1, -1):
+                day = today - datetime.timedelta(days=d)
+                k = day.strftime("%Y-%m-%d")
+                days.append({"date": day.strftime("%d/%m"), "joins": joins.get(k, 0),
+                             "backups": bks.get(k, 0)})
+            return self.send_json({"ok": True, "days": days})
 
         if u.path == "/api/mods":
             return self.send_json({"ok": True, "mods": list_mods()})
