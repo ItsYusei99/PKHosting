@@ -2116,6 +2116,12 @@ svg.ico { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: r
 .fs-toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; align-items: center; }
 .fs-crumb { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-muted); }
 .fs-crumb a { color: var(--accent-cyan); cursor: pointer; text-decoration: none; }
+.seg { display: inline-flex; background: var(--bg-terminal); border: 1px solid var(--border-color); border-radius: 9px; padding: 3px; gap: 2px; }
+.seg button { background: transparent; border: 0; color: var(--text-muted); font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-family: inherit; transition: all 0.15s; }
+.seg button:hover { color: var(--text-main); }
+.seg button.on { background: linear-gradient(135deg, #a855f7, #7c3aed); color: #fff; box-shadow: 0 2px 10px rgba(168,85,247,0.4); }
+.btn-ghost { display: inline-flex; align-items: center; gap: 6px; background: rgba(168,85,247,0.1); border: 1px solid rgba(168,85,247,0.4); color: #d8b4fe; font-size: 12px; font-weight: 600; padding: 7px 14px; border-radius: 8px; cursor: pointer; font-family: inherit; transition: all 0.15s; }
+.btn-ghost:hover { background: rgba(168,85,247,0.25); color: #fff; border-color: #a855f7; }
 
 /* TOASTS estilo Sileo (apilados, resorte, blob morphing) */
 #toaster { position: fixed; top: 18px; right: 18px; z-index: 400;
@@ -2410,6 +2416,9 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
     <a class="nav-item" onclick="switchTab('tasks')">
       <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span> Tareas
     </a>
+    <a class="nav-item" onclick="switchTab('history')">
+      <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><polyline points="12 7 12 12 15 15"/></svg></span> Historial
+    </a>
     </a>
     <a class="nav-item" onclick="switchTab('settings')">
       <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span> Configuración
@@ -2539,12 +2548,10 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
           <div><div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;margin-bottom:4px">Baneados</div><div id="modBans" style="font-size:12.5px">—</div></div>
           <div><div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;margin-bottom:4px">Whitelist <a onclick="wlToggle()" style="color:var(--accent-cyan);cursor:pointer" id="wlState"></a></div><div id="modWl" style="font-size:12.5px">—</div></div>
         </div>
-        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px">
+        <div style="display:flex; gap:8px; flex-wrap:wrap">
           <input id="wlName" maxlength="16" placeholder="Añadir a whitelist" style="flex:1; min-width:160px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:#fff; font-family:'JetBrains Mono',monospace; font-size:12.5px">
           <button class="cmd-btn" onclick="wlAdd()">Añadir</button>
         </div>
-        <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;margin-bottom:4px">Historial de conexiones</div>
-        <div class="file-list" id="connHist"><div class="file-row"><span class="file-name">Sin registros</span></div></div>
       </div>
     </div>
 
@@ -2639,11 +2646,11 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
       </div>
       <div class="fs-toolbar">
         <label style="font-size:12px; color:var(--text-muted)">Ordenar:</label>
-        <select id="fsSortKey" onchange="fsSortChanged()" style="background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:7px 10px; color:#e2e8f0; font-size:12px">
-          <option value="name">Nombre</option>
-          <option value="mtime">Fecha de modificación</option>
-          <option value="size">Tamaño</option>
-        </select>
+        <div class="seg" id="fsSeg">
+          <button data-k="name" class="on" onclick="fsSortKey('name')">Nombre</button>
+          <button data-k="mtime" onclick="fsSortKey('mtime')">Fecha</button>
+          <button data-k="size" onclick="fsSortKey('size')">Tamaño</button>
+        </div>
         <button class="term-tool-btn" id="fsSortDir" onclick="fsToggleDir()" title="Dirección">↓</button>
         <label style="font-size:12px; color:var(--text-muted); display:inline-flex; align-items:center; gap:6px; cursor:pointer"><input type="checkbox" id="fsGroup" checked onchange="loadFiles()"> Carpetas primero</label>
       </div>
@@ -2750,6 +2757,18 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
       <div class="file-list" id="skList">
         <div class="file-row"><span>Cargando tareas...</span></div>
       </div>
+    </div>
+
+    <!-- TAB: HISTORIAL DE JUGADORES -->
+    <div id="tab-history" class="tab-content">
+      <div class="system-details-card" style="margin-bottom:12px">
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center">
+          <h3 style="font-size:15px; flex:1">Historial de jugadores</h3>
+          <button class="term-tool-btn" onclick="loadHistory()">Recargar</button>
+        </div>
+        <div style="font-size:12px; color:var(--text-muted); margin-top:4px" id="histSub">Entradas y salidas del servidor</div>
+      </div>
+      <div class="file-list" id="connHist"><div class="file-row"><span class="file-name">Sin registros</span></div></div>
     </div>
 
     <!-- TAB 4: CONFIGURACION -->
@@ -2932,7 +2951,7 @@ function switchTab(name, fromHash) {
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
   
-  const targetNav = Array.from(document.querySelectorAll('.nav-item')).find(el => el.textContent.toLowerCase().includes(name === 'console' ? 'consola' : name === 'metrics' ? 'métrica' : name === 'files' ? 'archivo' : name === 'backups' ? 'backup' : name === 'tasks' ? 'tarea' : 'config'));
+  const targetNav = Array.from(document.querySelectorAll('.nav-item')).find(el => el.textContent.toLowerCase().includes(name === 'console' ? 'consola' : name === 'metrics' ? 'métrica' : name === 'files' ? 'archivo' : name === 'backups' ? 'backup' : name === 'tasks' ? 'tarea' : name === 'history' ? 'historial' : 'config'));
   if (targetNav) targetNav.classList.add('active');
 
   const tab = document.getElementById('tab-' + name);
@@ -2941,6 +2960,7 @@ function switchTab(name, fromHash) {
   if (name === 'metrics') { renderCharts(); loadHeat(); }
   if (name === 'files') { loadFiles(); loadMods(); }
   if (name === 'tasks') loadSchedules();
+  if (name === 'history') loadHistory();
   if (name === 'console') { loadQuick(); loadModeration(); refreshCmdList(); }
   if (name === 'settings') { loadProps(); refreshPublicIp(); loadDiscord(); loadQuickCfg(); }
 }
@@ -3035,15 +3055,20 @@ async function loadModeration() {
     document.getElementById('wlState').textContent = _wlOn ? '[ON]' : '[OFF]';
     document.getElementById('modWl').innerHTML = (d.whitelist && d.whitelist.length) ? d.whitelist.map(n => chip(n, 'wlremove')).join(' ') : '—';
   } catch (e) {}
+}
+async function loadHistory() {
   try {
     const h = await (await fetch(U('/api/connections'))).json();
     const box = document.getElementById('connHist');
     const items = (h && h.items) || [];
+    const sub = document.getElementById('histSub');
+    if (sub) sub.textContent = items.length ? `${items.length} registros · Entradas y salidas del servidor` : 'Entradas y salidas del servidor';
     if (!items.length) { box.innerHTML = '<div class="file-row"><span class="file-name">Sin registros</span></div>'; return; }
-    box.innerHTML = items.slice(0, 15).map(e => {
+    box.innerHTML = items.slice(0, 30).map(e => {
       const dt = new Date(e.t * 1000).toLocaleString();
       const what = e.ev === 'join' ? 'entró' : `salió (${fmtSess(e.dur || 0)})`;
-      return `<div class="file-row"><span class="file-name">${e.name} ${what}</span><span class="file-size">${dt}</span></div>`;
+      const dot = e.ev === 'join' ? '#34d399' : '#f87171';
+      return `<div class="file-row"><span class="file-icon" style="color:${dot}" title="${e.ev === 'join' ? 'Entrada' : 'Salida'}">●</span><span class="file-name">${e.name} ${what}</span><span class="file-size">${dt}</span></div>`;
     }).join('');
   } catch (e) {}
 }
@@ -3077,10 +3102,28 @@ function clearTerminal() {
   document.getElementById('termBody').innerHTML = '';
 }
 
+let stickBottom = true;
+function paintAutoBtn() {
+  document.getElementById('btnAutoScroll').textContent =
+    !autoScroll ? 'Auto-scroll: OFF' : (stickBottom ? 'Auto-scroll: ON' : 'Ir abajo ↓');
+}
 function toggleAutoScroll() {
   autoScroll = !autoScroll;
-  document.getElementById('btnAutoScroll').textContent = 'Auto-scroll: ' + (autoScroll ? 'ON' : 'OFF');
+  if (autoScroll) {
+    stickBottom = true;
+    const body = document.getElementById('termBody');
+    body.scrollTop = body.scrollHeight;
+  }
+  paintAutoBtn();
 }
+document.getElementById('termBody').addEventListener('scroll', () => {
+  const body = document.getElementById('termBody');
+  const atBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 40;
+  if (atBottom !== stickBottom) {
+    stickBottom = atBottom;
+    paintAutoBtn();
+  }
+});
 
 function copyLogs() {
   const t = document.getElementById('termBody').innerText;
@@ -3113,8 +3156,13 @@ function renderConsole() {
     if (q && !l.toLowerCase().includes(q)) return false;
     return true;
   });
+  const prevH = body.scrollHeight, prevT = body.scrollTop;
   body.innerHTML = rows.length ? rows.map(highlightLogLine).join('<br>') : '<span class="log-info">Sin coincidencias</span>';
-  if (autoScroll) body.scrollTop = body.scrollHeight;
+  if (autoScroll && stickBottom) {
+    body.scrollTop = body.scrollHeight;
+  } else {
+    body.scrollTop = Math.max(0, prevT + (body.scrollHeight - prevH));
+  }
 }
 async function refreshConsole() {
   try {
@@ -3408,7 +3456,11 @@ const SVG_DL = '<svg class="ico" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1
 const SVG_PENCIL = '<svg class="ico" viewBox="0 0 24 24"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg>';
 const SVG_EDIT = '<svg class="ico" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
 const SVG_TRASH = '<svg class="ico" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
-function fsSortChanged() { fsSort.key = document.getElementById('fsSortKey').value; loadFiles(false); }
+function fsSortKey(k) {
+  fsSort.key = k;
+  document.querySelectorAll('#fsSeg button').forEach(b => b.classList.toggle('on', b.dataset.k === k));
+  loadFiles(false);
+}
 function fsToggleDir() { fsSort.dir *= -1; document.getElementById('fsSortDir').textContent = fsSort.dir === 1 ? '↓' : '↑'; loadFiles(false); }
 function fsApplySort(files) {
   fsSort.group = document.getElementById('fsGroup').checked;
@@ -3602,8 +3654,8 @@ async function loadBackups() {
           <span class="file-icon is-file" title="Backup">${BK_SVG_DL}</span>
           <span class="file-name" style="font-size:13.5px">${f.name}${f.monthly ? ' <span class="chart-badge sub">MENSUAL</span>' : ''}<br><span style="font-size:11.5px;color:var(--text-dim)">${f.date} · ${f.size}</span></span>
           <span class="file-actions" style="gap:8px">
-            <button class="term-tool-btn" onclick="bkDownload('${f.name}')">Descargar</button>
-            <button class="term-tool-btn" onclick="restoreBackup('${f.name}')">Restaurar</button>
+          <button class="btn-ghost" onclick="bkDownload('${f.name}')">Descargar</button>
+          <button class="btn-ghost" onclick="restoreBackup('${f.name}')">Restaurar</button>
             <button class="icon-btn danger" title="Eliminar" onclick="deleteBackup('${f.name}')">${BK_SVG_TRASH}</button>
           </span>
         </div>`).join('');
@@ -3673,6 +3725,7 @@ async function deleteBackup(name) {
 }
 setInterval(() => { const t = document.getElementById('tab-backups'); if (t && t.classList.contains('active')) loadBackups(); }, 5000);
 setInterval(() => { const t = document.getElementById('tab-console'); if (t && t.classList.contains('active')) loadModeration(); }, 10000);
+setInterval(() => { const t = document.getElementById('tab-history'); if (t && t.classList.contains('active')) loadHistory(); }, 10000);
 
 async function refreshTps() {
   showToast('Muestreando TPS...');
@@ -3874,8 +3927,8 @@ async function saveProps() {
   }
 }
 
-const TAB_HASH = { consola: 'console', metricas: 'metrics', sistema: 'metrics', archivos: 'files', backups: 'backups', tareas: 'tasks', configuracion: 'settings', ajustes: 'settings' };
-const TAB_SLUG = { console: 'consola', metrics: 'metricas', files: 'archivos', backups: 'backups', tasks: 'tareas', settings: 'configuracion' };
+const TAB_HASH = { consola: 'console', metricas: 'metrics', sistema: 'metrics', archivos: 'files', backups: 'backups', tareas: 'tasks', historial: 'history', jugadores: 'history', configuracion: 'settings', ajustes: 'settings' };
+const TAB_SLUG = { console: 'consola', metrics: 'metricas', files: 'archivos', backups: 'backups', tasks: 'tareas', history: 'historial', settings: 'configuracion' };
 function tabFromHash() {
   const h = (location.hash || '').replace(/^#/, '');
   const m = /^[a-z]+/.exec(h);
