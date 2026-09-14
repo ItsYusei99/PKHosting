@@ -2123,44 +2123,65 @@ svg.ico { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: r
 .btn-ghost { display: inline-flex; align-items: center; gap: 6px; background: rgba(168,85,247,0.1); border: 1px solid rgba(168,85,247,0.4); color: #d8b4fe; font-size: 12px; font-weight: 600; padding: 7px 14px; border-radius: 8px; cursor: pointer; font-family: inherit; transition: all 0.15s; }
 .btn-ghost:hover { background: rgba(168,85,247,0.25); color: #fff; border-color: #a855f7; }
 
-/* TOASTS estilo Sileo (apilados, resorte, blob morphing) */
-#toaster { position: fixed; top: 18px; right: 18px; z-index: 400;
-  display: flex; flex-direction: column; gap: 10px; width: min(360px, 92vw); }
-.toast { display: flex; gap: 12px; align-items: flex-start; padding: 13px 14px;
-  border-radius: 16px; background: rgba(20,14,34,0.9); color: #fff;
-  border: 1px solid rgba(255,255,255,0.12);
-  -webkit-backdrop-filter: blur(20px) saturate(160%);
-  backdrop-filter: blur(20px) saturate(160%);
-  box-shadow: 0 12px 40px rgba(0,0,0,0.55);
-  animation: toast-in 0.5s cubic-bezier(0.34,1.56,0.5,1);
-  cursor: pointer; overflow: hidden; position: relative; }
-.toast.out { animation: toast-out 0.28s ease-in forwards; }
-@keyframes toast-in {
-  from { transform: translateX(120%) scale(0.92); opacity: 0; }
-  60% { transform: translateX(-10px) scale(1.015); opacity: 1; }
-  to { transform: none; opacity: 1; } }
-@keyframes toast-out { to { transform: translateX(120%); opacity: 0; } }
-.toast .tk-blob { width: 34px; height: 34px; flex-shrink: 0; display: flex;
-  align-items: center; justify-content: center; color: #fff;
-  animation: blob-morph 5s ease-in-out infinite; }
-.toast .tk-blob svg { width: 17px; height: 17px; }
-@keyframes blob-morph {
-  0%, 100% { border-radius: 58% 42% 55% 45%/52% 58% 42% 48%; }
-  50% { border-radius: 45% 55% 42% 58%/58% 42% 58% 42%; } }
-.toast.info .tk-blob { background: linear-gradient(135deg, #a855f7, #7c3aed); }
-.toast.success .tk-blob { background: linear-gradient(135deg, #10b981, #059669); }
-.toast.error .tk-blob { background: linear-gradient(135deg, #ef4444, #b91c1c); }
-.toast.warning .tk-blob { background: linear-gradient(135deg, #f59e0b, #b45309); }
-.toast .tk-body { flex: 1; min-width: 0; }
-.toast .tk-title { font-size: 13px; font-weight: 700; }
-.toast .tk-desc { font-size: 12px; color: var(--text-muted); margin-top: 2px; word-break: break-word; }
-.toast .tk-bar { position: absolute; bottom: 0; left: 0; height: 2px; width: 100%;
-  transform-origin: left; animation: tk-shrink linear forwards; }
-.toast.info .tk-bar { background: #a855f7; }
-.toast.success .tk-bar { background: #10b981; }
-.toast.error .tk-bar { background: #ef4444; }
-.toast.warning .tk-bar { background: #f59e0b; }
-@keyframes tk-shrink { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+/* TOASTS estilo Sileo (spring real, goo SVG, autopilot expandir/colapsar) */
+:root {
+  --sl-spring: linear(0, 0.002 0.6%, 0.007 1.2%, 0.015 1.8%, 0.026 2.4%, 0.041 3.1%, 0.06 3.8%, 0.108 5.3%, 0.157 6.6%, 0.214 8%, 0.467 13.7%, 0.577 16.3%, 0.631 17.7%, 0.682 19.1%, 0.73 20.5%, 0.771 21.8%, 0.808 23.1%, 0.844 24.5%, 0.874 25.8%, 0.903 27.2%, 0.928 28.6%, 0.952 30.1%, 0.972 31.6%, 0.988 33.1%, 1.01 35.7%, 1.025 38.5%, 1.034 41.6%, 1.038 45%, 1.035 50.1%, 1.012 64.2%, 1.003 73%, 0.999 83.7%, 1);
+  --sl-dur: 600ms;
+  --sl-success: oklch(0.723 0.219 142.136);
+  --sl-error: oklch(0.637 0.237 25.331);
+  --sl-warning: oklch(0.795 0.184 86.047);
+  --sl-info: oklch(0.685 0.169 237.323);
+  --sl-loading: oklch(0.556 0 0);
+}
+.toaster { position: fixed; z-index: 400; display: flex; gap: 12px; padding: 12px;
+  pointer-events: none; max-width: calc(100vw - 24px); }
+.toaster[data-pos^="top"] { top: 0; flex-direction: column-reverse; }
+.toaster[data-pos^="bottom"] { bottom: 0; flex-direction: column; }
+.toaster[data-pos$="left"] { left: 0; align-items: flex-start; }
+.toaster[data-pos$="right"] { right: 0; align-items: flex-end; }
+.toaster[data-pos$="center"] { left: 50%; transform: translateX(-50%); align-items: center; }
+.toast { position: relative; width: 350px; max-width: 92vw; cursor: pointer; pointer-events: auto;
+  opacity: 0; transform: scale(0.95); }
+.toaster[data-pos^="top"] .toast:not(.ready) { transform: translateY(-6px) scale(0.95); }
+.toaster[data-pos^="bottom"] .toast:not(.ready) { transform: translateY(6px) scale(0.95); }
+.toast.ready { opacity: 1; transform: scale(1);
+  transition: transform calc(var(--sl-dur) * 0.66) var(--sl-spring),
+    opacity calc(var(--sl-dur) * 0.66) var(--sl-spring),
+    max-height var(--sl-dur) var(--sl-spring); }
+.toast .goo-acc { animation: goo-drift 6s ease-in-out infinite alternate; }
+@keyframes goo-drift { to { transform: translate(16px, -10px); } }
+.toast.exiting { opacity: 0; pointer-events: none; transform: scale(0.95); }
+.toaster[data-pos^="top"] .toast.exiting { transform: translateY(-6px) scale(0.95); }
+.toaster[data-pos^="bottom"] .toast.exiting { transform: translateY(6px) scale(0.95); }
+.toast .tk-goo { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.toast .tk-head { position: relative; z-index: 2; display: flex; align-items: center;
+  gap: 8px; padding: 8px; height: 40px; overflow: hidden; }
+.toast .tk-badge { display: flex; height: 24px; width: 24px; flex-shrink: 0;
+  align-items: center; justify-content: center; border-radius: 9999px;
+  color: var(--sl-tone); background: var(--sl-tone-bg); }
+.toast .tk-badge svg { width: 14px; height: 14px; }
+.toast .tk-title { font-size: 13px; line-height: 16px; font-weight: 600;
+  color: var(--sl-tone); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.toast .tk-body { position: relative; z-index: 2; max-height: 0; overflow: hidden; opacity: 0;
+  transition: max-height var(--sl-dur) var(--sl-spring), opacity 200ms ease; }
+.toast.open .tk-body { max-height: 220px; opacity: 1; }
+.toast .tk-desc { padding: 2px 16px 4px; font-size: 14px; line-height: 20px;
+  color: var(--text-muted); word-break: break-word; }
+.toast .tk-btn { display: inline-flex; align-items: center; height: 28px; padding: 0 12px;
+  margin: 6px 16px 14px; border-radius: 9999px; border: 0; font-size: 12px;
+  font-weight: 600; cursor: pointer; color: var(--sl-tone); font-family: inherit;
+  background: var(--sl-tone-btn); }
+.toast .tk-btn:hover { filter: brightness(1.25); }
+.toast[data-state="success"] { --sl-tone: var(--sl-success); --sl-tone-bg: color-mix(in oklch, var(--sl-success) 20%, transparent); --sl-tone-btn: color-mix(in oklch, var(--sl-success) 15%, transparent); --sl-glow: var(--sl-success); }
+.toast[data-state="error"] { --sl-tone: var(--sl-error); --sl-tone-bg: color-mix(in oklch, var(--sl-error) 20%, transparent); --sl-tone-btn: color-mix(in oklch, var(--sl-error) 15%, transparent); --sl-glow: var(--sl-error); }
+.toast[data-state="warning"] { --sl-tone: var(--sl-warning); --sl-tone-bg: color-mix(in oklch, var(--sl-warning) 20%, transparent); --sl-tone-btn: color-mix(in oklch, var(--sl-warning) 15%, transparent); --sl-glow: var(--sl-warning); }
+.toast[data-state="info"] { --sl-tone: var(--sl-info); --sl-tone-bg: color-mix(in oklch, var(--sl-info) 20%, transparent); --sl-tone-btn: color-mix(in oklch, var(--sl-info) 15%, transparent); --sl-glow: var(--sl-info); }
+.toast[data-state="loading"] { --sl-tone: var(--sl-loading); --sl-tone-bg: color-mix(in oklch, var(--sl-loading) 20%, transparent); --sl-tone-btn: color-mix(in oklch, var(--sl-loading) 15%, transparent); --sl-glow: var(--sl-loading); cursor: default; }
+.toast .tk-spin { animation: sl-spin 1s linear infinite; }
+@keyframes sl-spin { to { transform: rotate(360deg); } }
+.toast .tk-head-inner { display: flex; align-items: center; gap: 8px; white-space: nowrap;
+  animation: sl-head-in var(--sl-dur) var(--sl-spring) both; }
+@keyframes sl-head-in { from { opacity: 0; filter: blur(6px); } to { opacity: 1; filter: blur(0); } }
 
 /* LOG HIGHLIGHTS */
 .log-info { color: #94a3b8; }
@@ -2375,7 +2396,7 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
 .dur input { width: 56px; text-align: center; background: transparent; border: 0; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; padding: 9px 2px; outline: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .orbs i, .g-letter, .file-icon.is-folder svg, .toast, .toast .tk-blob { animation: none !important; transition: none !important; }
+  .orbs i, .g-letter, .file-icon.is-folder svg, .toast, .toast *, .toaster, .toaster * { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
 </style>
 </head>
@@ -2819,7 +2840,7 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
   </div>
 </main>
 
-<div id="toaster" aria-live="polite"></div>
+<div class="toaster" id="toaster" data-pos="top-right" data-theme="dark" aria-live="polite"></div>
 
 <script>
 let autoScroll = true;
@@ -2843,63 +2864,115 @@ async function logout() {
   location.reload();
 }
 const SILEO_ICONS = {
-  info: '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
-  success: '<svg class="ico" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>',
-  error: '<svg class="ico" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
-  warning: '<svg class="ico" viewBox="0 0 24 24"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'
+  info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+  success: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+  error: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+  warning: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+  loading: '<svg class="tk-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg>'
 };
+const SILEO_POS = ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right'];
+let sileoDefaultPos = 'top-right';
+let gooN = 0;
 function escToast(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-function sileoShow({ title, description, type, duration, action } = {}) {
+function sileoBox(pos) {
+  pos = SILEO_POS.includes(pos) ? pos : sileoDefaultPos;
+  let box = document.querySelector(`.toaster[data-pos="${pos}"]`);
+  if (!box) {
+    box = document.createElement('div');
+    box.className = 'toaster';
+    box.dataset.pos = pos;
+    box.setAttribute('aria-live', 'polite');
+    document.body.appendChild(box);
+  }
+  return box;
+}
+function sileoShow({ title, description, type, duration, action, position } = {}) {
   type = SILEO_ICONS[type] ? type : 'info';
-  if (duration === undefined) duration = 3400;
-  const box = document.getElementById('toaster');
+  if (type === 'loading' && !SILEO_ICONS.loading) type = 'info';
+  if (duration === undefined) duration = 4000;
+  const box = sileoBox(position);
+  const gid = 'goo' + (++gooN) + Date.now().toString(36);
   const el = document.createElement('div');
-  el.className = 'toast ' + type;
-  el.innerHTML = `<div class="tk-blob">${SILEO_ICONS[type]}</div><div class="tk-body">`
-    + (title ? `<div class="tk-title">${escToast(title)}</div>` : '')
-    + (description ? `<div class="tk-desc">${escToast(description)}</div>` : '')
-    + (action ? `<button class="term-tool-btn" style="margin-top:8px">${escToast(action.label)}</button>` : '')
-    + `</div><div class="tk-bar" style="animation-duration:${duration}ms"></div>`;
-  let gone = false;
+  el.className = 'toast';
+  el.dataset.state = type === 'loading' ? 'loading' : type;
+  const icon = type === 'loading' ? SILEO_ICONS.loading : SILEO_ICONS[type];
+  const expandable = !!(description || action);
+  el.innerHTML = `<svg class="tk-goo" width="100%" height="100%" aria-hidden="true">`
+    + `<defs><filter id="${gid}" x="-20%" y="-20%" width="140%" height="140%">`
+    + `<feGaussianBlur in="SourceGraphic" stdDeviation="9" result="b"/>`
+    + `<feColorMatrix in="b" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 20 -9" result="g"/>`
+    + `<feComposite in="SourceGraphic" in2="g" operator="atop"/></filter></defs>`
+    + `<g filter="url(#${gid})"><rect x="0" y="0" width="100%" height="100%" rx="18" fill="rgba(15,11,26,0.94)"/>`
+    + `<circle class="goo-acc" cx="11%" cy="50%" r="26" fill="var(--sl-glow)"/></g></svg>`
+    + `<div class="tk-head"><div class="tk-head-inner"><span class="tk-badge">${icon}</span>`
+    + `<span class="tk-title">${escToast(title || '')}</span></div></div>`
+    + (expandable ? `<div class="tk-body">`
+      + (description ? `<div class="tk-desc">${escToast(description)}</div>` : '')
+      + (action ? `<button class="tk-btn">${escToast(action.label)}</button>` : '')
+      + `</div>` : '');
+  let gone = false, collapseT = null;
   const dismiss = () => {
     if (gone) return;
     gone = true;
     clearTimeout(timer);
-    el.classList.add('out');
-    setTimeout(() => el.remove(), 300);
+    clearTimeout(collapseT);
+    el.classList.add('exiting');
+    setTimeout(() => el.remove(), 320);
   };
   let timer = null, left = duration, started = Date.now();
   const tick = () => {
     if (duration == null) return;
+    clearTimeout(timer);
     timer = setTimeout(dismiss, left);
   };
-  if (duration != null) tick();
-  el.addEventListener('mouseenter', () => { clearTimeout(timer); if (duration != null) left -= Date.now() - started; });
-  el.addEventListener('mouseleave', () => { started = Date.now(); tick(); });
+  const open = () => el.classList.add('open');
+  const shut = () => { if (expandable && !el.matches(':hover')) el.classList.remove('open'); };
+  el.addEventListener('mouseenter', () => {
+    clearTimeout(timer);
+    clearTimeout(collapseT);
+    if (duration != null) left -= Date.now() - started;
+    open();
+  });
+  el.addEventListener('mouseleave', () => {
+    started = Date.now();
+    tick();
+    if (expandable) collapseT = setTimeout(shut, 1200);
+  });
   el.addEventListener('click', e => {
-    if (e.target.tagName === 'BUTTON' && action) { try { action.onClick(); } catch (err) {} }
+    if (e.target.closest('button') && action) { try { action.onClick(); } catch (err) {} }
     dismiss();
   });
   box.appendChild(el);
   while (box.children.length > 4) box.firstChild.remove();
+  requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('ready')));
+  if (expandable && duration != null) setTimeout(() => { if (!gone) open(); }, 350);
+  if (duration != null) tick();
   return dismiss;
 }
 function showToast(msg, type) {
-  sileoShow({ description: msg, type: type || 'info' });
+  msg = String(msg == null ? '' : msg);
+  if (msg.length > 48) {
+    sileoShow({ title: msg.slice(0, 48) + '…', description: msg, type: type || 'info' });
+  } else {
+    sileoShow({ title: msg, type: type || 'info' });
+  }
 }
 const sileo = {
   show: sileoShow,
+  setPosition: pos => { if (SILEO_POS.includes(pos)) sileoDefaultPos = pos; },
+  dismissAll: () => document.querySelectorAll('.toast').forEach(el => el.remove()),
   success: (title, desc, o) => sileoShow({ title, description: desc, type: 'success', ...(o || {}) }),
   error: (title, desc, o) => sileoShow({ title, description: desc, type: 'error', ...(o || {}) }),
   warning: (title, desc, o) => sileoShow({ title, description: desc, type: 'warning', ...(o || {}) }),
   info: (title, desc, o) => sileoShow({ title, description: desc, type: 'info', ...(o || {}) }),
+  loading: (title, o) => sileoShow({ title, type: 'loading', duration: null, ...(o || {}) }),
   promise: async (p, { loading, success, error } = {}) => {
-    const stop = sileoShow({ title: loading || 'Cargando…', type: 'info', duration: null });
+    const stop = sileoShow({ title: loading || 'Cargando…', type: 'loading', duration: null });
     try {
       const r = await p;
       stop();
       const msg = typeof success === 'function' ? success(r) : (success || 'Listo');
-      sileoShow({ title: msg, type: 'success' });
+      sileoShow({ title: String(msg), type: 'success' });
       return r;
     } catch (e) {
       stop();
