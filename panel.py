@@ -3019,8 +3019,16 @@ async function savePublicIp() {
   } catch (e) { showToast('Error al guardar IP'); }
 }
 
+const KNOWN_TABS = ['console', 'metrics', 'files', 'backups', 'tasks', 'history', 'settings'];
+function rememberTab(name) {
+  try {
+    localStorage.setItem('pkTab', name);
+    if (name === 'files') localStorage.setItem('pkFs', fsPath);
+  } catch (e) {}
+}
 function switchTab(name, fromHash) {
   if (!fromHash) syncHash(name);
+  rememberTab(name);
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
   
@@ -3596,7 +3604,7 @@ async function loadFiles(push = true) {
   }
   if (push) { try { history.pushState({ fsPath }, '', '#archivos/' + fsPath); } catch (err) {} }
 }
-function fsNav(p, push = true) { fsPath = p; loadFiles(push); }
+function fsNav(p, push = true) { fsPath = p; try { localStorage.setItem('pkFs', fsPath); } catch (e) {} loadFiles(push); }
 function fsEnter(p) { fsNav(p, true); }
 function fsNavUp() { fsNav(fsPath.split('/').slice(0, -1).join(''), true); }
 window.addEventListener('popstate', (e) => {
@@ -4025,7 +4033,19 @@ refreshStats();
 refreshConsole();
 (function initTab() {
   try {
-    const t = tabFromHash();
+    let t = tabFromHash();
+    if (!t) {
+      try {
+        const s = localStorage.getItem('pkTab');
+        if (s && KNOWN_TABS.includes(s)) {
+          t = s;
+          if (s === 'files') {
+            const fp = localStorage.getItem('pkFs') || '';
+            if (fp) fsPath = fp;
+          }
+        }
+      } catch (e) {}
+    }
     if (t) switchTab(t, true);
   } catch (e) {}
 })();
