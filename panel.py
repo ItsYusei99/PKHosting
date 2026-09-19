@@ -2977,7 +2977,12 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
           <input type="hidden" id="srvEditId" value="">
           <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px">
             <label style="font-size:11.5px; color:var(--text-muted)">Nombre<input id="srvName" class="tin" maxlength="40" placeholder="MiSegundoServidor" style="width:100%; margin-top:4px"></label>
-            <label style="font-size:11.5px; color:var(--text-muted)">Carpeta del servidor<input id="srvDir" class="tin" placeholder="~/MiServidor" style="width:100%; margin-top:4px"></label>
+            <label style="font-size:11.5px; color:var(--text-muted)">Carpeta del servidor
+              <div style="display:flex; gap:8px; margin-top:4px">
+                <input id="srvDir" class="tin" placeholder="~/MiServidor" style="flex:1; min-width:0">
+                <button class="term-tool-btn" type="button" onclick="openSrvBrowser()" title="Explorar carpetas">Examinar…</button>
+              </div>
+            </label>
             <label style="font-size:11.5px; color:var(--text-muted)">Puerto MC<input id="srvMc" class="tin" type="number" min="1" max="65535" style="width:100%; margin-top:4px"></label>
             <label style="font-size:11.5px; color:var(--text-muted)">Puerto RCON<input id="srvRcon" class="tin" type="number" min="1" max="65535" style="width:100%; margin-top:4px"></label>
             <label style="font-size:11.5px; color:var(--text-muted)">RAM (GB)<input id="srvMem" class="tin" type="number" min="0.5" max="64" step="0.5" style="width:100%; margin-top:4px"></label>
@@ -3035,6 +3040,20 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
 
   </div>
 </main>
+
+<div id="srvBrowseModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:200; align-items:center; justify-content:center; padding:20px">
+  <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:12px; width:min(560px,100%); max-height:80vh; display:flex; flex-direction:column; overflow:hidden">
+    <div style="display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--border-color)">
+      <span class="fs-crumb" style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap" id="srvBrowsePath">—</span>
+      <button class="term-tool-btn" onclick="srvBrowseUp()" title="Subir un nivel">↑ Subir</button>
+      <button class="term-tool-btn" onclick="srvBrowseClose()">Cerrar ✕</button>
+    </div>
+    <div class="file-list" id="srvBrowseList" style="overflow-y:auto; border:0; border-radius:0"><div class="file-row"><span class="file-name">Cargando...</span></div></div>
+    <div style="display:flex; gap:10px; padding:12px 16px; border-top:1px solid var(--border-color)">
+      <button class="cmd-btn" style="flex:1" onclick="srvBrowsePick()">Elegir esta carpeta</button>
+    </div>
+  </div>
+</div>
 
 <div class="toaster" id="toaster" data-pos="top-right" data-theme="dark" aria-live="polite"></div>
 
@@ -4338,6 +4357,58 @@ async function srvDelete(id) {
     }
   } catch (e) { showToast('Error de conexión', 'error'); }
 }
+let SRV_BROWSE = '';
+let SRV_BROWSE_DIRS = [];
+function openSrvBrowser() {
+  const cur = (document.getElementById('srvDir') || {}).value || '';
+  document.getElementById('srvBrowseModal').style.display = 'flex';
+  srvBrowseGo(cur.trim() || '~');
+}
+function srvBrowseClose() {
+  document.getElementById('srvBrowseModal').style.display = 'none';
+}
+function srvBrowseCrumb(p) {
+  const segs = String(p).split('/').filter(Boolean);
+  let acc = '';
+  let html = `<a onclick="srvBrowseGo('/');return false">/</a>`;
+  segs.forEach(sg => {
+    acc += '/' + sg;
+    const target = acc;
+    html += `<span style="color:var(--text-dim)"> / </span><a onclick="srvBrowseGoIdx('${target.replace(/'/g, '')}');return false">${escHtml(sg)}</a>`;
+  });
+  return html;
+}
+function srvBrowseGoIdx(path) { srvBrowseGo(path); }
+async function srvBrowseGo(path) {
+  const box = document.getElementById('srvBrowseList');
+  try {
+    const r = await (await fetch(U('/api/browse?path=' + encodeURIComponent(path)))).json();
+    if (!r || r.ok === false) { showToast((r && r.msg) || 'No accesible', 'error'); return; }
+    SRV_BROWSE = r.path;
+    const base = r.path.endsWith('/') ? r.path.slice(0, -1) : r.path;
+    SRV_BROWSE_DIRS = (r.dirs || []).map(d => base + '/' + d.name);
+    document.getElementById('srvBrowsePath').innerHTML = srvBrowseCrumb(r.path);
+    const dirs = r.dirs || [];
+    box.innerHTML = dirs.length ? dirs.map((d, i) => `
+      <div class="file-row" onclick="srvBrowseEnter(${i})" style="cursor:pointer">
+        <span class="file-icon is-folder" title="Carpeta">${SVG_FOLDER}</span>
+        <span class="file-name">${escHtml(d.name)}${d.ready ? ' <span class="mchip ld">server</span>' : ''}</span>
+      </div>`).join('') : '<div class="file-row"><span class="file-name">Sin subcarpetas</span></div>';
+  } catch (e) { showToast('Error de conexión', 'error'); }
+}
+function srvBrowseEnter(i) {
+  const p = SRV_BROWSE_DIRS[i];
+  if (p) srvBrowseGo(p);
+}
+function srvBrowseUp() {
+  srvBrowseGo(SRV_BROWSE ? SRV_BROWSE + '/..' : '~');
+}
+function srvBrowsePick() {
+  if (!SRV_BROWSE) return;
+  document.getElementById('srvDir').value = SRV_BROWSE;
+  srvBrowseClose();
+  showToast('Carpeta seleccionada', 'success');
+}
 
 function durStep(id, delta, min, max) {
   const el = document.getElementById(id);
@@ -4799,6 +4870,29 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
                 self.send_response(500)
                 self.end_headers()
             return
+
+        if u.path == "/api/browse":
+            qs = parse_qs(u.query)
+            raw = ((qs.get("path", [""]) or [""])[0] or "").strip() or "~"
+            p = os.path.realpath(os.path.expanduser(raw))
+            if not os.path.isdir(p):
+                return self.send_json({"ok": False, "msg": "No existe o sin acceso"}, code=404)
+            try:
+                kids = [n for n in os.listdir(p)
+                        if not n.startswith(".") and os.path.isdir(os.path.join(p, n))]
+            except PermissionError:
+                return self.send_json({"ok": False, "msg": "Sin permiso"}, code=403)
+            except Exception as e:
+                return self.send_json({"ok": False, "msg": str(e)}, code=500)
+            dirs = []
+            for n in sorted(kids, key=str.lower)[:500]:
+                full = os.path.join(p, n)
+                ready = os.path.isfile(os.path.join(full, "start.sh")) or \
+                    os.path.isfile(os.path.join(full, "server.properties"))
+                dirs.append({"name": n, "ready": ready})
+            parent = os.path.dirname(p) if p != "/" else "/"
+            return self.send_json({"ok": True, "path": p, "parent": parent,
+                                   "dirs": dirs, "home": os.path.expanduser("~")})
 
         if u.path == "/api/servers":
             cur = S().id
