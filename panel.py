@@ -2169,6 +2169,16 @@ svg.ico { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: r
 .file-icon.is-jar { color: #c084fc; filter: drop-shadow(0 0 6px rgba(168,85,247,0.45)); }
 .file-icon.is-zip { color: #fb923c; }
 .file-icon.is-txt { color: #4ade80; }
+/* switches de opcion (reemplazan checkboxes nativos) */
+.opt-sw { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.opt-lbl { font-size: 12px; color: var(--text-muted); transition: color 0.15s; }
+.opt-sw:has(.tsw.on) .opt-lbl { color: var(--text-main); }
+.tsw { position: relative; width: 38px; height: 22px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.08); flex-shrink: 0; transition: background 0.25s var(--ease-apple), border-color 0.25s, box-shadow 0.25s, filter 0.15s; }
+.tsw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #8b93a7; transition: transform 0.25s cubic-bezier(0.34,1.65,0.4,1), background 0.2s; }
+.tsw.on { background: linear-gradient(135deg, #22c55e, #15803d); border-color: rgba(34,197,94,0.6); box-shadow: 0 0 10px rgba(34,197,94,0.3); }
+.tsw.on::after { transform: translateX(16px); background: #fff; }
+.opt-sw:hover .tsw { filter: brightness(1.18); }
+.tsw:focus-visible { outline: 2px solid #a855f7; outline-offset: 2px; }
 
 /* TOASTS estilo Sonner (dark + rail de color, layout flex simple) */
 .toaster { position: fixed; z-index: 400; display: flex; flex-direction: column;
@@ -2694,7 +2704,7 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
         <button class="cmd-btn" onclick="fsCreate('file')"><svg class="ico" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg> Nuevo archivo</button>
         <button class="cmd-btn" onclick="fsCreate('dir')"><svg class="ico" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg> Nueva carpeta</button>
         <label class="cmd-btn" style="cursor:pointer"><svg class="ico" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Subir<input type="file" id="fsUploadInput" style="display:none" multiple onchange="fsUpload()"></label>
-        <label style="font-size:12px; color:var(--text-muted); display:inline-flex; align-items:center; gap:6px; cursor:pointer"><input type="checkbox" id="fsUnzip"> Descomprimir .zip</label>
+        <span class="opt-sw" onclick="fsToggleSw('fsUnzip')" title="Descomprimir automáticamente los .zip al subirlos"><span class="tsw" id="fsUnzipSw" role="switch" tabindex="0" aria-checked="false" aria-label="Descomprimir .zip" onkeydown="swKey('fsUnzip',event)"></span><span class="opt-lbl">Descomprimir .zip</span><input type="checkbox" id="fsUnzip" hidden></span>
         <span style="flex:1"></span>
         <span class="fs-crumb"><a onclick="fsNavUp()">↑ Subir</a>&nbsp;<span id="fsBreadcrumb">/</span></span>
         <button class="term-tool-btn" onclick="loadFiles()">Recargar</button>
@@ -2707,7 +2717,7 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
           <button data-k="size" onclick="fsSortKey('size')">Tamaño</button>
         </div>
         <button class="term-tool-btn" id="fsSortDir" onclick="fsToggleDir()" title="Dirección">↓</button>
-        <label style="font-size:12px; color:var(--text-muted); display:inline-flex; align-items:center; gap:6px; cursor:pointer"><input type="checkbox" id="fsGroup" checked onchange="loadFiles()"> Carpetas primero</label>
+        <span class="opt-sw" onclick="fsToggleSw('fsGroup')" title="Mostrar las carpetas antes que los archivos"><span class="tsw on" id="fsGroupSw" role="switch" tabindex="0" aria-checked="true" aria-label="Carpetas primero" onkeydown="swKey('fsGroup',event)"></span><span class="opt-lbl">Carpetas primero</span><input type="checkbox" id="fsGroup" checked hidden onchange="loadFiles()"></span>
       </div>
       <div class="file-list" id="filesContainer">
         <div class="file-row"><span>Cargando archivos del servidor...</span></div>
@@ -3568,6 +3578,21 @@ function fsSortKey(k) {
   loadFiles(false);
 }
 function fsToggleDir() { fsSort.dir *= -1; document.getElementById('fsSortDir').textContent = fsSort.dir === 1 ? '↓' : '↑'; loadFiles(false); }
+function syncSw(id) {
+  const el = document.getElementById(id);
+  const sw = document.getElementById(id + 'Sw');
+  if (sw && el) { sw.classList.toggle('on', el.checked); sw.setAttribute('aria-checked', String(el.checked)); }
+}
+function fsToggleSw(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.checked = !el.checked;
+  syncSw(id);
+  el.dispatchEvent(new Event('change'));
+}
+function swKey(id, ev) {
+  if (ev.key === ' ' || ev.key === 'Enter') { ev.preventDefault(); fsToggleSw(id); }
+}
 function fsApplySort(files) {
   fsSort.group = document.getElementById('fsGroup').checked;
   const k = fsSort.key, d = fsSort.dir;
