@@ -2123,66 +2123,52 @@ svg.ico { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: r
 .btn-ghost { display: inline-flex; align-items: center; gap: 6px; background: rgba(168,85,247,0.1); border: 1px solid rgba(168,85,247,0.4); color: #d8b4fe; font-size: 12px; font-weight: 600; padding: 7px 14px; border-radius: 8px; cursor: pointer; font-family: inherit; transition: all 0.15s; }
 .btn-ghost:hover { background: rgba(168,85,247,0.25); color: #fff; border-color: #a855f7; }
 
-/* TOASTS estilo Sileo (spring real, goo SVG, autopilot expandir/colapsar) */
-:root {
-  --sl-spring: linear(0, 0.002 0.6%, 0.007 1.2%, 0.015 1.8%, 0.026 2.4%, 0.041 3.1%, 0.06 3.8%, 0.108 5.3%, 0.157 6.6%, 0.214 8%, 0.467 13.7%, 0.577 16.3%, 0.631 17.7%, 0.682 19.1%, 0.73 20.5%, 0.771 21.8%, 0.808 23.1%, 0.844 24.5%, 0.874 25.8%, 0.903 27.2%, 0.928 28.6%, 0.952 30.1%, 0.972 31.6%, 0.988 33.1%, 1.01 35.7%, 1.025 38.5%, 1.034 41.6%, 1.038 45%, 1.035 50.1%, 1.012 64.2%, 1.003 73%, 0.999 83.7%, 1);
-  --sl-dur: 600ms;
-  --sl-success: oklch(0.723 0.219 142.136);
-  --sl-error: oklch(0.637 0.237 25.331);
-  --sl-warning: oklch(0.795 0.184 86.047);
-  --sl-info: oklch(0.685 0.169 237.323);
-  --sl-loading: oklch(0.556 0 0);
-}
-.toaster { position: fixed; z-index: 400; display: flex; gap: 12px; padding: 12px;
-  pointer-events: none; max-width: calc(100vw - 24px); }
-.toaster[data-pos^="top"] { top: 0; flex-direction: column-reverse; }
-.toaster[data-pos^="bottom"] { bottom: 0; flex-direction: column; }
+/* TOASTS estilo Sonner (dark + rail de color, layout flex simple) */
+.toaster { position: fixed; z-index: 400; display: flex; flex-direction: column;
+  gap: 8px; padding: 12px; pointer-events: none; width: min(380px, calc(100vw - 24px)); }
+.toaster[data-pos^="top"] { top: 0; }
+.toaster[data-pos^="bottom"] { bottom: 0; }
 .toaster[data-pos$="left"] { left: 0; align-items: flex-start; }
 .toaster[data-pos$="right"] { right: 0; align-items: flex-end; }
 .toaster[data-pos$="center"] { left: 50%; transform: translateX(-50%); align-items: center; }
-.toast { position: relative; width: 350px; max-width: 92vw; cursor: pointer; pointer-events: auto;
-  opacity: 0; transform: scale(0.95); }
-.toaster[data-pos^="top"] .toast:not(.ready) { transform: translateY(-6px) scale(0.95); }
-.toaster[data-pos^="bottom"] .toast:not(.ready) { transform: translateY(6px) scale(0.95); }
-.toast.ready { opacity: 1; transform: scale(1);
-  transition: transform calc(var(--sl-dur) * 0.66) var(--sl-spring),
-    opacity calc(var(--sl-dur) * 0.66) var(--sl-spring),
-    max-height var(--sl-dur) var(--sl-spring); }
-.toast .goo-acc { animation: goo-drift 6s ease-in-out infinite alternate; }
-@keyframes goo-drift { to { transform: translate(16px, -10px); } }
-.toast.exiting { opacity: 0; pointer-events: none; transform: scale(0.95); }
-.toaster[data-pos^="top"] .toast.exiting { transform: translateY(-6px) scale(0.95); }
-.toaster[data-pos^="bottom"] .toast.exiting { transform: translateY(6px) scale(0.95); }
-.toast .tk-goo { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.toast .tk-head { position: relative; z-index: 2; display: flex; align-items: center;
-  gap: 8px; padding: 8px; min-height: 40px; overflow: hidden; }
-.toast .tk-badge { display: flex; height: 24px; width: 24px; flex-shrink: 0;
-  align-items: center; justify-content: center; border-radius: 9999px;
-  color: var(--sl-tone); background: var(--sl-tone-bg); }
-.toast .tk-badge svg { width: 14px; height: 14px; }
-.toast .tk-title { font-size: 13px; line-height: 16px; font-weight: 600;
-  color: var(--sl-tone); display: -webkit-box; -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical; overflow: hidden; }
-.toast .tk-body { position: relative; z-index: 2; max-height: 0; overflow: hidden; opacity: 0;
-  transition: max-height var(--sl-dur) var(--sl-spring), opacity 200ms ease; }
-.toast.open .tk-body { max-height: 220px; opacity: 1; }
-.toast .tk-desc { padding: 2px 16px 4px; font-size: 14px; line-height: 20px;
-  color: var(--text-muted); word-break: break-word; }
-.toast .tk-btn { display: inline-flex; align-items: center; height: 28px; padding: 0 12px;
-  margin: 6px 16px 14px; border-radius: 9999px; border: 0; font-size: 12px;
-  font-weight: 600; cursor: pointer; color: var(--sl-tone); font-family: inherit;
-  background: var(--sl-tone-btn); }
-.toast .tk-btn:hover { filter: brightness(1.25); }
-.toast[data-state="success"] { --sl-tone: var(--sl-success); --sl-tone-bg: color-mix(in oklch, var(--sl-success) 20%, transparent); --sl-tone-btn: color-mix(in oklch, var(--sl-success) 15%, transparent); --sl-glow: var(--sl-success); }
-.toast[data-state="error"] { --sl-tone: var(--sl-error); --sl-tone-bg: color-mix(in oklch, var(--sl-error) 20%, transparent); --sl-tone-btn: color-mix(in oklch, var(--sl-error) 15%, transparent); --sl-glow: var(--sl-error); }
-.toast[data-state="warning"] { --sl-tone: var(--sl-warning); --sl-tone-bg: color-mix(in oklch, var(--sl-warning) 20%, transparent); --sl-tone-btn: color-mix(in oklch, var(--sl-warning) 15%, transparent); --sl-glow: var(--sl-warning); }
-.toast[data-state="info"] { --sl-tone: var(--sl-info); --sl-tone-bg: color-mix(in oklch, var(--sl-info) 20%, transparent); --sl-tone-btn: color-mix(in oklch, var(--sl-info) 15%, transparent); --sl-glow: var(--sl-info); }
-.toast[data-state="loading"] { --sl-tone: var(--sl-loading); --sl-tone-bg: color-mix(in oklch, var(--sl-loading) 20%, transparent); --sl-tone-btn: color-mix(in oklch, var(--sl-loading) 15%, transparent); --sl-glow: var(--sl-loading); cursor: default; }
+.toast { --tk: #a855f7; display: flex; align-items: center; gap: 12px; width: 356px;
+  max-width: 100%; padding: 14px 14px 14px 13px; border-radius: 12px;
+  cursor: pointer; pointer-events: auto; color: #fff;
+  background: rgba(18, 13, 30, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.09); border-left: 3px solid var(--tk);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+  opacity: 0; transform: translateY(-12px) scale(0.97);
+  transition: transform 350ms cubic-bezier(0.32, 0.72, 0, 1), opacity 250ms ease; }
+.toaster[data-pos^="bottom"] .toast { transform: translateY(12px) scale(0.97); }
+.toast.ready { opacity: 1; transform: none; }
+.toast.exiting { opacity: 0; pointer-events: none; }
+.toaster[data-pos^="top"] .toast.exiting { transform: translateY(-8px) scale(0.97); }
+.toaster[data-pos^="bottom"] .toast.exiting { transform: translateY(8px) scale(0.97); }
+.toast[data-state="success"] { --tk: #22c55e; }
+.toast[data-state="error"] { --tk: #ef4444; }
+.toast[data-state="warning"] { --tk: #f59e0b; }
+.toast[data-state="info"] { --tk: #a855f7; }
+.toast[data-state="loading"] { --tk: #8b93a7; cursor: default; }
+.toast .tk-ico { width: 20px; height: 20px; flex-shrink: 0; display: flex;
+  align-items: center; justify-content: center; color: var(--tk); }
+.toast .tk-ico svg { width: 20px; height: 20px; }
+.toast .tk-main { flex: 1; min-width: 0; }
+.toast .tk-title { font-size: 13px; font-weight: 600; color: #f1f5f9;
+  line-height: 1.4; word-break: break-word; }
+.toast .tk-desc { font-size: 12px; color: var(--text-muted); margin-top: 2px;
+  line-height: 1.45; word-break: break-word; }
+.toast .tk-act { margin-top: 8px; display: inline-flex; align-items: center;
+  height: 28px; padding: 0 12px; border-radius: 9999px; border: 0;
+  font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer;
+  color: #fff; background: rgba(255, 255, 255, 0.1); }
+.toast .tk-act:hover { background: rgba(255, 255, 255, 0.18); }
+.toast .tk-x { flex-shrink: 0; align-self: flex-start; background: none; border: 0;
+  color: var(--text-dim); font-size: 15px; line-height: 1; cursor: pointer;
+  padding: 2px 5px; border-radius: 6px; }
+.toast .tk-x:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
 .toast .tk-spin { animation: sl-spin 1s linear infinite; }
 @keyframes sl-spin { to { transform: rotate(360deg); } }
-.toast .tk-head-inner { display: flex; align-items: center; gap: 8px; white-space: nowrap;
-  animation: sl-head-in var(--sl-dur) var(--sl-spring) both; }
-@keyframes sl-head-in { from { opacity: 0; filter: blur(6px); } to { opacity: 1; filter: blur(0); } }
 
 /* LOG HIGHLIGHTS */
 .log-info { color: #94a3b8; }
@@ -2397,7 +2383,7 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
 .dur input { width: 56px; text-align: center; background: transparent; border: 0; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; padding: 9px 2px; outline: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .orbs i, .g-letter, .file-icon.is-folder svg, .toast, .toast *, .toaster, .toaster * { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+  .orbs i, .g-letter, .file-icon.is-folder svg, .toast, .toaster { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
 </style>
 </head>
@@ -2873,7 +2859,6 @@ const SILEO_ICONS = {
 };
 const SILEO_POS = ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right'];
 let sileoDefaultPos = 'top-right';
-let gooN = 0;
 function escToast(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function sileoBox(pos) {
   pos = SILEO_POS.includes(pos) ? pos : sileoDefaultPos;
@@ -2889,36 +2874,24 @@ function sileoBox(pos) {
 }
 function sileoShow({ title, description, type, duration, action, position } = {}) {
   type = SILEO_ICONS[type] ? type : 'info';
-  if (type === 'loading' && !SILEO_ICONS.loading) type = 'info';
   if (duration === undefined) duration = 4000;
   const box = sileoBox(position);
-  const gid = 'goo' + (++gooN) + Date.now().toString(36);
   const el = document.createElement('div');
   el.className = 'toast';
-  el.dataset.state = type === 'loading' ? 'loading' : type;
+  el.dataset.state = type;
   const icon = type === 'loading' ? SILEO_ICONS.loading : SILEO_ICONS[type];
-  const expandable = !!(description || action);
-  el.innerHTML = `<svg class="tk-goo" width="100%" height="100%" aria-hidden="true">`
-    + `<defs><filter id="${gid}" x="-20%" y="-20%" width="140%" height="140%">`
-    + `<feGaussianBlur in="SourceGraphic" stdDeviation="9" result="b"/>`
-    + `<feColorMatrix in="b" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 20 -9" result="g"/>`
-    + `<feComposite in="SourceGraphic" in2="g" operator="atop"/></filter></defs>`
-    + `<g filter="url(#${gid})"><rect x="0" y="0" width="100%" height="100%" rx="18" fill="rgba(15,11,26,0.94)"/>`
-    + `<circle class="goo-acc" cx="11%" cy="50%" r="26" fill="var(--sl-glow)"/></g></svg>`
-    + `<div class="tk-head"><div class="tk-head-inner"><span class="tk-badge">${icon}</span>`
-    + `<span class="tk-title">${escToast(title || '')}</span></div></div>`
-    + (expandable ? `<div class="tk-body">`
-      + (description ? `<div class="tk-desc">${escToast(description)}</div>` : '')
-      + (action ? `<button class="tk-btn">${escToast(action.label)}</button>` : '')
-      + `</div>` : '');
-  let gone = false, collapseT = null;
+  el.innerHTML = `<span class="tk-ico">${icon}</span>`
+    + `<div class="tk-main"><div class="tk-title">${escToast(title || '')}</div>`
+    + (description ? `<div class="tk-desc">${escToast(description)}</div>` : '')
+    + (action ? `<button class="tk-act">${escToast(action.label)}</button>` : '')
+    + `</div><button class="tk-x" title="Cerrar">×</button>`;
+  let gone = false;
   const dismiss = () => {
     if (gone) return;
     gone = true;
     clearTimeout(timer);
-    clearTimeout(collapseT);
     el.classList.add('exiting');
-    setTimeout(() => el.remove(), 320);
+    setTimeout(() => el.remove(), 300);
   };
   let timer = null, left = duration, started = Date.now();
   const tick = () => {
@@ -2926,37 +2899,23 @@ function sileoShow({ title, description, type, duration, action, position } = {}
     clearTimeout(timer);
     timer = setTimeout(dismiss, left);
   };
-  const open = () => el.classList.add('open');
-  const shut = () => { if (expandable && !el.matches(':hover')) el.classList.remove('open'); };
   el.addEventListener('mouseenter', () => {
     clearTimeout(timer);
-    clearTimeout(collapseT);
     if (duration != null) left -= Date.now() - started;
-    open();
   });
-  el.addEventListener('mouseleave', () => {
-    started = Date.now();
-    tick();
-    if (expandable) collapseT = setTimeout(shut, 1200);
-  });
+  el.addEventListener('mouseleave', () => { started = Date.now(); tick(); });
   el.addEventListener('click', e => {
-    if (e.target.closest('button') && action) { try { action.onClick(); } catch (err) {} }
+    if (e.target.closest('.tk-act') && action) { try { action.onClick(); } catch (err) {} }
     dismiss();
   });
   box.appendChild(el);
-  while (box.children.length > 4) box.firstChild.remove();
+  while (box.children.length > 5) box.firstChild.remove();
   requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('ready')));
-  if (expandable && duration != null) setTimeout(() => { if (!gone) open(); }, 350);
   if (duration != null) tick();
   return dismiss;
 }
 function showToast(msg, type) {
-  msg = String(msg == null ? '' : msg);
-  if (msg.length > 48) {
-    sileoShow({ title: msg.slice(0, 48) + '…', description: msg, type: type || 'info' });
-  } else {
-    sileoShow({ title: msg, type: type || 'info' });
-  }
+  sileoShow({ title: String(msg == null ? '' : msg), type: type || 'info' });
 }
 const sileo = {
   show: sileoShow,
