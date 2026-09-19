@@ -2008,6 +2008,18 @@ header {
   font-size: 12px;
 }
 .cmd-btn:hover { background: #c084fc; }
+/* Cuadros de texto */
+.tin { background: var(--bg-terminal); border: 1px solid var(--border-color); border-radius: 10px; padding: 9px 12px; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; outline: none; caret-color: #c084fc; transition: border-color 0.15s, box-shadow 0.15s, background 0.15s; }
+.tin::placeholder { color: var(--text-dim); }
+.tin:hover { border-color: rgba(168,85,247,0.45); }
+.tin:focus { background: rgba(168,85,247,0.05); }
+#logSearch { width: 110px; padding: 5px 10px; font-size: 11px; border-radius: 8px; transition: width 0.22s var(--ease-apple), border-color 0.15s, box-shadow 0.15s, background 0.15s; }
+#logSearch:focus { width: 165px; }
+.cmd-field { flex: 1; display: flex; align-items: center; gap: 10px; background: var(--bg-terminal); border: 1px solid var(--border-color); border-radius: 10px; padding: 9px 12px; transition: border-color 0.15s, box-shadow 0.15s, background 0.15s; }
+.cmd-field:hover { border-color: rgba(168,85,247,0.45); }
+.cmd-field:focus-within { border-color: rgba(168,85,247,0.6); box-shadow: 0 0 0 3px rgba(168,85,247,0.22), 0 0 18px rgba(168,85,247,0.15); background: rgba(168,85,247,0.04); }
+.cmd-field .cmd-input { caret-color: #c084fc; }
+.cmd-prompt { text-shadow: 0 0 8px rgba(34,211,238,0.7); }
 
 /* METRICS VIEW */
 .charts-grid {
@@ -2583,7 +2595,7 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
         <div class="terminal-topbar">
           <div>Consola del Servidor (Registro en Vivo)</div>
           <div class="terminal-topbar-tools">
-            <input id="logSearch" placeholder="Buscar…" oninput="renderConsole()" style="background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:5px; padding:4px 8px; color:#fff; font-size:11px; width:110px">
+            <input id="logSearch" class="tin" placeholder="Buscar…" oninput="renderConsole()">
             <button class="term-tool-btn" id="fltAll" onclick="setLogFilter('')">Todos</button>
             <button class="term-tool-btn" onclick="setLogFilter('INFO')">INFO</button>
             <button class="term-tool-btn" onclick="setLogFilter('WARN')">WARN</button>
@@ -2595,9 +2607,11 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
         </div>
         <div class="terminal-body" id="termBody">Conectando a la consola del servidor...</div>
         <div class="terminal-input-bar">
-          <span class="cmd-prompt">&gt;</span>
-          <input type="text" class="cmd-input" id="cmdInput" list="cmdList" placeholder="Comandos MC (/say, /op, /list...) + panel: start · stop · restart · reload · kill" onkeydown="handleCmdKey(event)" autocomplete="off">
-          <datalist id="cmdList"></datalist>
+          <div class="cmd-field">
+            <span class="cmd-prompt">&gt;</span>
+            <input type="text" class="cmd-input" id="cmdInput" list="cmdList" placeholder="Comandos MC (/say, /op, /list...) + panel: start · stop · restart · reload · kill" onkeydown="handleCmdKey(event)" autocomplete="off">
+            <datalist id="cmdList"></datalist>
+          </div>
           <button class="cmd-btn" onclick="submitCmd()">Enviar</button>
         </div>
         <div id="quickCmds" style="display:flex; gap:6px; flex-wrap:wrap; padding:8px 14px; border-top:1px solid var(--border-color)"></div>
@@ -2614,7 +2628,7 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
           <div><div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;margin-bottom:4px">Whitelist <a onclick="wlToggle()" style="color:var(--accent-cyan);cursor:pointer" id="wlState"></a></div><div id="modWl" style="font-size:12.5px">—</div></div>
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap">
-          <input id="wlName" maxlength="16" placeholder="Añadir a whitelist" style="flex:1; min-width:160px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:#fff; font-family:'JetBrains Mono',monospace; font-size:12.5px">
+          <input id="wlName" class="tin" maxlength="16" placeholder="Añadir a whitelist" style="flex:1; min-width:160px">
           <button class="cmd-btn" onclick="wlAdd()">Añadir</button>
         </div>
       </div>
