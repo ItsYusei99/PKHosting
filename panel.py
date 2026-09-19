@@ -2123,6 +2123,53 @@ svg.ico { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: r
 .btn-ghost { display: inline-flex; align-items: center; gap: 6px; background: rgba(168,85,247,0.1); border: 1px solid rgba(168,85,247,0.4); color: #d8b4fe; font-size: 12px; font-weight: 600; padding: 7px 14px; border-radius: 8px; cursor: pointer; font-family: inherit; transition: all 0.15s; }
 .btn-ghost:hover { background: rgba(168,85,247,0.25); color: #fff; border-color: #a855f7; }
 
+/* MODS: gestor mejorado */
+.mods-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.mods-head h3 { font-size: 14px; margin: 0; }
+.mods-count { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 700; color: var(--text-muted); background: rgba(255,255,255,0.04); border: 1px solid var(--border-color); border-radius: 999px; padding: 4px 12px; }
+.mods-count .dot { width: 7px; height: 7px; border-radius: 50%; }
+.mods-count .dot.on { background: #22c55e; box-shadow: 0 0 6px rgba(34,197,94,0.9); }
+.mods-count .dot.off { background: #64748b; }
+.mod-search { flex: 1; min-width: 130px; max-width: 240px; background: var(--bg-terminal); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-main); font-size: 12.5px; padding: 7px 12px; font-family: inherit; outline: none; transition: border-color 0.15s, box-shadow 0.15s; }
+.mod-search:focus { border-color: #a855f7; box-shadow: 0 0 0 3px rgba(168,85,247,0.18); }
+.mod-search::placeholder { color: var(--text-dim); }
+.mod-row { display: flex; align-items: center; gap: 12px; padding: 10px 18px; border-bottom: 1px solid var(--border-subtle); font-size: 13px; transition: background 0.2s var(--ease-apple), box-shadow 0.2s, opacity 0.2s; }
+.mod-row:last-child { border-bottom: 0; }
+.mod-row:hover { background: rgba(168,85,247,0.07); box-shadow: inset 2px 0 0 #a855f7; }
+.mod-row.is-off { opacity: 0.72; }
+.mod-row.is-off:hover { opacity: 1; }
+.mod-ico { display: inline-flex; flex-shrink: 0; color: #4ade80; filter: drop-shadow(0 0 6px rgba(34,197,94,0.45)); transition: color 0.2s, filter 0.2s, transform 0.2s; }
+.mod-ico svg { width: 20px; height: 20px; }
+.mod-row:hover .mod-ico { transform: scale(1.12); }
+.mod-row.is-off .mod-ico { color: #64748b; filter: none; }
+.mod-main { flex: 1; min-width: 0; }
+.mod-name { display: block; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mod-meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 11px; color: var(--text-dim); }
+.mchip { font-size: 10px; font-weight: 800; letter-spacing: 0.03em; padding: 1px 8px; border-radius: 999px; border: 1px solid; white-space: nowrap; }
+.mchip.ver { color: #93c5fd; border-color: rgba(147,197,253,0.35); background: rgba(147,197,253,0.08); }
+.mchip.ld { color: #d8b4fe; border-color: rgba(216,180,254,0.35); background: rgba(168,85,247,0.1); }
+.mod-state { font-size: 10.5px; font-weight: 800; letter-spacing: 0.08em; width: 28px; text-align: right; flex-shrink: 0; }
+.mod-state.s-on { color: #4ade80; text-shadow: 0 0 8px rgba(34,197,94,0.6); }
+.mod-state.s-off { color: #64748b; }
+/* switch deslizante real */
+.msw { position: relative; width: 46px; height: 26px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.08); cursor: pointer; flex-shrink: 0; padding: 0; transition: background 0.25s var(--ease-apple), border-color 0.25s, box-shadow 0.25s, filter 0.15s; }
+.msw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,0.45); transition: transform 0.28s cubic-bezier(0.34,1.65,0.4,1); }
+.msw:hover { filter: brightness(1.15); }
+.msw:focus-visible { outline: 2px solid #a855f7; outline-offset: 2px; }
+.msw[aria-checked="true"] { background: linear-gradient(135deg, #22c55e, #15803d); border-color: rgba(34,197,94,0.6); box-shadow: 0 0 12px rgba(34,197,94,0.35), inset 0 1px 2px rgba(255,255,255,0.25); }
+.msw[aria-checked="true"]::after { transform: translateX(20px); }
+/* iconos por extension en archivos + filas */
+.file-row { cursor: default; box-shadow: inset 2px 0 0 transparent; }
+.file-row:hover { box-shadow: inset 2px 0 0 rgba(168,85,247,0.6); }
+.file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-row:hover .file-name { color: #fff; }
+.file-icon.is-json { color: #67e8f9; }
+.file-icon.is-cfg { color: #fbbf24; }
+.file-icon.is-log { color: #64748b; }
+.file-icon.is-jar { color: #c084fc; filter: drop-shadow(0 0 6px rgba(168,85,247,0.45)); }
+.file-icon.is-zip { color: #fb923c; }
+.file-icon.is-txt { color: #4ade80; }
+
 /* TOASTS estilo Sonner (dark + rail de color, layout flex simple) */
 .toaster { position: fixed; z-index: 400; display: flex; flex-direction: column;
   gap: 8px; padding: 12px; pointer-events: none; width: min(380px, calc(100vw - 24px)); }
@@ -2666,7 +2713,14 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
         <div class="file-row"><span>Cargando archivos del servidor...</span></div>
       </div>
       <div class="system-details-card" style="margin-top:12px">
-        <h3 style="margin-bottom:8px; font-size:14px">Mods instalados <span style="font-size:11px;color:var(--text-dim)">(activar/desactivar requiere reinicio)</span></h3>
+        <div class="mods-head">
+          <h3>Mods instalados <span style="font-size:11px;color:var(--text-dim)">(los cambios requieren reinicio)</span></h3>
+          <span class="mods-count" id="modCounts"></span>
+          <span style="flex:1"></span>
+          <input class="mod-search" id="modSearch" placeholder="Buscar mod..." oninput="renderMods()" autocomplete="off">
+          <button class="btn-ghost" onclick="modBulk(true)">Activar todos</button>
+          <button class="btn-ghost" onclick="modBulk(false)">Desactivar todos</button>
+        </div>
         <div class="file-list" id="modsList"><div class="file-row"><span class="file-name">Cargando mods...</span></div></div>
       </div>
     </div>
@@ -3497,6 +3551,17 @@ const SVG_DL = '<svg class="ico" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1
 const SVG_PENCIL = '<svg class="ico" viewBox="0 0 24 24"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg>';
 const SVG_EDIT = '<svg class="ico" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
 const SVG_TRASH = '<svg class="ico" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
+const SVG_BOX = '<svg class="ico" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>';
+function fileTone(name) {
+  const e = (String(name).split('.').pop() || '').toLowerCase();
+  if (e === 'json') return 'is-json';
+  if (['properties', 'yml', 'yaml', 'toml', 'cfg', 'conf', 'ini'].includes(e)) return 'is-cfg';
+  if (['log', 'gz', 'bak', 'old', 'tmp'].includes(e)) return 'is-log';
+  if (e === 'jar') return 'is-jar';
+  if (['zip', '7z', 'rar'].includes(e)) return 'is-zip';
+  if (['txt', 'md', 'csv'].includes(e)) return 'is-txt';
+  return 'is-file';
+}
 function fsSortKey(k) {
   fsSort.key = k;
   document.querySelectorAll('#fsSeg button').forEach(b => b.classList.toggle('on', b.dataset.k === k));
@@ -3547,7 +3612,7 @@ async function loadFiles(push = true) {
         const editable = !f.is_dir && (f.size_b || 0) <= 2 * 1024 * 1024;
         const dt = f.mtime ? new Date(f.mtime * 1000).toLocaleString() : '';
         return `<div class="file-row">
-          <span class="file-icon ${f.is_dir ? 'is-folder' : 'is-file'}" title="${f.is_dir ? 'Carpeta' : 'Archivo'}">${f.is_dir ? SVG_FOLDER : SVG_FILE}</span>
+          <span class="file-icon ${f.is_dir ? 'is-folder' : fileTone(f.name)}" title="${f.is_dir ? 'Carpeta' : 'Archivo'}">${f.is_dir ? SVG_FOLDER : SVG_FILE}</span>
           <span class="file-name">${link}</span>
           <span class="file-size" title="${escHtml(dt)}">${escHtml(f.size || '')}</span>
           <span class="file-actions">
@@ -3862,40 +3927,143 @@ async function skAct(action, id) {
   loadSchedules();
 }
 
+let MODS_CACHE = [];
+let MODS_VIEW = [];
 async function loadMods() {
   try {
     const d = await (await fetch(U('/api/mods'))).json();
-    const box = document.getElementById('modsList');
-    const mods = (d && d.mods) || [];
-    if (!mods.length) { box.innerHTML = '<div class="file-row"><span class="file-name">Sin mods</span></div>'; return; }
-    const mb = m => m > 1048576 ? (m / 1048576).toFixed(1) + ' MB' : Math.round(m / 1024) + ' KB';
-    box.innerHTML = mods.map(m => `
-      <div class="file-row">
-        <span class="file-icon ${m.enabled ? 'is-file' : ''}" style="${m.enabled ? '' : 'opacity:.4'}" title="${m.enabled ? 'Activo' : 'Desactivado'}">${SVG_FILE}</span>
-        <span class="file-name">${m.name}${m.enabled ? '' : ' <span class="chart-badge sub">OFF</span>'}</span>
-        <span class="file-size">${mb(m.size)}</span>
-        <span class="file-actions">
-          <button class="term-tool-btn" title="Activar/desactivar" onclick="modToggle('${m.name.replace(/'/g, "")}')">${m.enabled ? 'Off' : 'On'}</button>
-          <button class="icon-btn danger" title="Eliminar" onclick="modDel('${m.name.replace(/'/g, "")}')">${SVG_TRASH}</button>
-        </span>
-      </div>`).join('');
+    MODS_CACHE = (d && d.mods) || [];
+    renderMods();
   } catch (e) {
     document.getElementById('modsList').innerHTML = '<div class="file-row">Error al cargar mods</div>';
   }
 }
-async function modToggle(name) {
+function modIsVerTok(t) {
+  if (!t) return false;
+  let hasDigit = false;
+  for (const ch of t) {
+    if (ch >= '0' && ch <= '9') { hasDigit = true; continue; }
+    if (ch === '.' || ch === 'v' || ch === 'V') continue;
+    return false;
+  }
+  return hasDigit;
+}
+function modIsLoaderWord(t) {
+  const w = String(t).toLowerCase();
+  return w === 'neoforge' || w === 'neo' || w === 'forge' || w === 'fabric' || w === 'quilt';
+}
+function modLoaderName(t) {
+  const w = String(t).toLowerCase();
+  if (w === 'neoforge' || w === 'neo') return 'NeoForge';
+  if (w === 'forge') return 'Forge';
+  if (w === 'fabric') return 'Fabric';
+  if (w === 'quilt') return 'Quilt';
+  return t;
+}
+function modIsWord(t) {
+  if (!t) return false;
+  for (const ch of t) {
+    if (!((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z'))) return false;
+  }
+  return true;
+}
+function modPretty(name) {
+  let base = String(name);
+  if (base.toLowerCase().endsWith('.jar')) base = base.slice(0, -4);
+  let loader = null;
+  if (base.charAt(0) === '[') {
+    const j = base.indexOf(']');
+    if (j > 1) { loader = base.slice(1, j).trim(); base = base.slice(j + 1).trim(); }
+  }
+  const toks = base.split(/[ _-]+/);
+  if (!loader) {
+    for (const t of toks) {
+      if (modIsLoaderWord(t)) { loader = modLoaderName(t); break; }
+    }
+  }
+  let ver = null;
+  const vt = toks.slice();
+  if (vt.length && modIsLoaderWord(vt[vt.length - 1])) vt.pop();
+  if (vt.length) {
+    const last = vt[vt.length - 1];
+    if (modIsVerTok(last)) ver = last;
+    else if (modIsWord(last) && vt.length > 1 && modIsVerTok(vt[vt.length - 2]))
+      ver = vt[vt.length - 2] + ' ' + last;
+  }
+  return { loader, ver };
+}
+function renderMods() {
+  const box = document.getElementById('modsList');
+  const q = ((document.getElementById('modSearch') || {}).value || '').toLowerCase().trim();
+  const on = MODS_CACHE.filter(m => m.enabled).length;
+  const cc = document.getElementById('modCounts');
+  if (cc) cc.innerHTML = `<span class="dot on"></span>${on} activos<span class="dot off" style="margin-left:8px"></span>${MODS_CACHE.length - on} apagados`;
+  if (!MODS_CACHE.length) { MODS_VIEW = []; box.innerHTML = '<div class="file-row"><span class="file-name">Sin mods</span></div>'; return; }
+  MODS_VIEW = MODS_CACHE.filter(m => !q || m.name.toLowerCase().includes(q));
+  if (!MODS_VIEW.length) { box.innerHTML = '<div class="file-row"><span class="file-name">Sin resultados para esa búsqueda</span></div>'; return; }
+  const mb = m => m > 1048576 ? (m / 1048576).toFixed(1) + ' MB' : Math.round(m / 1024) + ' KB';
+  box.innerHTML = MODS_VIEW.map((m, i) => {
+    const p = modPretty(m.name);
+    const chips = (p.loader ? `<span class="mchip ld">${escHtml(p.loader)}</span>` : '')
+      + (p.ver ? `<span class="mchip ver">v${escHtml(p.ver.replace(/^v/i, ''))}</span>` : '');
+    return `<div class="mod-row${m.enabled ? '' : ' is-off'}">
+      <span class="file-icon mod-ico" title="${m.enabled ? 'Activo' : 'Desactivado'}">${SVG_BOX}</span>
+      <span class="mod-main">
+        <span class="mod-name" title="${escHtml(m.name)}">${escHtml(m.name)}</span>
+        <span class="mod-meta">${chips}<span>${mb(m.size)}</span></span>
+      </span>
+      <span class="mod-state ${m.enabled ? 's-on' : 's-off'}">${m.enabled ? 'ON' : 'OFF'}</span>
+      <button class="msw" role="switch" aria-checked="${m.enabled}" aria-label="Activar o desactivar ${escHtml(m.name)}" title="${m.enabled ? 'Desactivar' : 'Activar'} (requiere reinicio)" onclick="modToggleIdx(${i})"></button>
+      <button class="icon-btn danger" title="Eliminar" onclick="modDelIdx(${i})">${SVG_TRASH}</button>
+    </div>`;
+  }).join('');
+}
+async function modToggleIdx(i) {
+  const m = MODS_VIEW[i];
+  if (!m) return;
+  const c = MODS_CACHE.find(x => x.name === m.name);
+  if (!c) return;
+  c.enabled = !c.enabled;
+  renderMods();
   try {
-    const r = await (await fetch(U('/api/mod'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'toggle', name }) })).json();
-    showToast(r.msg || 'OK');
-  } catch (e) { showToast('Error'); }
+    const r = await (await fetch(U('/api/mod'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'toggle', name: m.name }) })).json();
+    showToast(r.msg || 'OK', r.ok === false ? 'error' : 'success');
+    if (r.ok === false) { c.enabled = !c.enabled; renderMods(); }
+  } catch (e) { c.enabled = !c.enabled; renderMods(); showToast('Error de conexión', 'error'); }
+}
+async function modDelIdx(i) {
+  const m = MODS_VIEW[i];
+  if (!m) return;
+  if (!confirm(`¿Eliminar el mod "${m.name}"?`)) return;
+  try {
+    const r = await (await fetch(U('/api/mod'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', name: m.name }) })).json();
+    showToast(r.msg || 'OK', r.ok === false ? 'error' : 'success');
+  } catch (e) { showToast('Error', 'error'); }
   loadMods();
 }
-async function modDel(name) {
+async function modToggle(name) { // compatibilidad
+  try {
+    const r = await (await fetch(U('/api/mod'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'toggle', name }) })).json();
+    showToast(r.msg || 'OK', r.ok === false ? 'error' : 'success');
+  } catch (e) { showToast('Error', 'error'); }
+  loadMods();
+}
+async function modDel(name) { // compatibilidad
   if (!confirm(`¿Eliminar el mod "${name}"?`)) return;
   try {
     const r = await (await fetch(U('/api/mod'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', name }) })).json();
-    showToast(r.msg || 'OK');
-  } catch (e) { showToast('Error'); }
+    showToast(r.msg || 'OK', r.ok === false ? 'error' : 'success');
+  } catch (e) { showToast('Error', 'error'); }
+  loadMods();
+}
+async function modBulk(enable) {
+  const n = MODS_CACHE.filter(m => m.enabled !== enable).length;
+  if (!n) { showToast('Nada que cambiar', 'info'); return; }
+  if (!confirm(`${enable ? 'Activar' : 'Desactivar'} ${n} mod(s)? Requiere reinicio del servidor.`)) return;
+  try {
+    const r = await (await fetch(U('/api/mod'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: enable ? 'enable_all' : 'disable_all' }) })).json();
+    showToast(r.msg || 'OK', r.ok === false ? 'error' : 'success');
+  } catch (e) { showToast('Error', 'error'); }
   loadMods();
 }
 
@@ -4663,6 +4831,23 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
         if u.path == "/api/mod":
             action, name = payload.get("action", ""), payload.get("name", "")
             mods = os.path.join(S().server_dir, "mods")
+            if action in ("enable_all", "disable_all"):
+                try:
+                    n = 0
+                    for fn in os.listdir(mods):
+                        full = os.path.join(mods, fn)
+                        if not os.path.isfile(full):
+                            continue
+                        if action == "disable_all" and fn.endswith(".jar"):
+                            os.rename(full, full + ".disabled")
+                            n += 1
+                        elif action == "enable_all" and fn.endswith(".jar.disabled"):
+                            os.rename(full, full[:-9])
+                            n += 1
+                    word = "activados" if action == "enable_all" else "desactivados"
+                    return self.send_json({"ok": True, "msg": f"{n} mods {word} (requiere reinicio)"})
+                except Exception as e:
+                    return self.send_json({"ok": False, "msg": str(e)}, code=500)
             base = os.path.basename(name)
             if not base or "/" in name or "\\" in name or ".." in name:
                 return self.send_json({"ok": False, "msg": "Nombre inválido"}, code=400)
