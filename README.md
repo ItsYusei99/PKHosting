@@ -198,4 +198,5 @@ pkhosting-backup.service   # unidad oneshot de backup
 pkhosting-backup.timer     # plantilla del timer diario
 config.example.json        # ejemplo de configuración
 README.md                  # esta guía
+docs/architecture/         # mapa interactivo del sistema (pkhosting.html)
 ```
