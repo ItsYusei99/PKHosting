@@ -2155,13 +2155,14 @@ svg.ico { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: r
 .toaster[data-pos^="bottom"] .toast.exiting { transform: translateY(6px) scale(0.95); }
 .toast .tk-goo { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .toast .tk-head { position: relative; z-index: 2; display: flex; align-items: center;
-  gap: 8px; padding: 8px; height: 40px; overflow: hidden; }
+  gap: 8px; padding: 8px; min-height: 40px; overflow: hidden; }
 .toast .tk-badge { display: flex; height: 24px; width: 24px; flex-shrink: 0;
   align-items: center; justify-content: center; border-radius: 9999px;
   color: var(--sl-tone); background: var(--sl-tone-bg); }
 .toast .tk-badge svg { width: 14px; height: 14px; }
 .toast .tk-title { font-size: 13px; line-height: 16px; font-weight: 600;
-  color: var(--sl-tone); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  color: var(--sl-tone); display: -webkit-box; -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical; overflow: hidden; }
 .toast .tk-body { position: relative; z-index: 2; max-height: 0; overflow: hidden; opacity: 0;
   transition: max-height var(--sl-dur) var(--sl-spring), opacity 200ms ease; }
 .toast.open .tk-body { max-height: 220px; opacity: 1; }
