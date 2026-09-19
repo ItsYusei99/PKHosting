@@ -7,8 +7,10 @@ TPS, archivos, mods, backups, tareas programadas y avisos a Discord.
 
 ## Funciones
 
-- **Multi-servidor:** selector en la barra lateral, un solo puerto.
-- **Acceso con contraseña** (hash PBKDF2 + sesiones) y **HTTPS** opcional.
+- **Multi-servidor:** añade, edita y elimina servidores desde Configuración,
+  cambia entre ellos con el selector, un solo puerto.
+- **Acceso con contraseña** (hash PBKDF2 + sesiones, se crea desde
+  Configuración) y **HTTPS** opcional. Botón **Cerrar sesión** en la barra lateral.
 - Consola en vivo: autocompletado, filtros INFO/WARN/ERROR, búsqueda,
   botones rápidos configurables e historial con ↑/↓.
 - Alias de nivel panel: `start`, `stop`, `restart`, `reload`, `kill`.

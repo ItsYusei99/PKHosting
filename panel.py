@@ -288,6 +288,101 @@ def S():
     return srv
 
 
+SRV_CFG_KEYS = ("id", "server_name", "server_subtitle", "server_dir", "start_cmd",
+                "world_name", "mc_port", "rcon_port", "max_mem_gb", "backup_enabled",
+                "backup_dir", "backup_time", "retention_days", "keep_monthly",
+                "data_dir", "rcon_pass_file", "public_ip_file")
+
+
+def _srv_running(s):
+    try:
+        return s.proc is not None and s.proc.poll() is None
+    except Exception:
+        return False
+
+
+def _slugify(name):
+    out = []
+    for c in (name or "").lower().replace("_", "-"):
+        if "a" <= c <= "z" or "0" <= c <= "9" or c == "-":
+            out.append(c)
+        elif c in (" ", ".", "/"):
+            out.append("-")
+    s = "".join(out).strip("-")
+    while "--" in s:
+        s = s.replace("--", "-")
+    return (s[:32] or "srv")
+
+
+def _persist_servers():
+    raw = _raw_config()
+    raw["servers"] = CFG.get("servers", [])
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    tmp = CONFIG_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(raw, f, indent=2)
+        f.write("\n")
+    os.replace(tmp, CONFIG_FILE)
+
+
+def _ensure_servers_list():
+    """Migra la config de un servidor a lista; devuelve la lista."""
+    lst = CFG.get("servers")
+    if isinstance(lst, list) and lst:
+        return lst
+    main_entry = {k: CFG[k] for k in SRV_CFG_KEYS if k in CFG}
+    main_entry["id"] = "main"
+    CFG["servers"] = [main_entry]
+    return CFG["servers"]
+
+
+def _cfg_server_entry(sid):
+    """Devuelve (entry, es_nivel_superior) para mutar, o (None, False)."""
+    lst = CFG.get("servers")
+    if isinstance(lst, list) and lst:
+        for e in lst:
+            if isinstance(e, dict) and str(e.get("id", "")) == sid:
+                return e, False
+        return None, False
+    if sid == "main":
+        return CFG, True
+    return None, False
+
+
+def _parse_srv_fields(payload, exclude_id=None):
+    """Valida campos comunes de add/update. Devuelve (vals, error)."""
+    name = str(payload.get("name", "")).strip()[:40]
+    if not name:
+        return None, "El nombre es obligatorio"
+    sdir = os.path.expanduser(str(payload.get("server_dir", "")).strip())
+    if not sdir or not os.path.isdir(sdir):
+        return None, "La carpeta del servidor no existe"
+    try:
+        mc = int(payload.get("mc_port", 0))
+        rcon = int(payload.get("rcon_port", 0))
+        mem = float(payload.get("max_mem_gb", 0))
+    except (TypeError, ValueError):
+        return None, "Puertos y RAM deben ser números"
+    if not 1 <= mc <= 65535 or not 1 <= rcon <= 65535:
+        return None, "Puertos fuera de rango (1-65535)"
+    if mc == rcon:
+        return None, "El puerto MC y el RCON deben diferir"
+    if not 0.5 <= mem <= 64:
+        return None, "RAM fuera de rango (0.5-64 GB)"
+    rp = os.path.realpath(sdir)
+    for s in SERVERS.values():
+        if exclude_id is not None and s.id == exclude_id:
+            continue
+        if s.mc_port == mc:
+            return None, f"Puerto MC {mc} ya usado por '{s.name}'"
+        if s.rcon_port == rcon:
+            return None, f"Puerto RCON {rcon} ya usado por '{s.name}'"
+        if os.path.realpath(s.server_dir) == rp:
+            return None, f"La carpeta ya la usa '{s.name}'"
+    return {"name": name, "server_dir": sdir, "mc_port": mc,
+            "rcon_port": rcon, "max_mem_gb": mem}, None
+
+
 RCON_PASS_FILE = _first_existing(
     os.path.join(CONFIG_DIR, "rcon-password"),
     os.path.expanduser("~/.config/mc-panel-rcon"),  # legado
@@ -1746,6 +1841,16 @@ nav {
   padding: 2px 6px;
   border-radius: 4px;
 }
+.logout-btn {
+  width: 100%;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  background: transparent; border: 1px solid var(--border-color); border-radius: 8px;
+  color: var(--text-muted); font-family: inherit; font-size: 12.5px; font-weight: 600;
+  padding: 9px 12px; margin-bottom: 10px; cursor: pointer;
+  transition: all 0.2s var(--ease-apple);
+}
+.logout-btn svg { width: 15px; height: 15px; }
+.logout-btn:hover { color: #fca5a5; border-color: rgba(248,113,113,0.5); background: rgba(248,113,113,0.08); }
 
 /* MAIN CONTENT */
 main {
@@ -2503,6 +2608,7 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
   </nav>
 
   <div class="sidebar-footer">
+    <button class="logout-btn" onclick="logout()" title="Cerrar sesión"><svg class="ico" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg> Cerrar sesión</button>
     <div class="ip-chip" onclick="copyIp()">
       <span id="ipText">localhost:25566</span>
       <span class="copy-badge" id="copyBadge">Copiar</span>
@@ -2525,7 +2631,6 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
     </div>
 
     <div style="display:flex; align-items:center; gap:10px">
-      <button class="term-tool-btn" onclick="logout()" title="Cerrar sesión">Salir</button>
     <div class="header-actions">
       <div class="power-btn-group">
         <button class="pbtn pbtn-start" id="btnStart" onclick="serverAction('start')">
@@ -2860,6 +2965,31 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
     <!-- TAB 4: CONFIGURACION -->
     <div id="tab-settings" class="tab-content">
       <div class="system-details-card" style="margin-bottom:12px">
+        <div class="mods-head">
+          <h3 style="margin:0; font-size:14px">Servidores gestionados</h3>
+          <span class="mods-count" id="srvCounts"></span>
+          <span style="flex:1"></span>
+          <button class="btn-ghost" onclick="srvShowForm()">+ Añadir servidor</button>
+        </div>
+        <div class="file-list" id="srvList"><div class="file-row"><span class="file-name">Cargando servidores...</span></div></div>
+        <div id="srvForm" style="display:none; margin-top:12px; background:rgba(255,255,255,0.02); border:1px solid var(--border-color); border-radius:10px; padding:14px">
+          <div style="font-size:13px; font-weight:700; margin-bottom:10px" id="srvFormTitle">Añadir servidor</div>
+          <input type="hidden" id="srvEditId" value="">
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px">
+            <label style="font-size:11.5px; color:var(--text-muted)">Nombre<input id="srvName" class="tin" maxlength="40" placeholder="MiSegundoServidor" style="width:100%; margin-top:4px"></label>
+            <label style="font-size:11.5px; color:var(--text-muted)">Carpeta del servidor<input id="srvDir" class="tin" placeholder="~/MiServidor" style="width:100%; margin-top:4px"></label>
+            <label style="font-size:11.5px; color:var(--text-muted)">Puerto MC<input id="srvMc" class="tin" type="number" min="1" max="65535" style="width:100%; margin-top:4px"></label>
+            <label style="font-size:11.5px; color:var(--text-muted)">Puerto RCON<input id="srvRcon" class="tin" type="number" min="1" max="65535" style="width:100%; margin-top:4px"></label>
+            <label style="font-size:11.5px; color:var(--text-muted)">RAM (GB)<input id="srvMem" class="tin" type="number" min="0.5" max="64" step="0.5" style="width:100%; margin-top:4px"></label>
+          </div>
+          <div style="font-size:11.5px; color:var(--text-dim); margin-top:8px">Se usa <span style="font-family:'JetBrains Mono',monospace">start.sh</span> dentro de la carpeta. Eliminar un servidor no borra sus archivos.</div>
+          <div style="display:flex; gap:8px; margin-top:12px">
+            <button class="cmd-btn" onclick="srvSubmit()">Guardar</button>
+            <button class="term-tool-btn" onclick="srvHideForm()">Cancelar</button>
+          </div>
+        </div>
+      </div>
+      <div class="system-details-card" style="margin-bottom:12px">
         <h3 style="margin-bottom:8px">IP pública (playit.gg)</h3>
         <div style="font-size:12.5px; color:var(--text-muted); margin-bottom:8px" id="playitStatus">Detectando túnel playit...</div>
         <div style="display:flex; gap:8px; flex-wrap:wrap">
@@ -2877,6 +3007,7 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
       </div>
       <div class="system-details-card" style="margin-top:12px">
         <h3 style="margin-bottom:8px">Contraseña del panel</h3>
+        <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px" id="pwState">Comprobando...</div>
         <div style="display:flex; gap:8px; flex-wrap:wrap">
           <input type="password" id="pwCur" placeholder="Actual" style="flex:1; min-width:140px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; color:#fff">
           <input type="password" id="pwNew" placeholder="Nueva (mín. 8)" style="flex:1; min-width:140px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; color:#fff">
@@ -2925,8 +3056,17 @@ window.fetch = async (...a) => {
   return r;
 };
 async function logout() {
-  await _fetch(U('/api/logout'), { method: 'POST' });
-  location.reload();
+  let auth = true;
+  try {
+    const r = await (await _fetch(U('/api/logout'), { method: 'POST' })).json();
+    auth = r.auth !== false;
+  } catch (e) { /* sin sesión que cerrar */ }
+  if (!auth) {
+    showToast('Sin contraseña: créala en Configuración para activar las sesiones', 'info');
+    switchTab('settings');
+    return;
+  }
+  location.href = '/login';
 }
 const SILEO_ICONS = {
   info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
@@ -3081,7 +3221,7 @@ function switchTab(name, fromHash) {
   if (name === 'tasks') loadSchedules();
   if (name === 'history') loadHistory();
   if (name === 'console') { loadQuick(); loadModeration(); refreshCmdList(); }
-  if (name === 'settings') { loadProps(); refreshPublicIp(); loadDiscord(); loadQuickCfg(); }
+  if (name === 'settings') { loadProps(); refreshPublicIp(); loadDiscord(); loadQuickCfg(); loadServers(); }
 }
 
 async function serverAction(act) {
@@ -3576,6 +3716,7 @@ const SVG_PENCIL = '<svg class="ico" viewBox="0 0 24 24"><path d="M17 3a2.83 2.8
 const SVG_EDIT = '<svg class="ico" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
 const SVG_TRASH = '<svg class="ico" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
 const SVG_BOX = '<svg class="ico" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>';
+const SVG_SRV = '<svg class="ico" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>';
 function fileTone(name) {
   const e = (String(name).split('.').pop() || '').toLowerCase();
   if (e === 'json') return 'is-json';
@@ -3885,10 +4026,12 @@ async function changePw() {
   const nw = document.getElementById('pwNew').value;
   try {
     const r = await (await fetch(U('/api/password'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ current: cur, new: nw }) })).json();
-    showToast(r.msg || 'OK');
+    showToast(r.msg || 'OK', r.ok === false ? 'error' : 'success');
     document.getElementById('pwCur').value = '';
     document.getElementById('pwNew').value = '';
-  } catch (e) { showToast('Error'); }
+    if (r.login) setTimeout(() => { location.href = '/login'; }, 1200);
+    else loadServers();
+  } catch (e) { showToast('Error', 'error'); }
 }
 
 const DC_LABELS = { up: 'Servidor en línea', down: 'Servidor detenido', tps: 'TPS bajo', backup: 'Backup fallido', join: 'Jugador entra', leave: 'Jugador sale' };
@@ -4104,6 +4247,96 @@ async function modBulk(enable) {
     showToast(r.msg || 'OK', r.ok === false ? 'error' : 'success');
   } catch (e) { showToast('Error', 'error'); }
   loadMods();
+}
+let SRV_CACHE = [];
+async function loadServers() {
+  const box = document.getElementById('srvList');
+  if (!box) return;
+  try {
+    const d = await (await fetch(U('/api/servers'))).json();
+    SRV_CACHE = (d && d.servers) || [];
+    renderServers();
+    const ps = document.getElementById('pwState');
+    if (ps) ps.textContent = d.auth
+      ? 'Protegido con contraseña. Para cambiarla escribe la actual y la nueva.'
+      : 'Sin contraseña: cualquiera con acceso al panel puede entrar. Escribe solo la nueva para crearla.';
+  } catch (e) {
+    box.innerHTML = '<div class="file-row">Error al cargar servidores</div>';
+  }
+}
+function renderServers() {
+  const box = document.getElementById('srvList');
+  if (!box) return;
+  const cc = document.getElementById('srvCounts');
+  const run = SRV_CACHE.filter(s => s.running).length;
+  if (cc) cc.innerHTML = `<span class="dot on"></span>${run} en línea<span class="dot off" style="margin-left:8px"></span>${SRV_CACHE.length - run} apagados`;
+  if (!SRV_CACHE.length) { box.innerHTML = '<div class="file-row"><span class="file-name">Sin servidores</span></div>'; return; }
+  box.innerHTML = SRV_CACHE.map(s => `
+    <div class="mod-row${s.running ? '' : ' is-off'}">
+      <span class="file-icon mod-ico" title="${s.running ? 'En línea' : 'Apagado'}">${SVG_SRV}</span>
+      <span class="mod-main">
+        <span class="mod-name" title="${escHtml(s.server_dir)}">${escHtml(s.name)}${s.current ? ' <span class="mchip ld">ACTUAL</span>' : ''}</span>
+        <span class="mod-meta"><span>${escHtml(s.server_dir)}</span><span>MC :${s.mc_port}</span></span>
+      </span>
+      <span class="mod-state ${s.running ? 's-on' : 's-off'}">${s.running ? 'ON' : 'OFF'}</span>
+      <span class="file-actions">
+        ${s.current ? '' : `<button class="term-tool-btn" onclick="srvOpen('${s.id}')">Abrir</button>`}
+        <button class="icon-btn" title="Editar" onclick="srvShowForm('${s.id}')">${SVG_PENCIL}</button>
+        <button class="icon-btn danger" title="Eliminar" onclick="srvDelete('${s.id}')">${SVG_TRASH}</button>
+      </span>
+    </div>`).join('');
+}
+function srvOpen(id) {
+  location.href = '?server=' + encodeURIComponent(id) + location.hash;
+}
+function srvShowForm(id) {
+  const f = document.getElementById('srvForm');
+  const s = id ? SRV_CACHE.find(x => x.id === id) : null;
+  document.getElementById('srvFormTitle').textContent = s ? `Editar '${s.name}'` : 'Añadir servidor';
+  document.getElementById('srvEditId').value = s ? s.id : '';
+  document.getElementById('srvName').value = s ? s.name : '';
+  document.getElementById('srvDir').value = s ? s.server_dir : '';
+  document.getElementById('srvMc').value = s ? s.mc_port : (SRV_CACHE.reduce((m, x) => Math.max(m, x.mc_port || 0), 25565) + 1);
+  document.getElementById('srvRcon').value = s ? s.rcon_port : (SRV_CACHE.reduce((m, x) => Math.max(m, x.rcon_port || 0), 25575) + 1);
+  document.getElementById('srvMem').value = s ? s.max_mem_gb : 4;
+  f.style.display = 'block';
+  f.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  if (!s) document.getElementById('srvName').focus();
+}
+function srvHideForm() {
+  document.getElementById('srvForm').style.display = 'none';
+  document.getElementById('srvEditId').value = '';
+}
+async function srvSubmit() {
+  const id = document.getElementById('srvEditId').value;
+  const body = {
+    action: id ? 'update' : 'add',
+    name: document.getElementById('srvName').value.trim(),
+    server_dir: document.getElementById('srvDir').value.trim(),
+    mc_port: parseInt(document.getElementById('srvMc').value, 10),
+    rcon_port: parseInt(document.getElementById('srvRcon').value, 10),
+    max_mem_gb: parseFloat(document.getElementById('srvMem').value)
+  };
+  if (id) body.id = id;
+  try {
+    const r = await (await fetch(U('/api/servers'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+    showToast(r.msg || 'OK', r.ok === false ? 'error' : 'success');
+    if (r.ok !== false) srvHideForm();
+  } catch (e) { showToast('Error de conexión', 'error'); }
+  loadServers();
+}
+async function srvDelete(id) {
+  const s = SRV_CACHE.find(x => x.id === id);
+  if (!s) return;
+  if (!confirm(`¿Quitar '${s.name}' del panel? No se borran sus archivos.`)) return;
+  try {
+    const r = await (await fetch(U('/api/servers'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', id }) })).json();
+    showToast(r.msg || 'OK', r.ok === false ? 'error' : 'success');
+    if (r.ok !== false) {
+      if (s.current && r.switchTo) location.href = '?server=' + encodeURIComponent(r.switchTo) + location.hash;
+      else loadServers();
+    }
+  } catch (e) { showToast('Error de conexión', 'error'); }
 }
 
 function durStep(id, delta, min, max) {
@@ -4568,8 +4801,13 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
             return
 
         if u.path == "/api/servers":
+            cur = S().id
             return self.send_json({"servers": [
-                {"id": s.id, "name": s.name} for s in SERVERS.values()]})
+                {"id": s.id, "name": s.name, "mc_port": s.mc_port,
+                 "rcon_port": s.rcon_port, "max_mem_gb": s.max_mem_gb,
+                 "server_dir": s.server_dir, "running": _srv_running(s),
+                 "current": s.id == cur} for s in SERVERS.values()],
+                "auth": auth_enabled()})
 
         if u.path == "/manifest.webmanifest":
             return self.send_json(PWA_MANIFEST)
@@ -4746,11 +4984,17 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
             return self.send_json({"error": "servidor desconocido"}, code=404)
         if u.path == "/api/logout":
             drop_session(self._cookie_token())
-            return self.send_json({"ok": True})
+            return self.send_json({"ok": True, "auth": auth_enabled()})
 
         if u.path == "/api/password":
             cur, new = payload.get("current", ""), payload.get("new", "")
-            if not auth_enabled() or not verify_password(cur, CFG.get("panel_password_hash", "")):
+            if not auth_enabled():
+                if len(new) < 8:
+                    return self.send_json({"ok": False, "msg": "Mínimo 8 caracteres"})
+                CFG["panel_password_hash"] = hash_password(new)
+                save_panel_setting("panel_password_hash", CFG["panel_password_hash"])
+                return self.send_json({"ok": True, "msg": "Contraseña creada. Serás redirigido al login.", "login": True})
+            if not verify_password(cur, CFG.get("panel_password_hash", "")):
                 return self.send_json({"ok": False, "msg": "Actual incorrecta"})
             if len(new) < 8:
                 return self.send_json({"ok": False, "msg": "Mínimo 8 caracteres"})
@@ -4866,6 +5110,81 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
             on = bool(payload.get("on", False))
             ok, msg = send_command_action(f"whitelist {'on' if on else 'off'}")
             return self.send_json({"ok": ok, "msg": msg})
+
+        if u.path == "/api/servers":
+            action = str(payload.get("action", ""))
+            if action == "add":
+                vals, err = _parse_srv_fields(payload)
+                if err:
+                    return self.send_json({"ok": False, "msg": err}, code=400)
+                base = _slugify(vals["name"])
+                sid, i = base, 2
+                while sid in SERVERS:
+                    sid = f"{base}-{i}"
+                    i += 1
+                entry = {"id": sid, "server_name": vals["name"],
+                         "server_subtitle": "Minecraft Server",
+                         "server_dir": vals["server_dir"],
+                         "start_cmd": ["bash", "start.sh"],
+                         "mc_port": vals["mc_port"], "rcon_port": vals["rcon_port"],
+                         "max_mem_gb": vals["max_mem_gb"], "backup_enabled": False}
+                try:
+                    obj = Server(entry)
+                except Exception as e:
+                    return self.send_json({"ok": False, "msg": str(e)}, code=500)
+                _ensure_servers_list().append(entry)
+                _persist_servers()
+                SERVERS[sid] = obj
+                return self.send_json({"ok": True, "msg": f"Servidor '{vals['name']}' añadido", "id": sid})
+            if action == "update":
+                sid = str(payload.get("id", ""))
+                obj = SERVERS.get(sid)
+                if obj is None:
+                    return self.send_json({"ok": False, "msg": "Servidor desconocido"}, code=404)
+                entry, top = _cfg_server_entry(sid)
+                if entry is None:
+                    return self.send_json({"ok": False, "msg": "Servidor desconocido"}, code=404)
+                vals, err = _parse_srv_fields(payload, exclude_id=sid)
+                if err:
+                    return self.send_json({"ok": False, "msg": err}, code=400)
+                if _srv_running(obj) and (os.path.realpath(vals["server_dir"]) != os.path.realpath(obj.server_dir)
+                        or vals["mc_port"] != obj.mc_port
+                        or vals["rcon_port"] != obj.rcon_port
+                        or vals["max_mem_gb"] != obj.max_mem_gb):
+                    return self.send_json({"ok": False, "msg": "Detén el servidor para cambiar carpeta, puertos o RAM (el nombre sí se puede)"}, code=400)
+                changes = {"server_name": vals["name"], "server_dir": vals["server_dir"],
+                           "mc_port": vals["mc_port"], "rcon_port": vals["rcon_port"],
+                           "max_mem_gb": vals["max_mem_gb"]}
+                if top:
+                    for k, v in changes.items():
+                        CFG[k] = v
+                        save_panel_setting(k, v)
+                else:
+                    entry.update(changes)
+                    _persist_servers()
+                obj.name = vals["name"]
+                obj.server_dir = vals["server_dir"]
+                obj.mc_port = vals["mc_port"]
+                obj.rcon_port = vals["rcon_port"]
+                obj.max_mem_gb = vals["max_mem_gb"]
+                return self.send_json({"ok": True, "msg": f"Servidor '{vals['name']}' actualizado"})
+            if action == "delete":
+                sid = str(payload.get("id", ""))
+                obj = SERVERS.get(sid)
+                if obj is None:
+                    return self.send_json({"ok": False, "msg": "Servidor desconocido"}, code=404)
+                if len(SERVERS) <= 1:
+                    return self.send_json({"ok": False, "msg": "No se puede eliminar el único servidor"}, code=400)
+                if _srv_running(obj):
+                    return self.send_json({"ok": False, "msg": "Detén el servidor antes de eliminarlo"}, code=400)
+                lst = CFG.get("servers")
+                if isinstance(lst, list):
+                    CFG["servers"] = [e for e in lst if not (isinstance(e, dict) and str(e.get("id", "")) == sid)]
+                    _persist_servers()
+                del SERVERS[sid]
+                nxt = next(iter(SERVERS))
+                return self.send_json({"ok": True, "msg": f"Servidor '{obj.name}' eliminado", "switchTo": nxt})
+            return self.send_json({"ok": False, "msg": "Acción inválida"}, code=400)
 
         if u.path == "/api/mod":
             action, name = payload.get("action", ""), payload.get("name", "")
