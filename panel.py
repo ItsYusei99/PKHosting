@@ -1733,13 +1733,23 @@ aside {
 .brand-icon {
   width: 38px;
   height: 38px;
-  background: linear-gradient(135deg, #7c3aed, #a855f7);
-  border-radius: 9px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
-  box-shadow: 0 4px 12px rgba(6, 182, 212, 0.3);
+  flex-shrink: 0;
+  border-radius: 11px;
+  box-shadow: 0 4px 16px rgba(168,85,247,0.35);
+  transition: transform 0.25s var(--ease-apple), box-shadow 0.25s;
+}
+.brand-icon:hover {
+  transform: scale(1.08) rotate(-2deg);
+  box-shadow: 0 6px 22px rgba(168,85,247,0.55);
+}
+.brand-icon img, .brand-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: 11px;
 }
 .brand-name {
   font-size: 17px;
@@ -2404,10 +2414,7 @@ header { padding: 14px 20px; }
 
 /* Marca */
 .brand-icon {
-  background: linear-gradient(135deg, #7c3aed, #a855f7 60%, #d8b4fe);
-  border-radius: 12px;
-  box-shadow: 0 6px 20px rgba(168,85,247,0.45), inset 0 1px 0 rgba(255,255,255,0.4);
-  color: #fff;
+  background: transparent;
 }
 .brand-name span {
   background: linear-gradient(90deg, #c084fc, #a855f7);
@@ -2568,7 +2575,7 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
 <!-- SIDEBAR -->
 <aside>
   <div class="sidebar-header">
-    <div class="brand-icon"><svg class="ico" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></div>
+    <div class="brand-icon"><img src="/icon.svg" alt="PKHosting"></div>
     <div>
       <div class="brand-name">PK<span>Hosting</span></div>
       <div class="brand-sub">Game Manager</div>
@@ -4703,20 +4710,25 @@ def handle_upload(handler, dest_rel):
 LOGIN_PAGE = """<!doctype html><html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PKHosting — Acceso</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{min-height:100vh;display:flex;align-items:center;justify-content:center;color:#f5f3ff;
 font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',system-ui,sans-serif;
 background:radial-gradient(900px 480px at 12% -8%,rgba(124,58,237,.22),transparent 65%),radial-gradient(760px 520px at 88% 4%,rgba(168,85,247,.16),transparent 60%),#050508}
-.card{width:min(380px,92vw);padding:28px;border-radius:20px;background:linear-gradient(155deg,rgba(255,255,255,.09),rgba(255,255,255,.02) 55%,rgba(168,85,247,.06));border:1px solid rgba(255,255,255,.12);box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 12px 40px rgba(0,0,0,.55);-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px)}
+.card{width:min(380px,92vw);padding:32px 28px;border-radius:24px;background:linear-gradient(155deg,rgba(255,255,255,.09),rgba(255,255,255,.02) 55%,rgba(168,85,247,.06));border:1px solid rgba(255,255,255,.12);box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 12px 40px rgba(0,0,0,.55);-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px);text-align:center}
+.login-logo{width:64px;height:64px;margin:0 auto 16px;border-radius:16px;box-shadow:0 8px 28px rgba(168,85,247,.45)}
+.login-logo img{width:100%;height:100%;display:block;border-radius:16px}
 h1{font-size:22px;letter-spacing:-.5px}h1 span span.g-letter{background:linear-gradient(90deg,#c084fc,#a855f7);-webkit-background-clip:text;background-clip:text;color:transparent}
-p{font-size:13px;color:#a89fc7;margin:6px 0 16px}
+p{font-size:13px;color:#a89fc7;margin:6px 0 18px}
 input{width:100%;background:#06060b;border:1px solid #2b2440;border-radius:12px;padding:11px 13px;color:#fff;font-size:14px;outline:none;margin-bottom:10px}
 input:focus{border-color:rgba(168,85,247,.6);box-shadow:0 0 0 3px rgba(168,85,247,.22)}
 button{width:100%;border:0;border-radius:12px;padding:11px;font-size:14px;font-weight:700;color:#fff;cursor:pointer;background:linear-gradient(135deg,#a855f7,#7c3aed);box-shadow:0 4px 16px rgba(168,85,247,.4)}
 #err{color:#f87171;font-size:12.5px;min-height:18px;margin-top:8px}
 </style></head><body>
-<div class="card"><h1 class="brand-grav"><span class="g-letter">P</span><span class="g-letter">K</span><span><span class="g-letter">H</span><span class="g-letter">o</span><span class="g-letter">s</span><span class="g-letter">t</span><span class="g-letter">i</span><span class="g-letter">n</span><span class="g-letter">g</span></span></h1><p>Introduce la contraseña del panel</p>
+<div class="card">
+<div class="login-logo"><img src="/icon.svg" alt="PKHosting"></div>
+<h1 class="brand-grav"><span class="g-letter">P</span><span class="g-letter">K</span><span><span class="g-letter">H</span><span class="g-letter">o</span><span class="g-letter">s</span><span class="g-letter">t</span><span class="g-letter">i</span><span class="g-letter">n</span><span class="g-letter">g</span></span></h1><p>Introduce la contraseña del panel</p>
 <input type="password" id="pw" placeholder="Contraseña" autofocus>
 <button onclick="login()">Entrar</button><div id="err"></div></div>
 <script>
@@ -5455,7 +5467,7 @@ PWA_SW = """self.addEventListener('fetch',e=>{const u=new URL(e.request.url);
 if(u.pathname.startsWith('/api/')){e.respondWith(fetch(e.request));return;}
 e.respondWith(fetch(e.request).then(r=>{const c=r.clone();
 caches.open('pk1').then(ch=>ch.put(e.request,c)).catch(()=>{});return r;}).catch(()=>caches.match(e.request)));});"""
-PWA_ICON = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7c3aed"/><stop offset="1" stop-color="#a855f7"/></linearGradient></defs><rect width="64" height="64" rx="14" fill="url(#g)"/><path d="M32 12 14 22l18 10 18-10-18-10zM14 32l18 10 18-10M14 42l18 10 18-10" stroke="#fff" stroke-width="4" fill="none" stroke-linejoin="round"/></svg>"""
+PWA_ICON = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none"><defs><linearGradient id="pk_bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1f1138"/><stop offset="50%" stop-color="#0e071c"/><stop offset="100%" stop-color="#05020a"/></linearGradient><linearGradient id="pk_top" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#f5d0fe"/><stop offset="35%" stop-color="#d8b4fe"/><stop offset="100%" stop-color="#9333ea"/></linearGradient><linearGradient id="pk_left" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#7e22ce"/><stop offset="100%" stop-color="#3b0764"/></linearGradient><linearGradient id="pk_right" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#581c87"/><stop offset="100%" stop-color="#1e0538"/></linearGradient><linearGradient id="pk_cyan" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#7dd3fc"/><stop offset="100%" stop-color="#38bdf8"/></linearGradient><linearGradient id="pk_purple" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#e9d5ff"/></linearGradient><filter id="pk_glow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="1.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><rect width="64" height="64" rx="15" fill="url(#pk_bg)" stroke="rgba(168,85,247,0.38)" stroke-width="1.2"/><circle cx="32" cy="32" r="24" fill="rgba(168,85,247,0.12)" filter="url(#pk_glow)"/><g transform="translate(0, 1)"><polygon points="32,9 53,21 32,33 11,21" fill="url(#pk_top)"/><path d="M24,17 L40,26 M28,14 L44,23 M17,25 L33,33" stroke="rgba(255,255,255,0.4)" stroke-width="0.8"/><circle cx="32" cy="21" r="2.2" fill="#38bdf8" filter="url(#pk_glow)"/><polygon points="11,21 32,33 32,55 11,43" fill="url(#pk_left)"/><polygon points="32,33 53,21 53,43 32,55" fill="url(#pk_right)"/><g filter="url(#pk_glow)"><path d="M18,31 L23,34 L23,48 L18,45 Z" fill="url(#pk_purple)"/><path d="M23,34 L29,37 L29,43 L23,40 Z" fill="url(#pk_purple)"/><polygon points="23,36 26.5,38 26.5,41 23,39" fill="#7e22ce"/></g><g filter="url(#pk_glow)"><path d="M35,37 L40,34 L40,48 L35,51 Z" fill="url(#pk_cyan)"/><path d="M40,40 L47,35 L48.5,36.5 L42.5,42.5 Z" fill="url(#pk_cyan)"/><path d="M41,41.5 L48.5,47.5 L46.5,49 L39.5,43.5 Z" fill="url(#pk_cyan)"/></g><polyline points="11,21 32,9 53,21" stroke="rgba(255,255,255,0.65)" stroke-width="0.9"/><line x1="32" y1="33" x2="32" y2="55" stroke="rgba(192,132,252,0.5)" stroke-width="0.9"/><polyline points="11,21 11,43 32,55 53,43 53,21" stroke="rgba(168,85,247,0.3)" stroke-width="0.8"/></g></svg>"""
 
 if __name__ == "__main__":
     bind = CFG.get("bind", "127.0.0.1")
