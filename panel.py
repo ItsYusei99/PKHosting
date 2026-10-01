@@ -2599,10 +2599,22 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
 .term-theme-dracula .terminal-body { color: #50fa7b !important; }
 
 /* ═══ CENTRO DE NOTIFICACIONES ═══ */
-.notif-btn { position: relative; background: transparent; border: 1px solid var(--border-color); border-radius: 9px; width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-muted); cursor: pointer; transition: all 0.15s; }
-.notif-btn:hover { background: rgba(168,85,247,0.15); color: #fff; border-color: #a855f7; }
-.notif-dot { position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 8px #22c55e; display: none; }
-#notifDropdown { display: none; position: absolute; top: 54px; right: 20px; width: 340px; max-height: 420px; background: #0c0817; border: 1px solid rgba(168,85,247,0.4); border-radius: 14px; box-shadow: 0 14px 40px rgba(0,0,0,0.8); z-index: 350; overflow: hidden; }
+.hdr-tools { display: flex; align-items: center; gap: 6px; background: var(--bg-main); border: 1px solid var(--border-color); border-radius: 10px; padding: 4px; }
+.tool-btn { position: relative; display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px; border-radius: 7px; border: 1px solid transparent; background: transparent; color: var(--text-muted); font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s ease; white-space: nowrap; }
+.tool-btn:hover { background: rgba(168,85,247,0.14); border-color: rgba(168,85,247,0.35); color: #e9d5ff; }
+.tool-btn:active { transform: scale(0.97); }
+.tool-btn:focus-visible { outline: 2px solid var(--accent-soft); outline-offset: 1px; }
+.tool-btn svg { width: 15px; height: 15px; flex-shrink: 0; }
+.tool-btn kbd { font-family: inherit; font-size: 10.5px; font-weight: 700; line-height: 1; color: var(--text-dim); background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 5px; padding: 3px 6px; }
+.tool-btn:hover kbd { color: #e9d5ff; border-color: rgba(168,85,247,0.4); background: rgba(168,85,247,0.12); }
+.tool-btn.icon-only { width: 32px; padding: 0; justify-content: center; }
+.notif-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 7px; border: 1px solid transparent; background: transparent; color: var(--text-muted); cursor: pointer; transition: all 0.15s ease; }
+.notif-btn:hover { background: rgba(168,85,247,0.14); border-color: rgba(168,85,247,0.35); color: #e9d5ff; }
+.notif-btn:active { transform: scale(0.97); }
+.notif-btn:focus-visible { outline: 2px solid var(--accent-soft); outline-offset: 1px; }
+.notif-btn svg { width: 15px; height: 15px; }
+.notif-dot { position: absolute; top: 5px; right: 5px; width: 9px; height: 9px; border-radius: 50%; background: var(--accent-soft); border: 2px solid var(--bg-main); box-shadow: 0 0 8px rgba(192,132,252,0.9); display: none; }
+#notifDropdown { display: none; position: absolute; top: calc(100% + 8px); right: 0; width: 340px; max-height: 420px; background: #0c0817; border: 1px solid rgba(168,85,247,0.4); border-radius: 14px; box-shadow: 0 14px 40px rgba(0,0,0,0.8); z-index: 350; overflow: hidden; }
 .notif-header { padding: 12px 16px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 700; color: #fff; }
 .notif-list { max-height: 340px; overflow-y: auto; padding: 6px; }
 .notif-item { padding: 8px 12px; border-radius: 8px; font-size: 12px; margin-bottom: 4px; display: flex; gap: 8px; align-items: flex-start; color: #cbd5e1; }
@@ -2716,25 +2728,25 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
       <div class="header-subtitle">NeoForge 1.21.1 · Java 21 · Puerto 25566</div>
     </div>
 
-    <div style="display:flex; align-items:center; gap:10px">
-      <button class="term-tool-btn" onclick="openCmdPalette()" title="Paleta de comandos (Ctrl+K)" style="display:inline-flex; align-items:center; gap:6px; font-weight:600">
-        <svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <span>Ctrl + K</span>
-      </button>
-
-      <div style="position:relative">
-        <button class="notif-btn" id="notifBtn" onclick="toggleNotifDropdown()" title="Centro de Notificaciones">
-          <svg class="ico" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+    <div style="display:flex; align-items:center; gap:10px; position:relative">
+      <div class="hdr-tools" role="toolbar" aria-label="Herramientas del panel">
+        <button class="tool-btn" onclick="openCmdPalette()" title="Paleta de comandos (Ctrl+K)">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <kbd>Ctrl K</kbd>
+        </button>
+        <button class="tool-btn icon-only" id="notifBtn" onclick="toggleNotifDropdown()" title="Centro de notificaciones" aria-label="Centro de notificaciones" aria-haspopup="true" aria-expanded="false">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
           <span class="notif-dot" id="notifDot"></span>
         </button>
-        <div id="notifDropdown">
-          <div class="notif-header">
-            <span>Registro de Actividad</span>
-            <button class="term-tool-btn" style="font-size:11px" onclick="clearNotifs()">Limpiar</button>
-          </div>
-          <div class="notif-list" id="notifList">
-            <div style="padding:16px;text-align:center;color:var(--text-dim);font-size:12px">Sin notificaciones pendientes</div>
-          </div>
+      </div>
+
+      <div id="notifDropdown" role="dialog" aria-label="Registro de actividad">
+        <div class="notif-header">
+          <span>Registro de Actividad</span>
+          <button class="term-tool-btn" style="font-size:11px" onclick="clearNotifs()">Limpiar</button>
+        </div>
+        <div class="notif-list" id="notifList">
+          <div style="padding:16px;text-align:center;color:var(--text-dim);font-size:12px">Sin notificaciones pendientes</div>
         </div>
       </div>
     <div class="header-actions">
@@ -4946,7 +4958,7 @@ async function sparkAction(act) {
     box.textContent = r.msg || 'Completado';
     if (r.msg && r.msg.includes('https://spark.lucko.me/')) {
       const idx = r.msg.indexOf('https://spark.lucko.me/');
-      const link = idx >= 0 ? r.msg.slice(idx).split(' ')[0].split('\n')[0] : '';
+      const link = idx >= 0 ? r.msg.slice(idx).split(' ')[0].split(String.fromCharCode(10))[0] : '';
       if (link) {
         showToast('Reporte spark generado: ' + link, 'success');
         addNotif('Reporte Spark disponible: ' + link, 'Ahora', 'activity');
@@ -5339,7 +5351,7 @@ function setTermTheme(th) {
 
 function fsUpdateEditorStats() {
   const ed = document.getElementById('fsEditor');
-  const lines = ed.value.split('\n').length;
+  const lines = ed.value.split(String.fromCharCode(10)).length;
   const chars = ed.value.length;
   document.getElementById('fsEditStats').textContent = `${lines} líneas · ${chars} caracteres`;
 }
@@ -5389,7 +5401,10 @@ function renderNotifs() {
 }
 function toggleNotifDropdown() {
   const d = document.getElementById('notifDropdown');
-  d.style.display = d.style.display === 'block' ? 'none' : 'block';
+  const btn = document.getElementById('notifBtn');
+  const open = d.style.display !== 'block';
+  d.style.display = open ? 'block' : 'none';
+  if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
   const dot = document.getElementById('notifDot');
   if (dot) dot.style.display = 'none';
 }
@@ -5404,6 +5419,7 @@ document.addEventListener('click', e => {
   const btn = document.getElementById('notifBtn');
   if (d && d.style.display === 'block' && !d.contains(e.target) && !btn.contains(e.target)) {
     d.style.display = 'none';
+    if (btn) btn.setAttribute('aria-expanded', 'false');
   }
 });
 
