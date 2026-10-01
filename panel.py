@@ -2630,6 +2630,18 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
 .mca-grid { max-height: 380px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-terminal); }
 .mca-row { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--border-subtle); font-size: 12.5px; font-family: 'JetBrains Mono', monospace; }
 .mca-row:hover { background: rgba(168,85,247,0.08); }
+/* ═══ VISOR DE MAPA MCA (estilo MCA Selector) ═══ */
+.worldmap-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.worldmap-legend { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--text-dim); }
+.worldmap-legend .lm-sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; }
+#worldMapCanvas { width: 100%; height: 420px; display: block; border: 1px solid var(--border-color); border-radius: 10px; background: #06060b radial-gradient(circle at 50% 50%, rgba(168,85,247,0.06), transparent 70%); cursor: grab; touch-action: none; }
+#worldMapCanvas:active { cursor: grabbing; }
+#worldMapTip { position: absolute; pointer-events: none; display: none; background: #0c0817; border: 1px solid rgba(168,85,247,0.5); border-radius: 8px; padding: 8px 10px; font-size: 11.5px; font-family: 'JetBrains Mono', monospace; color: #e9d5ff; z-index: 50; box-shadow: 0 8px 24px rgba(0,0,0,0.6); white-space: nowrap; }
+#regionDetail { display: none; margin-top: 10px; background: rgba(168,85,247,0.05); border: 1px solid rgba(168,85,247,0.25); border-radius: 10px; padding: 12px; }
+#regionChunks { display: grid; grid-template-columns: repeat(32, 1fr); gap: 1px; margin-top: 8px; max-width: 384px; }
+#regionChunks .chk { aspect-ratio: 1; border-radius: 1px; background: rgba(255,255,255,0.06); min-width: 0; }
+#regionChunks .chk.full { background: #34d399; }
+#regionChunks .chk.empty { background: rgba(255,255,255,0.05); }
 
 /* ═══ MODRINTH EXPLORER ═══ */
 .mr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; margin-top: 12px; }
@@ -3120,8 +3132,37 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
           </div>
         </div>
 
+        <!-- Visor de mapa estilo MCA Selector -->
+        <div class="worldmap-toolbar">
+          <div class="seg" id="mapModeSeg">
+            <button data-mode="activity" class="on" onclick="setMapMode('activity')">Actividad</button>
+            <button data-mode="fill" onclick="setMapMode('fill')">Llenado</button>
+          </div>
+          <button class="term-tool-btn" onclick="mapZoom(1.25)" title="Acercar">＋</button>
+          <button class="term-tool-btn" onclick="mapZoom(0.8)" title="Alejar">－</button>
+          <button class="term-tool-btn" onclick="mapResetView()" title="Centrar en el origen">◎ Origen</button>
+          <button class="term-tool-btn" onclick="mapClearSel()" title="Quitar selección del mapa">Limpiar selección</button>
+          <span class="worldmap-legend" id="mapLegend"></span>
+          <span style="flex:1"></span>
+          <span id="mapHint" style="font-size:11px; color:var(--text-dim)">Arrastra para mover · rueda para zoom · clic para seleccionar</span>
+        </div>
+        <div style="position:relative; margin-bottom:12px">
+          <canvas id="worldMapCanvas"></canvas>
+          <div id="worldMapTip"></div>
+        </div>
+        <div id="regionDetail">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px">
+            <div style="font-size:12.5px; font-weight:700; color:#fff; font-family:'JetBrains Mono',monospace" id="regionDetailTitle">r.0.0.mca</div>
+            <div style="display:flex; gap:8px; align-items:center">
+              <span style="font-size:11.5px; color:var(--text-dim)" id="regionDetailMeta"></span>
+              <button class="term-tool-btn" style="font-size:11px" onclick="closeRegionDetail()">Cerrar</button>
+            </div>
+          </div>
+          <div id="regionChunks"></div>
+        </div>
+
         <!-- Calculadora de Coordenadas -->
-        <div style="background:rgba(168,85,247,0.06); border:1px solid rgba(168,85,247,0.2); border-radius:10px; padding:12px; margin-bottom:12px; display:flex; align-items:center; gap:12px; flex-wrap:wrap">
+        <div style="background:rgba(168,85,247,0.06); border:1px solid rgba(168,85,247,0.2); border-radius:10px; padding:12px; margin-bottom:12px; margin-top:12px; display:flex; align-items:center; gap:12px; flex-wrap:wrap">
           <span style="font-size:12px; font-weight:700; color:#d8b4fe">Calculadora de Coordenadas:</span>
           <input type="number" id="calcCoordX" class="tin" placeholder="Bloque X" style="width:110px; padding:6px 10px; font-size:12px" oninput="calcMcaFromCoords()">
           <input type="number" id="calcCoordZ" class="tin" placeholder="Bloque Z" style="width:110px; padding:6px 10px; font-size:12px" oninput="calcMcaFromCoords()">
@@ -5047,6 +5088,10 @@ async function installModrinth(slug, title) {
 ══════════════════════════════════════════════════ */
 let WORLD_DATA = null;
 let MCA_ACTIVE_DIM = 'overworld';
+let MCA_MAP_MODE = 'activity';
+let MCA_VIEW = { cx: 0, cz: 0, scale: 14 };
+let MCA_SEL = { overworld: new Set(), nether: new Set(), end: new Set() };
+let MCA_HOVER = null;
 async function loadWorldManager() {
   const container = document.getElementById('mcaListContainer');
   if (container) container.innerHTML = '<div class="mca-row" style="color:var(--text-dim)">Cargando análisis del mundo...</div>';
@@ -5073,6 +5118,8 @@ async function loadWorldManager() {
     });
 
     renderMcaList();
+    initWorldMap();
+    drawWorldMap();
   } catch (e) {
     if (container) container.innerHTML = '<div class="mca-row">Error al cargar datos del mundo.</div>';
   }
@@ -5083,6 +5130,7 @@ function selectMcaDim(dim) {
     b.classList.toggle('on', b.dataset.dim === dim || b.textContent.toLowerCase().includes(dim === 'overworld' ? 'over' : dim === 'nether' ? 'nether' : 'end'));
   });
   renderMcaList();
+  drawWorldMap();
 }
 function renderMcaList() {
   const container = document.getElementById('mcaListContainer');
@@ -5094,25 +5142,235 @@ function renderMcaList() {
     return;
   }
   const mb = bytes => bytes > 1048576 ? (bytes / 1048576).toFixed(1) + ' MB' : Math.round(bytes / 1024) + ' KB';
+  const sel = MCA_SEL[MCA_ACTIVE_DIM] || (MCA_SEL[MCA_ACTIVE_DIM] = new Set());
   container.innerHTML = dim.regions.map((r, i) => {
     const x0 = r.x * 512, x1 = (r.x + 1) * 512 - 1;
     const z0 = r.z * 512, z1 = (r.z + 1) * 512 - 1;
+    const pct = Math.round(((r.present || 0) / 1024) * 100);
     return `<div class="mca-row">
-      <input type="checkbox" class="mca-chk" data-file="${r.file}" onchange="updateMcaSelectionCount()">
+      <input type="checkbox" class="mca-chk" data-file="${r.file}"${sel.has(r.file) ? ' checked' : ''} onchange="mcaChkToggle(this)">
       <span style="color:#e2e8f0; font-weight:700; width:130px">${r.file}</span>
-      <span style="color:var(--text-dim); flex:1">Bloques: [X ${x0}..${x1}, Z ${z0}..${z1}]</span>
+      <span style="color:var(--text-dim); flex:1">Bloques: [X ${x0}..${x1}, Z ${z0}..${z1}] · ${r.present || 0}/1024 chunks (${pct}%)</span>
       <span style="color:#93c5fd">${mb(r.size)}</span>
     </div>`;
   }).join('');
   updateMcaSelectionCount();
 }
+function mcaChkToggle(el) {
+  const sel = MCA_SEL[MCA_ACTIVE_DIM] || (MCA_SEL[MCA_ACTIVE_DIM] = new Set());
+  if (el.checked) sel.add(el.dataset.file);
+  else sel.delete(el.dataset.file);
+  updateMcaSelectionCount();
+  drawWorldMap();
+}
 function updateMcaSelectionCount() {
+  const sel = MCA_SEL[MCA_ACTIVE_DIM] || new Set();
   const checked = document.querySelectorAll('.mca-chk:checked').length;
-  document.getElementById('mcaSelectedCount').textContent = `${checked} regiones seleccionadas (${checked * 1024} chunks)`;
+  const n = Math.max(sel.size, checked);
+  document.getElementById('mcaSelectedCount').textContent = `${n} regiones seleccionadas (${n * 1024} chunks)`;
 }
 function toggleSelectAllMca(check) {
+  const dim = (WORLD_DATA.dimensions || []).find(d => d.id === MCA_ACTIVE_DIM);
+  const sel = MCA_SEL[MCA_ACTIVE_DIM] || (MCA_SEL[MCA_ACTIVE_DIM] = new Set());
+  if (check && dim && dim.regions) dim.regions.forEach(r => sel.add(r.file));
+  else sel.clear();
   document.querySelectorAll('.mca-chk').forEach(c => c.checked = check);
   updateMcaSelectionCount();
+  drawWorldMap();
+}
+/* ── Motor del visor de mapa ── */
+function mapRegions() {
+  if (!WORLD_DATA) return [];
+  const dim = (WORLD_DATA.dimensions || []).find(d => d.id === MCA_ACTIVE_DIM);
+  return (dim && dim.regions) || [];
+}
+function setMapMode(mode) {
+  MCA_MAP_MODE = mode;
+  document.querySelectorAll('#mapModeSeg button').forEach(b => b.classList.toggle('on', b.dataset.mode === mode));
+  drawWorldMap();
+}
+function mapZoom(f) {
+  MCA_VIEW.scale = Math.max(3, Math.min(64, MCA_VIEW.scale * f));
+  drawWorldMap();
+}
+function mapResetView() {
+  MCA_VIEW.cx = 0; MCA_VIEW.cz = 0; MCA_VIEW.scale = 14;
+  drawWorldMap();
+}
+function mapClearSel() {
+  (MCA_SEL[MCA_ACTIVE_DIM] || new Set()).clear();
+  renderMcaList();
+  drawWorldMap();
+}
+function mapRegionColor(r, tmin, tmax) {
+  if (!(r.present > 0)) return { fill: 'rgba(148,163,184,0.10)', edge: 'rgba(148,163,184,0.25)' };
+  if (MCA_MAP_MODE === 'fill') {
+    const f = (r.present || 0) / 1024;
+    if (f >= 0.9) return { fill: 'rgba(52,211,153,0.85)', edge: 'rgba(52,211,153,0.9)' };
+    if (f >= 0.5) return { fill: 'rgba(52,211,153,0.55)', edge: 'rgba(52,211,153,0.7)' };
+    if (f >= 0.15) return { fill: 'rgba(251,191,36,0.55)', edge: 'rgba(251,191,36,0.7)' };
+    return { fill: 'rgba(251,191,36,0.28)', edge: 'rgba(251,191,36,0.45)' };
+  }
+  const t = r.mtime || 0;
+  if (!t || tmax <= tmin) return { fill: 'rgba(168,85,247,0.5)', edge: 'rgba(168,85,247,0.7)' };
+  const k = (t - tmin) / (tmax - tmin);
+  if (k > 0.66) return { fill: 'rgba(52,211,153,0.85)', edge: 'rgba(52,211,153,0.95)' };
+  if (k > 0.33) return { fill: 'rgba(168,85,247,0.6)', edge: 'rgba(168,85,247,0.8)' };
+  return { fill: 'rgba(100,116,139,0.5)', edge: 'rgba(100,116,139,0.7)' };
+}
+function initWorldMap() {
+  const cv = document.getElementById('worldMapCanvas');
+  if (!cv || cv.dataset.init === '1') return;
+  cv.dataset.init = '1';
+  let drag = null, moved = 0;
+  const pos = e => {
+    const r = cv.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+  cv.addEventListener('mousedown', e => { drag = pos(e); moved = 0; });
+  window.addEventListener('mouseup', () => { drag = null; });
+  cv.addEventListener('mousemove', e => {
+    const p = pos(e);
+    if (drag) {
+      const dx = (p.x - drag.x) / MCA_VIEW.scale, dy = (p.y - drag.y) / MCA_VIEW.scale;
+      moved += Math.abs(p.x - drag.x) + Math.abs(p.y - drag.y);
+      MCA_VIEW.cx -= dx; MCA_VIEW.cz -= dy;
+      drag = p;
+      drawWorldMap();
+      return;
+    }
+    MCA_HOVER = mapPick(p.x, p.y);
+    drawWorldMap();
+    const tip = document.getElementById('worldMapTip');
+    if (MCA_HOVER && tip) {
+      const r = MCA_HOVER;
+      const dt = r.mtime ? new Date(r.mtime * 1000).toLocaleDateString() : 'sin fecha';
+      tip.style.display = 'block';
+      tip.style.left = (p.x + 14) + 'px';
+      tip.style.top = (p.y + 14) + 'px';
+      tip.textContent = r.file + ' · R(' + r.x + ',' + r.z + ') · ' + (r.present || 0) + '/1024 chunks · ' + dt;
+    } else if (tip) tip.style.display = 'none';
+  });
+  cv.addEventListener('mouseleave', () => {
+    MCA_HOVER = null;
+    const tip = document.getElementById('worldMapTip');
+    if (tip) tip.style.display = 'none';
+    drawWorldMap();
+  });
+  cv.addEventListener('click', e => {
+    if (moved > 6) { moved = 0; return; }
+    moved = 0;
+    const p = pos(e);
+    const r = mapPick(p.x, p.y);
+    if (!r) return;
+    const sel = MCA_SEL[MCA_ACTIVE_DIM] || (MCA_SEL[MCA_ACTIVE_DIM] = new Set());
+    if (sel.has(r.file)) sel.delete(r.file);
+    else sel.add(r.file);
+    renderMcaList();
+    drawWorldMap();
+    showRegionDetail(r.file);
+  });
+  cv.addEventListener('wheel', e => {
+    e.preventDefault();
+    mapZoom(e.deltaY < 0 ? 1.15 : 0.87);
+  }, { passive: false });
+}
+function mapPick(px, py) {
+  const cv = document.getElementById('worldMapCanvas');
+  if (!cv) return null;
+  const w = cv.clientWidth, h = cv.clientHeight, s = MCA_VIEW.scale;
+  let best = null, bestD = 1e9;
+  for (const r of mapRegions()) {
+    const rx = (r.x - MCA_VIEW.cx) * s + w / 2, ry = (r.z - MCA_VIEW.cz) * s + h / 2;
+    const dx = px - (rx + s / 2), dy = py - (ry + s / 2);
+    const d = Math.max(Math.abs(dx), Math.abs(dy));
+    if (px >= rx && px <= rx + s && py >= ry && py <= ry + s && d < bestD) { best = r; bestD = d; }
+  }
+  return best;
+}
+function drawWorldMap() {
+  const cv = document.getElementById('worldMapCanvas');
+  if (!cv) return;
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth || cv.parentElement.clientWidth, h = 420;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  }
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const regs = mapRegions();
+  const sel = MCA_SEL[MCA_ACTIVE_DIM] || new Set();
+  const times = regs.filter(r => r.mtime > 0).map(r => r.mtime);
+  const tmin = times.length ? Math.min.apply(null, times) : 0;
+  const tmax = times.length ? Math.max.apply(null, times) : 0;
+  const s = MCA_VIEW.scale;
+  ctx.strokeStyle = 'rgba(168,85,247,0.25)';
+  ctx.lineWidth = 1;
+  const ox = (0 - MCA_VIEW.cx) * s + w / 2, oy = (0 - MCA_VIEW.cz) * s + h / 2;
+  ctx.beginPath(); ctx.moveTo(ox, 0); ctx.lineTo(ox, h); ctx.moveTo(0, oy); ctx.lineTo(w, oy); ctx.stroke();
+  ctx.fillStyle = 'rgba(192,132,252,0.9)';
+  ctx.font = '10px JetBrains Mono, monospace';
+  ctx.fillText('0,0 spawn', ox + 5, oy - 5);
+  for (const r of regs) {
+    const x = (r.x - MCA_VIEW.cx) * s + w / 2, y = (r.z - MCA_VIEW.cz) * s + h / 2;
+    if (x + s < -20 || y + s < -20 || x > w + 20 || y > h + 20) continue;
+    const c = mapRegionColor(r, tmin, tmax);
+    const pad = s > 10 ? 1 : 0;
+    ctx.fillStyle = c.fill;
+    ctx.fillRect(x + pad / 2, y + pad / 2, s - pad, s - pad);
+    if (sel.has(r.file)) {
+      ctx.save();
+      ctx.shadowColor = 'rgba(168,85,247,0.9)';
+      ctx.shadowBlur = 8;
+      ctx.strokeStyle = '#c084fc';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x + 1, y + 1, s - 2, s - 2);
+      ctx.restore();
+    } else if (MCA_HOVER && MCA_HOVER.file === r.file) {
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(x + 0.5, y + 0.5, s - 1, s - 1);
+    } else {
+      ctx.strokeStyle = c.edge;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x + 0.5, y + 0.5, s - 1, s - 1);
+    }
+  }
+  const lg = document.getElementById('mapLegend');
+  if (lg) lg.innerHTML = MCA_MAP_MODE === 'fill'
+    ? '<span><span class="lm-sw" style="background:rgba(52,211,153,0.85)"></span>Llena (90%+)</span><span><span class="lm-sw" style="background:rgba(52,211,153,0.5)"></span>Media</span><span><span class="lm-sw" style="background:rgba(251,191,36,0.55)"></span>Escasa</span><span><span class="lm-sw" style="background:rgba(148,163,184,0.2)"></span>Vacía</span>'
+    : '<span><span class="lm-sw" style="background:rgba(52,211,153,0.85)"></span>Reciente</span><span><span class="lm-sw" style="background:rgba(168,85,247,0.6)"></span>Intermedia</span><span><span class="lm-sw" style="background:rgba(100,116,139,0.5)"></span>Antigua</span><span><span class="lm-sw" style="background:rgba(148,163,184,0.2)"></span>Vacía</span>';
+  const hint = document.getElementById('mapHint');
+  if (hint) hint.textContent = regs.length + ' regiones · ' + sel.size + ' seleccionadas · Arrastra para mover · rueda para zoom · clic para seleccionar';
+}
+async function showRegionDetail(file) {
+  const box = document.getElementById('regionDetail');
+  const title = document.getElementById('regionDetailTitle');
+  const meta = document.getElementById('regionDetailMeta');
+  const grid = document.getElementById('regionChunks');
+  if (!box) return;
+  box.style.display = 'block';
+  if (title) title.textContent = file + ' (cargando chunks…)';
+  if (grid) grid.innerHTML = '';
+  try {
+    const r = await (await fetch(U('/api/world/region?dimension=' + encodeURIComponent(MCA_ACTIVE_DIM) + '&file=' + encodeURIComponent(file)))).json();
+    if (!r || !r.ok) {
+      if (title) title.textContent = file + ' (sin datos de chunks)';
+      return;
+    }
+    const x0 = r.x * 512, x1 = (r.x + 1) * 512 - 1;
+    const z0 = r.z * 512, z1 = (r.z + 1) * 512 - 1;
+    if (title) title.textContent = r.file + ' · R(' + r.x + ',' + r.z + ')';
+    if (meta) meta.textContent = r.present + '/1024 chunks · bloques X ' + x0 + '..' + x1 + ' · Z ' + z0 + '..' + z1;
+    if (grid) grid.innerHTML = r.grid.map(v => `<span class="chk ${v ? 'full' : 'empty'}" title="${v ? 'Chunk generado' : 'Sin generar'}"></span>`).join('');
+  } catch (e) {
+    if (title) title.textContent = file + ' (error al cargar)';
+  }
+}
+function closeRegionDetail() {
+  const box = document.getElementById('regionDetail');
+  if (box) box.style.display = 'none';
 }
 function calcMcaFromCoords() {
   const x = parseInt(document.getElementById('calcCoordX').value, 10);
@@ -5133,18 +5391,23 @@ function selectCalculatedMca() {
   const rx = Math.floor(x / 512);
   const rz = Math.floor(z / 512);
   const targetFn = `r.${rx}.${rz}.mca`;
-  const chk = document.querySelector(`.mca-chk[data-file="${targetFn}"]`);
-  if (chk) {
-    chk.checked = true;
-    chk.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    updateMcaSelectionCount();
+  const dim = (WORLD_DATA.dimensions || []).find(d => d.id === MCA_ACTIVE_DIM);
+  const exists = dim && dim.regions && dim.regions.some(r => r.file === targetFn);
+  if (exists) {
+    const sel = MCA_SEL[MCA_ACTIVE_DIM] || (MCA_SEL[MCA_ACTIVE_DIM] = new Set());
+    sel.add(targetFn);
+    MCA_VIEW.cx = rx; MCA_VIEW.cz = rz;
+    renderMcaList();
+    drawWorldMap();
+    showRegionDetail(targetFn);
     showToast(`Región ${targetFn} seleccionada`);
   } else {
     showToast(`El archivo ${targetFn} no existe en ${MCA_ACTIVE_DIM} (chunks no generados aún)`, 'info');
   }
 }
 async function deleteSelectedMca() {
-  const files = Array.from(document.querySelectorAll('.mca-chk:checked')).map(c => c.dataset.file);
+  const sel = MCA_SEL[MCA_ACTIVE_DIM] || new Set();
+  const files = sel.size ? Array.from(sel) : Array.from(document.querySelectorAll('.mca-chk:checked')).map(c => c.dataset.file);
   if (!files.length) {
     showToast('Selecciona al menos una región', 'info');
     return;
@@ -5159,6 +5422,8 @@ async function deleteSelectedMca() {
     showToast(r.msg || 'Regiones eliminadas', r.ok ? 'success' : 'error');
     if (r.ok) {
       addNotif(`Borrado MCA: ${files.length} regiones en ${MCA_ACTIVE_DIM}`, 'Ahora', 'trash');
+      MCA_SEL[MCA_ACTIVE_DIM] = new Set();
+      closeRegionDetail();
       loadWorldManager();
     }
   } catch (e) {
@@ -5641,6 +5906,66 @@ def install_modrinth_project(slug_or_id, loader="neoforge", game_ver="1.21.1"):
         return False, f"Error descargando mod: {e}"
 
 
+def mca_present_count(fp):
+    """Cuenta chunks generados leyendo la cabecera de localizaciones del .mca (8 primeros KB)."""
+    try:
+        with open(fp, "rb") as f:
+            head = f.read(8192)
+        if len(head) < 8192:
+            return 0
+        n = 0
+        for i in range(1024):
+            entry = struct.unpack(">I", head[i * 4:(i + 1) * 4])[0]
+            if entry >> 8:
+                n += 1
+        return n
+    except Exception:
+        return 0
+
+
+def mca_region_detail(dim_id, filename):
+    """Devuelve la rejilla 32x32 de chunks (ocupación + timestamp) de una región."""
+    srv = S()
+    wname = srv.world_name or "world"
+    wdir = os.path.join(srv.server_dir, wname)
+    if not os.path.isdir(wdir):
+        wdir = os.path.join(srv.server_dir, "world")
+    dim_paths = {
+        "overworld": os.path.join(wdir, "region"),
+        "nether": os.path.join(wdir, "DIM-1", "region"),
+        "end": os.path.join(wdir, "DIM1", "region")
+    }
+    target_dir = dim_paths.get(dim_id)
+    fn = os.path.basename(filename or "")
+    if not target_dir or not re.match(r"^r\.-?\d+\.-?\d+\.mca$", fn):
+        return None, "Región inválida"
+    fp = os.path.join(target_dir, fn)
+    if not os.path.isfile(fp):
+        return None, "La región no existe"
+    try:
+        with open(fp, "rb") as f:
+            head = f.read(8192)
+        if len(head) < 8192:
+            return None, "Archivo .mca incompleto"
+        grid, times = [], []
+        newest = 0
+        for i in range(1024):
+            entry = struct.unpack(">I", head[i * 4:(i + 1) * 4])[0]
+            ts = struct.unpack(">I", head[4096 + i * 4:4100 + i * 4])[0]
+            grid.append(1 if entry >> 8 else 0)
+            times.append(ts)
+            if ts > newest:
+                newest = ts
+        m = re.match(r"r\.(-?\d+)\.(-?\d+)\.mca", fn)
+        return {"file": fn, "x": int(m.group(1)), "z": int(m.group(2)),
+                "size": os.path.getsize(fp),
+                "mtime": int(os.path.getmtime(fp)),
+                "present": sum(grid), "grid": grid,
+                "times": times, "newest": newest}, None
+    except Exception as e:
+        return None, str(e)
+
+
 def get_world_summary():
     srv = S()
     wname = srv.world_name or "world"
@@ -5671,7 +5996,14 @@ def get_world_summary():
                         d_size += sz
                         m = re.match(r"r\.(-?\d+)\.(-?\d+)\.mca", fn)
                         rx, rz = int(m.group(1)), int(m.group(2)) if m else (0, 0)
-                        mca_files.append({"file": fn, "x": rx, "z": rz, "size": sz})
+                        try:
+                            mt = int(os.path.getmtime(fp))
+                        except Exception:
+                            mt = 0
+                        present = mca_present_count(fp)
+                        mca_files.append({"file": fn, "x": rx, "z": rz,
+                                          "size": sz, "mtime": mt,
+                                          "present": present})
                     except Exception:
                         pass
         total_size += d_size
@@ -5681,7 +6013,7 @@ def get_world_summary():
             "exists": os.path.isdir(rp),
             "size": d_size,
             "regions_count": len(mca_files),
-            "regions": sorted(mca_files, key=lambda r: (r["x"], r["z"]))[:200]
+            "regions": sorted(mca_files, key=lambda r: (r["x"], r["z"]))
         })
     
     return {
@@ -6328,6 +6660,15 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
 
         if u.path == "/api/world":
             return self.send_json(get_world_summary())
+
+        if u.path == "/api/world/region":
+            qs = parse_qs(u.query)
+            dim = (qs.get("dimension", ["overworld"])[0] or "overworld").strip()
+            fn = (qs.get("file", [""])[0] or "").strip()
+            data, err = mca_region_detail(dim, fn)
+            if err:
+                return self.send_json({"ok": False, "msg": err}, code=404)
+            return self.send_json({"ok": True, **data})
 
         if u.path == "/api/modrinth/search":
             qs = parse_qs(u.query)
