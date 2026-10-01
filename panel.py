@@ -27,6 +27,10 @@ import subprocess
 import sys
 import threading
 import time
+import zlib
+import gzip
+import binascii
+import io
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
 import urllib.request
@@ -3135,7 +3139,8 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
         <!-- Visor de mapa estilo MCA Selector -->
         <div class="worldmap-toolbar">
           <div class="seg" id="mapModeSeg">
-            <button data-mode="activity" class="on" onclick="setMapMode('activity')">Actividad</button>
+            <button data-mode="terrain" class="on" onclick="setMapMode('terrain')">Terreno</button>
+            <button data-mode="activity" onclick="setMapMode('activity')">Actividad</button>
             <button data-mode="fill" onclick="setMapMode('fill')">Llenado</button>
           </div>
           <button class="term-tool-btn" onclick="mapZoom(1.25)" title="Acercar">＋</button>
@@ -5088,7 +5093,8 @@ async function installModrinth(slug, title) {
 ══════════════════════════════════════════════════ */
 let WORLD_DATA = null;
 let MCA_ACTIVE_DIM = 'overworld';
-let MCA_MAP_MODE = 'activity';
+let MCA_MAP_MODE = 'terrain';
+let MCA_TILES = {};
 let MCA_VIEW = { cx: 0, cz: 0, scale: 14 };
 let MCA_SEL = { overworld: new Set(), nether: new Set(), end: new Set() };
 let MCA_HOVER = null;
@@ -5288,6 +5294,15 @@ function mapPick(px, py) {
   }
   return best;
 }
+function mapQueueTile(key, rx, rz) {
+  if (MCA_TILES[key]) return;
+  const dim = MCA_ACTIVE_DIM;
+  const img = new Image();
+  MCA_TILES[key] = { img, ok: false, loading: true };
+  img.onload = () => { MCA_TILES[key].ok = true; MCA_TILES[key].loading = false; drawWorldMap(); };
+  img.onerror = () => { MCA_TILES[key].ok = false; MCA_TILES[key].loading = false; };
+  img.src = U('/api/world/tile?dimension=' + encodeURIComponent(dim) + '&rx=' + rx + '&rz=' + rz);
+}
 function drawWorldMap() {
   const cv = document.getElementById('worldMapCanvas');
   if (!cv) return;
@@ -5312,13 +5327,27 @@ function drawWorldMap() {
   ctx.fillStyle = 'rgba(192,132,252,0.9)';
   ctx.font = '10px JetBrains Mono, monospace';
   ctx.fillText('0,0 spawn', ox + 5, oy - 5);
+  const terrain = MCA_MAP_MODE === 'terrain';
+  const pendingTiles = [];
   for (const r of regs) {
     const x = (r.x - MCA_VIEW.cx) * s + w / 2, y = (r.z - MCA_VIEW.cz) * s + h / 2;
     if (x + s < -20 || y + s < -20 || x > w + 20 || y > h + 20) continue;
-    const c = mapRegionColor(r, tmin, tmax);
     const pad = s > 10 ? 1 : 0;
-    ctx.fillStyle = c.fill;
-    ctx.fillRect(x + pad / 2, y + pad / 2, s - pad, s - pad);
+    if (terrain && (r.present > 0)) {
+      const key = MCA_ACTIVE_DIM + ':' + r.x + ':' + r.z;
+      const t = MCA_TILES[key];
+      if (t && t.img && t.ok) {
+        ctx.drawImage(t.img, x, y, s, s);
+      } else {
+        ctx.fillStyle = 'rgba(148,163,184,0.10)';
+        ctx.fillRect(x + pad / 2, y + pad / 2, s - pad, s - pad);
+        if (!t) pendingTiles.push({ key, rx: r.x, rz: r.z, d: (r.x - MCA_VIEW.cx) * (r.x - MCA_VIEW.cx) + (r.z - MCA_VIEW.cz) * (r.z - MCA_VIEW.cz) });
+      }
+    } else {
+      const c = mapRegionColor(r, tmin, tmax);
+      ctx.fillStyle = c.fill;
+      ctx.fillRect(x + pad / 2, y + pad / 2, s - pad, s - pad);
+    }
     if (sel.has(r.file)) {
       ctx.save();
       ctx.shadowColor = 'rgba(168,85,247,0.9)';
@@ -5332,13 +5361,19 @@ function drawWorldMap() {
       ctx.lineWidth = 1.5;
       ctx.strokeRect(x + 0.5, y + 0.5, s - 1, s - 1);
     } else {
-      ctx.strokeStyle = c.edge;
+      ctx.strokeStyle = terrain ? 'rgba(255,255,255,0.14)' : mapRegionColor(r, tmin, tmax).edge;
       ctx.lineWidth = 1;
       ctx.strokeRect(x + 0.5, y + 0.5, s - 1, s - 1);
     }
   }
+  if (pendingTiles.length) {
+    pendingTiles.sort((a, b) => a.d - b.d);
+    pendingTiles.slice(0, 60).forEach(t => mapQueueTile(t.key, t.rx, t.rz));
+  }
   const lg = document.getElementById('mapLegend');
-  if (lg) lg.innerHTML = MCA_MAP_MODE === 'fill'
+  if (lg) lg.innerHTML = MCA_MAP_MODE === 'terrain'
+    ? '<span><span class="lm-sw" style="background:#6faf47"></span>Tierra</span><span><span class="lm-sw" style="background:#2f6ed6"></span>Agua</span><span><span class="lm-sw" style="background:#f0f6fa"></span>Nieve</span><span><span class="lm-sw" style="background:rgba(148,163,184,0.2)"></span>Vacía</span>'
+    : MCA_MAP_MODE === 'fill'
     ? '<span><span class="lm-sw" style="background:rgba(52,211,153,0.85)"></span>Llena (90%+)</span><span><span class="lm-sw" style="background:rgba(52,211,153,0.5)"></span>Media</span><span><span class="lm-sw" style="background:rgba(251,191,36,0.55)"></span>Escasa</span><span><span class="lm-sw" style="background:rgba(148,163,184,0.2)"></span>Vacía</span>'
     : '<span><span class="lm-sw" style="background:rgba(52,211,153,0.85)"></span>Reciente</span><span><span class="lm-sw" style="background:rgba(168,85,247,0.6)"></span>Intermedia</span><span><span class="lm-sw" style="background:rgba(100,116,139,0.5)"></span>Antigua</span><span><span class="lm-sw" style="background:rgba(148,163,184,0.2)"></span>Vacía</span>';
   const hint = document.getElementById('mapHint');
@@ -5904,6 +5939,424 @@ def install_modrinth_project(slug_or_id, loader="neoforge", game_ver="1.21.1"):
         return True, f"Mod '{dl_fn}' instalado correctamente en mods/ (requiere reinicio)"
     except Exception as e:
         return False, f"Error descargando mod: {e}"
+
+
+# ── Render de terreno estilo MCA Selector (solo stdlib) ──
+class _NBTReader:
+    def __init__(self, data):
+        self.d = data
+        self.o = 0
+
+    def _take(self, n):
+        if self.o + n > len(self.d):
+            raise ValueError("NBT truncado")
+        b = self.d[self.o:self.o + n]
+        self.o += n
+        return b
+
+    def _u8(self):
+        return self._take(1)[0]
+
+    def _u16(self):
+        return struct.unpack(">H", self._take(2))[0]
+
+    def _i16(self):
+        return struct.unpack(">h", self._take(2))[0]
+
+    def _i32(self):
+        return struct.unpack(">i", self._take(4))[0]
+
+    def _i64(self):
+        return struct.unpack(">q", self._take(8))[0]
+
+    def _f32(self):
+        return struct.unpack(">f", self._take(4))[0]
+
+    def _f64(self):
+        return struct.unpack(">d", self._take(8))[0]
+
+    def _str(self):
+        n = self._u16()
+        return self._take(n).decode("utf-8", "replace")
+
+    def _payload(self, tid):
+        if tid == 1:
+            return struct.unpack("b", self._take(1))[0]
+        if tid == 2:
+            return self._i16()
+        if tid == 3:
+            return self._i32()
+        if tid == 4:
+            return self._i64()
+        if tid == 5:
+            return self._f32()
+        if tid == 6:
+            return self._f64()
+        if tid == 7:
+            n = self._i32()
+            return self._take(max(0, n))
+        if tid == 8:
+            return self._str()
+        if tid == 9:
+            et = self._u8()
+            n = self._i32()
+            return [self._payload(et) for _ in range(max(0, n))]
+        if tid == 10:
+            out = {}
+            while True:
+                st = self._u8()
+                if st == 0:
+                    return out
+                # NOTA: no usar out[self._str()] = self._payload(st);
+                # en Python 3.14 el valor se evalúa antes que la clave.
+                nm = self._str()
+                out[nm] = self._payload(st)
+        if tid == 11:
+            n = self._i32()
+            return [self._i32() for _ in range(max(0, n))]
+        if tid == 12:
+            n = self._i32()
+            return [self._i64() for _ in range(max(0, n))]
+        raise ValueError(f"TAG desconocido: {tid}")
+
+
+def _nbt_load(data):
+    r = _NBTReader(data)
+    tid = r._u8()
+    if tid != 10:
+        raise ValueError("Raíz NBT no es Compound")
+    r._str()
+    return r._payload(10)
+
+
+def _mca_read_chunk(fp, cx, cz):
+    """Lee y descomprime el NBT de un chunk (cx, cz locales 0-31)."""
+    try:
+        with open(fp, "rb") as f:
+            f.seek(4 * ((cz & 31) * 32 + (cx & 31)))
+            entry = struct.unpack(">I", f.read(4))[0]
+            loc, count = entry >> 8, entry & 0xFF
+            if not loc or not count:
+                return None
+            f.seek(loc * 4096)
+            length = struct.unpack(">I", f.read(4))[0]
+            if length <= 1 or length > 64 * 1024 * 1024:
+                return None
+            ctype = f.read(1)[0]
+            payload = f.read(length - 1)
+        if ctype == 2:
+            raw = zlib.decompress(payload)
+        elif ctype == 1:
+            raw = gzip.decompress(payload)
+        elif ctype == 3:
+            raw = payload
+        else:
+            return None
+        return _nbt_load(raw)
+    except Exception:
+        return None
+
+
+def _sec_table(sec):
+    bs = sec.get("block_states") if isinstance(sec, dict) else None
+    if not isinstance(bs, dict):
+        return None
+    pal = bs.get("palette") or []
+    names = []
+    for e in pal:
+        n = (e.get("Name") if isinstance(e, dict) else "") or "minecraft:air"
+        names.append(n.split("[")[0])
+    if len(names) <= 1:
+        return (names, None, 0, 0)
+    data = bs.get("data") or []
+    bpb = max(4, (len(names) - 1).bit_length())
+    return (names, [v & 0xFFFFFFFFFFFFFFFF for v in data], bpb, 64 // bpb)
+
+
+def _block_name(tables, secs, y, lx, ly, lz):
+    sec = secs.get(y >> 4)
+    if sec is None:
+        return "minecraft:air"
+    t = tables.get(y >> 4)
+    if t is None:
+        return "minecraft:air"
+    names, data, bpb, epl = t
+    if data is None:
+        return names[0] if names else "minecraft:air"
+    p = (ly * 16 + lz) * 16 + lx
+    li, off = p // epl, (p % epl) * bpb
+    if li >= len(data):
+        return "minecraft:air"
+    idx = (data[li] >> off) & ((1 << bpb) - 1)
+    return names[idx] if idx < len(names) else "minecraft:air"
+
+
+def _height_from(hmap, idx):
+    # 7 alturas de 9 bits por long (LSB primero) + offset de -min_y (64).
+    longs = [v & 0xFFFFFFFFFFFFFFFF for v in hmap]
+    li, off = idx // 7, (idx % 7) * 9
+    if li >= len(longs):
+        return -65
+    return (((longs[li] >> off) & 0x1FF) - 64)
+
+
+_TERRAIN_EXACT = {
+    "minecraft:grass_block": (111, 175, 71),
+    "minecraft:dirt": (134, 96, 67),
+    "minecraft:coarse_dirt": (122, 88, 60),
+    "minecraft:rooted_dirt": (128, 96, 66),
+    "minecraft:mud": (110, 92, 80),
+    "minecraft:sand": (221, 210, 170),
+    "minecraft:red_sand": (198, 128, 74),
+    "minecraft:gravel": (136, 126, 126),
+    "minecraft:water": (47, 110, 214),
+    "minecraft:stone": (128, 128, 128),
+    "minecraft:bedrock": (58, 58, 62),
+    "minecraft:snow_block": (240, 246, 250),
+    "minecraft:snow": (240, 246, 250),
+    "minecraft:ice": (170, 205, 235),
+    "minecraft:packed_ice": (170, 200, 235),
+    "minecraft:clay": (160, 165, 185),
+    "minecraft:oak_log": (105, 85, 50),
+    "minecraft:netherrack": (112, 52, 52),
+    "minecraft:soul_sand": (92, 62, 52),
+    "minecraft:soul_soil": (88, 58, 48),
+    "minecraft:basalt": (72, 70, 76),
+    "minecraft:blackstone": (48, 44, 52),
+    "minecraft:magma_block": (185, 95, 40),
+    "minecraft:glowstone": (240, 200, 120),
+    "minecraft:shroomlight": (238, 190, 110),
+    "minecraft:crimson_nylium": (150, 45, 65),
+    "minecraft:warped_nylium": (45, 145, 130),
+    "minecraft:end_stone": (228, 230, 170),
+    "minecraft:obsidian": (26, 16, 36),
+    "minecraft:purpur_block": (205, 175, 205),
+    "minecraft:chorus_plant": (150, 130, 150),
+    "minecraft:podzol": (110, 82, 52),
+    "minecraft:mycelium": (120, 100, 115),
+    "minecraft:farmland": (120, 80, 55),
+    "minecraft:grass_path": (150, 140, 95),
+}
+
+
+def _terrain_base(name):
+    if name in _TERRAIN_EXACT:
+        return _TERRAIN_EXACT[name]
+    if name.endswith("_leaves") or name in (
+            "minecraft:short_grass", "minecraft:tall_grass", "minecraft:fern",
+            "minecraft:large_fern", "minecraft:vine", "minecraft:glow_lichen",
+            "minecraft:sugar_cane", "minecraft:bamboo", "minecraft:cactus",
+            "minecraft:sweet_berry_bush", "minecraft:kelp", "minecraft:seagrass"):
+        return (52, 125, 48)
+    if name.endswith("_log") or name.endswith("_wood") or name.endswith("_stem") or name.endswith("_hyphae"):
+        return (105, 85, 50)
+    if name.endswith("_planks") or "minecraft:crafting_table" in name:
+        return (170, 135, 85)
+    if "sandstone" in name or name == "minecraft:sand":
+        return (221, 210, 170)
+    if name.endswith("_sand") or name.endswith("_gravel"):
+        return (200, 180, 150)
+    if "deepslate" in name:
+        return (72, 72, 80)
+    if name.endswith("_ore") or "infested" in name:
+        return (130, 125, 120)
+    if any(k in name for k in ("stone", "andesite", "diorite", "granite", "tuff",
+                               "cobble", "brick", "prismarine", "quartz")):
+        return (128, 128, 128)
+    if "snow" in name or "ice" in name or "frosted" in name:
+        return (235, 242, 248)
+    if "wool" in name or "carpet" in name or "concrete" in name or "terracotta" in name:
+        return (170, 170, 175)
+    if "glass" in name:
+        return (200, 225, 235)
+    if "flower" in name or "tulip" in name or "daisy" in name or "blossom" in name:
+        return (110, 175, 71)
+    if "wheat" in name or "carrot" in name or "potato" in name or "beetroot" in name or "melon" in name or "pumpkin" in name:
+        return (140, 170, 70)
+    if "lava" in name:
+        return (220, 120, 30)
+    return (150, 150, 150)
+
+
+def _terrain_px(name, y, lx, lz):
+    if not name or name in ("minecraft:air", "minecraft:cave_air", "minecraft:void_air"):
+        return (0, 0, 0, 0)
+    r, g, b = _terrain_base(name)
+    if name == "minecraft:water":
+        f = 0.88 + 0.12 * (((lx * 7 + lz * 13) % 5) / 4.0)
+    else:
+        f = 0.80 + 0.32 * max(0.0, min(1.0, (y - 55) / 130.0))
+    return (max(0, min(255, int(r * f))), max(0, min(255, int(g * f))),
+            max(0, min(255, int(b * f))), 255)
+
+
+def _png_encode_rgba(width, height, rows):
+    raw = b"".join(b"\x00" + r for r in rows)
+    comp = zlib.compress(raw, 6)
+
+    def _chunk(typ, data):
+        c = struct.pack(">I", len(data)) + typ + data
+        return c + struct.pack(">I", binascii.crc32(typ + data) & 0xFFFFFFFF)
+
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    return (b"\x89PNG\r\n\x1a\n" + _chunk(b"IHDR", ihdr)
+            + _chunk(b"IDAT", comp) + _chunk(b"IEND", b""))
+
+
+_TILE_LOCKS = {}
+_TILE_LOCKS_GUARD = threading.Lock()
+
+
+def _tile_paths(srv, dim_id, rx, rz):
+    dd = os.path.join(srv.data_dir, "tiles", dim_id)
+    return dd, os.path.join(dd, f"r.{rx}.{rz}.png")
+
+
+def render_region_tile(srv, dim_id, rx, rz, size=256):
+    wname = srv.world_name or "world"
+    wdir = os.path.join(srv.server_dir, wname)
+    if not os.path.isdir(wdir):
+        wdir = os.path.join(srv.server_dir, "world")
+    dim_paths = {
+        "overworld": os.path.join(wdir, "region"),
+        "nether": os.path.join(wdir, "DIM-1", "region"),
+        "end": os.path.join(wdir, "DIM1", "region")
+    }
+    fp = os.path.join(dim_paths.get(dim_id, ""), f"r.{rx}.{rz}.mca")
+    if not os.path.isfile(fp) or os.path.getsize(fp) < 8192:
+        return None
+    step = max(1, 512 // size)
+    out_w = 512 // step
+    try:
+        with open(fp, "rb") as f:
+            head = f.read(8192)
+        if len(head) < 8192:
+            return None
+        locs = []
+        for i in range(1024):
+            e = struct.unpack(">I", head[i * 4:(i + 1) * 4])[0]
+            locs.append((e >> 8, e & 0xFF) if e >> 8 else (0, 0))
+    except Exception:
+        return None
+    if not any(a for a, _ in locs):
+        return None
+    px = bytearray(out_w * out_w * 4)
+    try:
+        with open(fp, "rb") as f:
+            for ci, (loc, count) in enumerate(locs):
+                if not loc or not count:
+                    continue
+                try:
+                    f.seek(loc * 4096)
+                    length = struct.unpack(">I", f.read(4))[0]
+                    if length <= 1 or length > 64 * 1024 * 1024:
+                        continue
+                    ctype = f.read(1)[0]
+                    payload = f.read(length - 1)
+                    if ctype == 2:
+                        raw = zlib.decompress(payload)
+                    elif ctype == 1:
+                        raw = gzip.decompress(payload)
+                    elif ctype == 3:
+                        raw = payload
+                    else:
+                        continue
+                    root = _nbt_load(raw)
+                except Exception:
+                    continue
+                try:
+                    secs = {}
+                    for s in root.get("sections", []) or []:
+                        if isinstance(s, dict) and isinstance(s.get("Y"), int):
+                            secs[s["Y"]] = s
+                    if not secs:
+                        continue
+                    tables = {yy: _sec_table(s) for yy, s in secs.items()}
+                    hm = (root.get("Heightmaps") or {})
+                    hmap = hm.get("WORLD_SURFACE") or hm.get("MOTION_BLOCKING")
+                    if not hmap:
+                        continue
+                    uhmap = [v & 0xFFFFFFFFFFFFFFFF for v in hmap]
+                    ccx, ccz = ci & 31, ci >> 5
+                    for lz in range(0, 16, step):
+                        for lx in range(0, 16, step):
+                            li, off = (lz * 16 + lx) // 7, ((lz * 16 + lx) % 7) * 9
+                            if li >= len(uhmap):
+                                continue
+                            y = ((uhmap[li] >> off) & 0x1FF) - 64 - 1
+                            if y < -64:
+                                continue
+                            name = _block_name(tables, secs, y, lx, y & 15, lz)
+                            r, g, b, a = _terrain_px(name, y, lx, lz)
+                            ox = (ccx * 16 + lx) // step
+                            oy = (ccz * 16 + lz) // step
+                            o = (oy * out_w + ox) * 4
+                            px[o] = r
+                            px[o + 1] = g
+                            px[o + 2] = b
+                            px[o + 3] = a
+                except Exception:
+                    continue
+    except Exception:
+        return None
+    rows = [bytes(px[r * out_w * 4:(r + 1) * out_w * 4]) for r in range(out_w)]
+    return _png_encode_rgba(out_w, out_w, rows)
+
+
+def get_region_tile(srv, dim_id, rx, rz):
+    try:
+        rx, rz = int(rx), int(rz)
+    except (TypeError, ValueError):
+        return None, "Coordenadas inválidas"
+    if dim_id not in ("overworld", "nether", "end"):
+        return None, "Dimensión inválida"
+    wname = srv.world_name or "world"
+    wdir = os.path.join(srv.server_dir, wname)
+    if not os.path.isdir(wdir):
+        wdir = os.path.join(srv.server_dir, "world")
+    dim_paths = {
+        "overworld": os.path.join(wdir, "region"),
+        "nether": os.path.join(wdir, "DIM-1", "region"),
+        "end": os.path.join(wdir, "DIM1", "region")
+    }
+    fp = os.path.join(dim_paths.get(dim_id, ""), f"r.{rx}.{rz}.mca")
+    if not os.path.isfile(fp):
+        return None, "La región no existe"
+    try:
+        src_mtime = int(os.path.getmtime(fp))
+    except Exception:
+        return None, "Sin acceso"
+    dd, tp = _tile_paths(srv, dim_id, rx, rz)
+    try:
+        if os.path.isfile(tp) and int(os.path.getmtime(tp)) >= src_mtime:
+            with open(tp, "rb") as f:
+                return f.read(), None
+    except Exception:
+        pass
+    key = (srv.id, dim_id, rx, rz)
+    with _TILE_LOCKS_GUARD:
+        lk = _TILE_LOCKS.get(key)
+        if lk is None:
+            lk = _TILE_LOCKS[key] = threading.Lock()
+    with lk:
+        try:
+            if os.path.isfile(tp) and int(os.path.getmtime(tp)) >= src_mtime:
+                with open(tp, "rb") as f:
+                    return f.read(), None
+        except Exception:
+            pass
+        png = render_region_tile(srv, dim_id, rx, rz)
+        if png is None:
+            return None, "Región vacía"
+        try:
+            os.makedirs(dd, exist_ok=True)
+            tmp = tp + ".tmp"
+            with open(tmp, "wb") as f:
+                f.write(png)
+            os.replace(tmp, tp)
+        except Exception:
+            pass
+        return png, None
 
 
 def mca_present_count(fp):
@@ -6669,6 +7122,27 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
             if err:
                 return self.send_json({"ok": False, "msg": err}, code=404)
             return self.send_json({"ok": True, **data})
+
+        if u.path == "/api/world/tile":
+            qs = parse_qs(u.query)
+            dim = (qs.get("dimension", ["overworld"])[0] or "overworld").strip()
+            png, err = get_region_tile(S(), dim, qs.get("rx", [""])[0],
+                                       qs.get("rz", [""])[0])
+            if err or png is None:
+                return self.send_json({"ok": False, "msg": err or "Sin tile"}, code=404)
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Content-Length", str(len(png)))
+                self.send_header("Cache-Control", "public, max-age=600")
+                self.end_headers()
+                try:
+                    self.wfile.write(png)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+            except Exception:
+                pass
+            return
 
         if u.path == "/api/modrinth/search":
             qs = parse_qs(u.query)
