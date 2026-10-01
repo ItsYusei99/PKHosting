@@ -7,12 +7,26 @@ TPS, archivos, mods, backups, tareas programadas y avisos a Discord.
 
 ## Funciones
 
-- **Multi-servidor:** añade, edita y elimina servidores desde Configuración,
-  cambia entre ellos con el selector, un solo puerto.
+- **Multi-servidor & Dashboard de Flota:** añade, edita y elimina servidores desde Configuración,
+  vista panorámica de toda tu flota con conmutación en 1-click.
 - **Acceso con contraseña** (hash PBKDF2 + sesiones, se crea desde
   Configuración) y **HTTPS** opcional. Botón **Cerrar sesión** en la barra lateral.
-- Consola en vivo: autocompletado, filtros INFO/WARN/ERROR, búsqueda,
-  botones rápidos configurables e historial con ↑/↓.
+- **Paleta de Comandos Global (`Ctrl+K` / `Cmd+K`):** buscador rápido flotante
+  para navegar a cualquier sección, conmutar instancias o ejecutar acciones con atajos de teclado.
+- **Consola Pro con Temas & Pantalla Completa:** autocompletado, filtros INFO/WARN/ERROR, búsqueda,
+  temas visuales (Cyber Morado, Matrix, Monokai Pro, Tokyo Night, Dracula) y modo pantalla completa.
+- **Jugadores & Fichas con Avatares:** renderizado de skins 2D/3D, horas jugadas reales desde estadísticas,
+  muertes, asesinatos, km recorridos, coordenadas en vivo y acciones rápidas (curar, alimentar, gamemode, teletransporte).
+- **Gestor de Mundos & MCA Region Cleaner:** cálculo de peso por dimensión (Overworld, Nether, End),
+  calculadora de coordenadas a archivo `.mca`, borrado de regiones específicas (limpia chunks, POIs y entidades)
+  y reinicio completo de dimensiones secundarias (Nether / End).
+- **Buscador de Mods Modrinth:** explora e instala mods para NeoForge 1.21.1 en 1-click
+  directamente en el servidor sin descargar manualmente.
+- **Rendimiento Spark & Monitor de Red:** diagnósticos de salud del servidor (CPU, GC, pools de memoria),
+  grabación de muestreo con subida automática a `spark.lucko.me`, medición de latencia TCP (Minecraft, RCON y túnel playit.gg)
+  y alerta de rendimiento en cabecera si el TPS cae o la RAM satura.
+- **Editor de Archivos Mejorado:** contador de líneas y caracteres, tamaño de tipografía ajustable y tabulación con tecla Tab.
+- **Centro de Notificaciones:** registro de actividad en tiempo real con indicador luminoso en cabecera.
 - Alias de nivel panel: `start`, `stop`, `restart`, `reload`, `kill`.
 - Jugadores: conteo real por ping, tiempo conectado, OP/DeOP/Kick/Ban por fila,
   moderación (OPs, baneados, whitelist on/off) e historial de conexiones.

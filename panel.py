@@ -29,6 +29,8 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
+import urllib.request
+import urllib.error
 
 CONFIG_DIR = os.path.expanduser("~/.config/pkhosting")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
@@ -2563,6 +2565,66 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
 .dur button:hover { background: rgba(168,85,247,0.3); }
 .dur input { width: 56px; text-align: center; background: transparent; border: 0; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; padding: 9px 2px; outline: none; }
 
+/* ═══ AVATARES & PLAYER INSPECTOR ═══ */
+.p-avatar { width: 28px; height: 28px; border-radius: 6px; vertical-align: middle; background: #1a102f; box-shadow: 0 2px 6px rgba(0,0,0,0.45); flex-shrink: 0; image-rendering: pixelated; }
+.p-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 8px; background: rgba(168,85,247,0.1); border: 1px solid rgba(168,85,247,0.25); color: #e9d5ff; font-size: 12px; cursor: pointer; transition: all 0.15s; }
+.p-chip:hover { background: rgba(168,85,247,0.22); border-color: #a855f7; transform: translateY(-1px); }
+.p-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin: 14px 0; }
+.p-stat-card { background: var(--bg-terminal); border: 1px solid var(--border-color); border-radius: 10px; padding: 10px; }
+.p-stat-val { font-size: 18px; font-weight: 800; color: #c084fc; font-family: 'JetBrains Mono', monospace; }
+.p-stat-lbl { font-size: 11px; color: var(--text-dim); text-transform: uppercase; margin-top: 2px; }
+
+/* ═══ COMMAND PALETTE (CTRL+K) ═══ */
+#cmdPalette { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(8px); z-index: 999; align-items: flex-start; justify-content: center; padding-top: 12vh; }
+.cp-box { width: min(600px, 92vw); background: #0c0817; border: 1px solid rgba(168,85,247,0.4); border-radius: 16px; box-shadow: 0 16px 50px rgba(0,0,0,0.8), 0 0 30px rgba(168,85,247,0.2); overflow: hidden; display: flex; flex-direction: column; }
+.cp-input-wrap { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--border-color); }
+.cp-input { flex: 1; background: transparent; border: 0; outline: none; color: #fff; font-size: 15px; font-family: inherit; }
+.cp-input::placeholder { color: var(--text-dim); }
+.cp-list { max-height: 380px; overflow-y: auto; padding: 8px; }
+.cp-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-radius: 10px; cursor: pointer; color: #cbd5e1; font-size: 13px; transition: background 0.15s; }
+.cp-item:hover, .cp-item.active { background: rgba(168,85,247,0.18); color: #fff; }
+.cp-item .cp-badge { font-size: 10px; font-weight: 700; text-transform: uppercase; background: rgba(255,255,255,0.06); padding: 3px 8px; border-radius: 6px; color: var(--text-muted); }
+.cp-footer { padding: 8px 16px; border-top: 1px solid var(--border-color); font-size: 11px; color: var(--text-dim); display: flex; justify-content: space-between; }
+
+/* ═══ TERMINAL FULLSCREEN & TEMAS ═══ */
+.terminal-wrapper.fullscreen { position: fixed; inset: 0; z-index: 500; border-radius: 0; margin: 0; height: 100vh; max-height: 100vh; display: flex; flex-direction: column; }
+.terminal-wrapper.fullscreen .terminal-body { height: calc(100vh - 120px) !important; max-height: calc(100vh - 120px) !important; }
+.term-theme-matrix { --bg-terminal: #020c04; }
+.term-theme-matrix .terminal-body { color: #22c55e !important; text-shadow: 0 0 6px rgba(34,197,94,0.4); }
+.term-theme-monokai { --bg-terminal: #19181a; }
+.term-theme-monokai .terminal-body { color: #ffd866 !important; }
+.term-theme-tokyo { --bg-terminal: #13141c; }
+.term-theme-tokyo .terminal-body { color: #7aa2f7 !important; }
+.term-theme-dracula { --bg-terminal: #1e1a29; }
+.term-theme-dracula .terminal-body { color: #50fa7b !important; }
+
+/* ═══ CENTRO DE NOTIFICACIONES ═══ */
+.notif-btn { position: relative; background: transparent; border: 1px solid var(--border-color); border-radius: 9px; width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-muted); cursor: pointer; transition: all 0.15s; }
+.notif-btn:hover { background: rgba(168,85,247,0.15); color: #fff; border-color: #a855f7; }
+.notif-dot { position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 8px #22c55e; display: none; }
+#notifDropdown { display: none; position: absolute; top: 54px; right: 20px; width: 340px; max-height: 420px; background: #0c0817; border: 1px solid rgba(168,85,247,0.4); border-radius: 14px; box-shadow: 0 14px 40px rgba(0,0,0,0.8); z-index: 350; overflow: hidden; }
+.notif-header { padding: 12px 16px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 700; color: #fff; }
+.notif-list { max-height: 340px; overflow-y: auto; padding: 6px; }
+.notif-item { padding: 8px 12px; border-radius: 8px; font-size: 12px; margin-bottom: 4px; display: flex; gap: 8px; align-items: flex-start; color: #cbd5e1; }
+.notif-item:hover { background: rgba(168,85,247,0.08); }
+.notif-time { font-size: 10.5px; color: var(--text-dim); margin-top: 2px; }
+
+/* ═══ PERFORMANCE LAG BANNER ═══ */
+#perfBanner { display: none; background: linear-gradient(90deg, #7f1d1d, #991b1b 50%, #b45309); color: #fff; padding: 8px 16px; font-size: 12.5px; font-weight: 600; align-items: center; justify-content: space-between; box-shadow: 0 4px 14px rgba(0,0,0,0.5); z-index: 280; }
+
+/* ═══ WORLD MANAGER & MCA CLEANER ═══ */
+.dim-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; justify-content: space-between; transition: all 0.2s var(--ease-apple); }
+.dim-card:hover { border-color: rgba(168,85,247,0.5); transform: translateY(-2px); }
+.mca-grid { max-height: 380px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-terminal); }
+.mca-row { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--border-subtle); font-size: 12.5px; font-family: 'JetBrains Mono', monospace; }
+.mca-row:hover { background: rgba(168,85,247,0.08); }
+
+/* ═══ MODRINTH EXPLORER ═══ */
+.mr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; margin-top: 12px; }
+.mr-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; justify-content: space-between; transition: all 0.2s; }
+.mr-card:hover { border-color: #a855f7; box-shadow: 0 6px 20px rgba(168,85,247,0.25); }
+.mr-icon { width: 44px; height: 44px; border-radius: 10px; object-fit: cover; background: #1a102f; flex-shrink: 0; }
+
 @media (prefers-reduced-motion: reduce) {
   .orbs i, .g-letter, .file-icon.is-folder svg, .toast, .toaster { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
@@ -2595,10 +2657,14 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
       <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></span> Consola
     </a>
     <a class="nav-item" onclick="switchTab('metrics')">
-      <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span> Métricas del Sistema
+      <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span> Métricas
     </a>
     <a class="nav-item" onclick="switchTab('files')">
-      <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span> Archivos
+      <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span> Archivos & Mods
+    </a>
+    <a class="nav-item" onclick="switchTab('worlds')">
+      <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span> Mundos & MCA
+    </a>
     <a class="nav-item" onclick="switchTab('backups')">
       <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><rect x="1" y="3" width="22" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><line x1="10" y1="12" x2="14" y2="12"/></svg></span> Backups
     </a>
@@ -2608,6 +2674,8 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
     <a class="nav-item" onclick="switchTab('history')">
       <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><polyline points="12 7 12 12 15 15"/></svg></span> Historial
     </a>
+    <a class="nav-item" onclick="switchTab('fleet')">
+      <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></span> Flota Servidores
     </a>
     <a class="nav-item" onclick="switchTab('settings')">
       <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span> Configuración
@@ -2625,6 +2693,17 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
 
 <!-- MAIN -->
 <main>
+  <div id="perfBanner">
+    <div style="display:flex; align-items:center; gap:8px">
+      <span>⚠️ Rendimiento comprometido: <span id="perfBannerMsg">TPS bajo</span></span>
+    </div>
+    <div style="display:flex; align-items:center; gap:8px">
+      <button class="term-tool-btn" style="background:rgba(0,0,0,0.35);color:#fff" onclick="switchTab('metrics')">Ver métricas</button>
+      <button class="term-tool-btn" style="background:rgba(0,0,0,0.35);color:#fff" onclick="sparkQuickAction('health')">Diagnóstico Spark</button>
+      <button class="icon-btn" onclick="document.getElementById('perfBanner').style.display='none'">✕</button>
+    </div>
+  </div>
+
   <header>
     <div class="header-info">
       <h1>
@@ -2638,6 +2717,26 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
     </div>
 
     <div style="display:flex; align-items:center; gap:10px">
+      <button class="term-tool-btn" onclick="openCmdPalette()" title="Paleta de comandos (Ctrl+K)" style="display:inline-flex; align-items:center; gap:6px; font-weight:600">
+        <svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <span>Ctrl + K</span>
+      </button>
+
+      <div style="position:relative">
+        <button class="notif-btn" id="notifBtn" onclick="toggleNotifDropdown()" title="Centro de Notificaciones">
+          <svg class="ico" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <span class="notif-dot" id="notifDot"></span>
+        </button>
+        <div id="notifDropdown">
+          <div class="notif-header">
+            <span>Registro de Actividad</span>
+            <button class="term-tool-btn" style="font-size:11px" onclick="clearNotifs()">Limpiar</button>
+          </div>
+          <div class="notif-list" id="notifList">
+            <div style="padding:16px;text-align:center;color:var(--text-dim);font-size:12px">Sin notificaciones pendientes</div>
+          </div>
+        </div>
+      </div>
     <div class="header-actions">
       <div class="power-btn-group">
         <button class="pbtn pbtn-start" id="btnStart" onclick="serverAction('start')">
@@ -2715,6 +2814,14 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
             <button class="term-tool-btn" onclick="toggleAutoScroll()" id="btnAutoScroll">Auto-scroll: ON</button>
             <button class="term-tool-btn" onclick="copyLogs()">Copiar registro</button>
             <button class="term-tool-btn" onclick="clearTerminal()">Limpiar</button>
+            <select class="tin" id="termThemeSel" onchange="setTermTheme(this.value)" style="padding:4px 8px;font-size:11px" title="Tema de la terminal">
+              <option value="default">Tema: Morado</option>
+              <option value="matrix">Tema: Matrix</option>
+              <option value="monokai">Tema: Monokai</option>
+              <option value="tokyo">Tema: Tokyo Night</option>
+              <option value="dracula">Tema: Dracula</option>
+            </select>
+            <button class="term-tool-btn" onclick="toggleTermFullscreen()" title="Pantalla completa (Esc para salir)">⛶</button>
           </div>
         </div>
         <div class="terminal-body" id="termBody">Conectando a la consola del servidor...</div>
@@ -2822,6 +2929,48 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
           <tr><td>Directorio</td><td>~/PrankLindorf-NeoForge</td></tr>
         </table>
       </div>
+
+      <div class="system-details-card" style="margin-top:14px">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
+          <h3 style="font-size:15px; margin:0">Monitor de Red y Latencia</h3>
+          <button class="term-tool-btn" onclick="refreshPingMetrics()">Medir latencia</button>
+        </div>
+        <div class="stats-cards" style="grid-template-columns:repeat(3, 1fr); margin-bottom:0">
+          <div class="scard" style="padding:14px">
+            <div class="scard-label"><span>Local Minecraft (TCP)</span></div>
+            <div class="scard-val" id="pingLocalMc" style="font-size:22px">—</div>
+            <div class="scard-sub" id="pingLocalMcSub">127.0.0.1:25566</div>
+          </div>
+          <div class="scard" style="padding:14px">
+            <div class="scard-label"><span>Local RCON</span></div>
+            <div class="scard-val" id="pingLocalRcon" style="font-size:22px">—</div>
+            <div class="scard-sub" id="pingLocalRconSub">127.0.0.1:25575</div>
+          </div>
+          <div class="scard" style="padding:14px">
+            <div class="scard-label"><span>Túnel Público (Playit)</span></div>
+            <div class="scard-val" id="pingTunnel" style="font-size:22px">—</div>
+            <div class="scard-sub" id="pingTunnelSub">Túnel playit.gg</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="system-details-card" style="margin-top:14px">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
+          <div>
+            <h3 style="font-size:15px; margin:0">Diagnósticos de Rendimiento Spark</h3>
+            <div style="font-size:11.5px; color:var(--text-dim); margin-top:2px">Mod oficial integrado para NeoForge 1.21.1</div>
+          </div>
+          <span class="mchip ld">spark 1.10</span>
+        </div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px">
+          <button class="cmd-btn" onclick="sparkAction('health')"><svg class="ico" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg> Diagnóstico de Salud (Health)</button>
+          <button class="btn-ghost" onclick="sparkAction('sampler_start')">Grabar Sampler (45s)</button>
+          <button class="btn-ghost" onclick="sparkAction('sampler_stop')">Subir & Ver Reporte</button>
+          <button class="btn-ghost" onclick="sparkAction('tps')">Ver TPS Spark</button>
+          <button class="term-tool-btn" onclick="sparkAction('gc')">Forzar GC</button>
+        </div>
+        <div id="sparkResultBox" style="display:none; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:10px; padding:14px; font-family:'JetBrains Mono',monospace; font-size:12px; white-space:pre-wrap; max-height:280px; overflow-y:auto; color:#d8b4fe"></div>
+      </div>
     </div>
 
     <!-- TAB 3: ARCHIVOS -->
@@ -2856,23 +3005,131 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
           <input class="mod-search" id="modSearch" placeholder="Buscar mod..." oninput="renderMods()" autocomplete="off">
           <button class="btn-ghost" onclick="modBulk(true)">Activar todos</button>
           <button class="btn-ghost" onclick="modBulk(false)">Desactivar todos</button>
+          <button class="btn-ghost" onclick="toggleModrinthView()" style="color:#38bdf8; border-color:rgba(56,189,248,0.4)">🌐 Explorador Modrinth</button>
         </div>
         <div class="file-list" id="modsList"><div class="file-row"><span class="file-name">Cargando mods...</span></div></div>
+        <div id="modrinthSection" style="display:none; margin-top:16px; border-top:1px solid var(--border-color); padding-top:14px">
+          <div style="display:flex; gap:10px; align-items:center; margin-bottom:12px; flex-wrap:wrap">
+            <input id="mrSearchInput" class="tin" placeholder="Buscar mods para NeoForge 1.21.1 en Modrinth (ej. create, jei, appleskin, ferritecore...)" style="flex:1; min-width:220px" onkeydown="if(event.key==='Enter')searchModrinth()">
+            <button class="cmd-btn" onclick="searchModrinth()">Buscar</button>
+            <button class="term-tool-btn" onclick="toggleModrinthView()">Cerrar</button>
+          </div>
+          <div id="mrResults" class="mr-grid"><div style="color:var(--text-dim); font-size:12px; padding:12px">Escribe un término y pulsa Buscar</div></div>
+        </div>
       </div>
     </div>
       <div id="fsEditModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:200; align-items:center; justify-content:center; padding:20px">
         <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:12px; width:min(860px,100%); max-height:90vh; display:flex; flex-direction:column; overflow:hidden">
           <div style="display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--border-color)">
             <span style="font-family:'JetBrains Mono',monospace; font-size:12.5px; color:#93c5fd; flex:1; overflow:hidden; text-overflow:ellipsis" id="fsEditPath">—</span>
+            <span id="fsEditStats" style="font-size:11px; color:var(--text-dim)">0 líneas</span>
+            <button class="term-tool-btn" onclick="fsChangeFontSize(1)" title="Aumentar texto">A+</button>
+            <button class="term-tool-btn" onclick="fsChangeFontSize(-1)" title="Reducir texto">A-</button>
             <button class="term-tool-btn" onclick="fsDownloadCurrent()">Descargar</button>
             <button class="term-tool-btn" onclick="fsCloseEdit()">Cerrar ✕</button>
           </div>
-          <textarea id="fsEditor" style="flex:1; min-height:320px; background:var(--bg-terminal); color:#cbd5e1; border:0; padding:14px; font-family:'JetBrains Mono',monospace; font-size:12.5px; resize:vertical" placeholder="Cargando..."></textarea>
-          <div style="display:flex; gap:10px; padding:12px 16px; border-top:1px solid var(--border-color)">
+          <textarea id="fsEditor" style="flex:1; min-height:360px; background:var(--bg-terminal); color:#cbd5e1; border:0; padding:14px; font-family:'JetBrains Mono',monospace; font-size:12.5px; resize:vertical; tab-size:2; line-height:1.45" placeholder="Cargando..." oninput="fsUpdateEditorStats()" onkeydown="fsHandleEditorTab(event)"></textarea>
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-top:1px solid var(--border-color)">
+            <span style="font-size:11px; color:var(--text-dim)">Presiona TAB para indentar código sin perder el foco</span>
             <button class="cmd-btn" onclick="fsSaveEdit()">Guardar cambios</button>
           </div>
         </div>
       </div>
+
+    <!-- TAB: MUNDOS & MCA REGION CLEANER -->
+    <div id="tab-worlds" class="tab-content">
+      <div class="stats-cards" style="grid-template-columns:repeat(3,1fr); margin-bottom:16px">
+        <div class="dim-card" id="dimCardOverworld">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start">
+            <div>
+              <div style="font-size:11px; color:var(--text-muted); font-weight:700">DIMENSIÓN 0</div>
+              <div style="font-size:18px; font-weight:800; color:#34d399; margin:4px 0">Overworld</div>
+              <div style="font-size:11.5px; color:var(--text-dim)">Superficie principal</div>
+            </div>
+            <span class="mchip ld" id="dimOwRegions">0 regiones</span>
+          </div>
+          <div style="margin-top:14px; display:flex; justify-content:space-between; align-items:center">
+            <span style="font-size:18px; font-weight:800; color:#fff" id="dimOwSize">—</span>
+            <button class="cmd-btn" style="padding:4px 12px; font-size:11.5px" onclick="selectMcaDim('overworld')">Explorar MCA</button>
+          </div>
+        </div>
+
+        <div class="dim-card" id="dimCardNether">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start">
+            <div>
+              <div style="font-size:11px; color:var(--text-muted); font-weight:700">DIMENSIÓN -1</div>
+              <div style="font-size:18px; font-weight:800; color:#f87171; margin:4px 0">The Nether</div>
+              <div style="font-size:11.5px; color:var(--text-dim)">Inframundo (DIM-1)</div>
+            </div>
+            <span class="mchip ld" id="dimNetherRegions">0 regiones</span>
+          </div>
+          <div style="margin-top:14px; display:flex; justify-content:space-between; align-items:center">
+            <span style="font-size:18px; font-weight:800; color:#fff" id="dimNetherSize">—</span>
+            <div style="display:flex; gap:6px">
+              <button class="term-tool-btn" style="color:#f87171; border-color:#7f1d1d; font-size:11px" onclick="mcaResetDim('nether')">Reiniciar</button>
+              <button class="cmd-btn" style="padding:4px 12px; font-size:11.5px" onclick="selectMcaDim('nether')">Explorar</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="dim-card" id="dimCardEnd">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start">
+            <div>
+              <div style="font-size:11px; color:var(--text-muted); font-weight:700">DIMENSIÓN 1</div>
+              <div style="font-size:18px; font-weight:800; color:#c084fc; margin:4px 0">The End</div>
+              <div style="font-size:11.5px; color:var(--text-dim)">El Fin (DIM1)</div>
+            </div>
+            <span class="mchip ld" id="dimEndRegions">0 regiones</span>
+          </div>
+          <div style="margin-top:14px; display:flex; justify-content:space-between; align-items:center">
+            <span style="font-size:18px; font-weight:800; color:#fff" id="dimEndSize">—</span>
+            <div style="display:flex; gap:6px">
+              <button class="term-tool-btn" style="color:#f87171; border-color:#7f1d1d; font-size:11px" onclick="mcaResetDim('end')">Reiniciar</button>
+              <button class="cmd-btn" style="padding:4px 12px; font-size:11.5px" onclick="selectMcaDim('end')">Explorar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MCA Region Cleaner Card -->
+      <div class="system-details-card">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px">
+          <div>
+            <h3 style="margin:0; font-size:15px">MCA Region Cleaner <span style="font-size:11.5px; color:var(--text-muted)">(Herramienta estilo MCA Selector)</span></h3>
+            <div style="font-size:11.5px; color:var(--text-dim); margin-top:2px">Elimina regiones (.mca) para regenerar terreno, limpiar chunks corruptos o liberar espacio</div>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center">
+            <div class="seg" id="mcaDimSeg">
+              <button data-dim="overworld" class="on" onclick="selectMcaDim('overworld')">Overworld</button>
+              <button data-dim="nether" onclick="selectMcaDim('nether')">Nether</button>
+              <button data-dim="end" onclick="selectMcaDim('end')">The End</button>
+            </div>
+            <button class="term-tool-btn" onclick="loadWorldManager()">Recargar</button>
+          </div>
+        </div>
+
+        <!-- Calculadora de Coordenadas -->
+        <div style="background:rgba(168,85,247,0.06); border:1px solid rgba(168,85,247,0.2); border-radius:10px; padding:12px; margin-bottom:12px; display:flex; align-items:center; gap:12px; flex-wrap:wrap">
+          <span style="font-size:12px; font-weight:700; color:#d8b4fe">Calculadora de Coordenadas:</span>
+          <input type="number" id="calcCoordX" class="tin" placeholder="Bloque X" style="width:110px; padding:6px 10px; font-size:12px" oninput="calcMcaFromCoords()">
+          <input type="number" id="calcCoordZ" class="tin" placeholder="Bloque Z" style="width:110px; padding:6px 10px; font-size:12px" oninput="calcMcaFromCoords()">
+          <span id="calcMcaResult" style="font-size:12.5px; font-family:'JetBrains Mono',monospace; color:#38bdf8">Introduce X y Z</span>
+          <button class="term-tool-btn" style="font-size:11px" onclick="selectCalculatedMca()">Marcar en lista</button>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px">
+          <div style="display:flex; gap:12px; align-items:center">
+            <label style="font-size:12px; color:var(--text-muted); cursor:pointer; display:inline-flex; align-items:center; gap:6px"><input type="checkbox" id="mcaSelectAll" onchange="toggleSelectAllMca(this.checked)"> Seleccionar todos</label>
+            <span id="mcaSelectedCount" style="font-size:12px; color:#c084fc; font-weight:700">0 regiones seleccionadas</span>
+          </div>
+          <button class="cmd-btn danger" style="background:#dc2626; color:#fff" onclick="deleteSelectedMca()">Borrar regiones seleccionadas</button>
+        </div>
+
+        <div class="mca-grid" id="mcaListContainer">
+          <div class="mca-row" style="color:var(--text-dim)">Cargando archivos de región...</div>
+        </div>
+      </div>
+    </div>
 
     <!-- TAB: BACKUPS -->
     <div id="tab-backups" class="tab-content">
@@ -2969,6 +3226,22 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
       <div class="file-list" id="connHist"><div class="file-row"><span class="file-name">Sin registros</span></div></div>
     </div>
 
+    <!-- TAB: FLOTA DE SERVIDORES -->
+    <div id="tab-fleet" class="tab-content">
+      <div class="system-details-card" style="margin-bottom:16px">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px">
+          <div>
+            <h2 style="font-size:18px; font-weight:800; margin:0">Flota de Servidores PKHosting</h2>
+            <div style="font-size:12px; color:var(--text-muted); margin-top:2px">Vista global y conmutación rápida de todas tus instancias</div>
+          </div>
+          <button class="cmd-btn" onclick="switchTab('settings')">+ Añadir o configurar servidor</button>
+        </div>
+      </div>
+      <div id="fleetCardsContainer" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:16px">
+        <div class="scard" style="padding:16px">Cargando flota...</div>
+      </div>
+    </div>
+
     <!-- TAB 4: CONFIGURACION -->
     <div id="tab-settings" class="tab-content">
       <div class="system-details-card" style="margin-bottom:12px">
@@ -3058,6 +3331,63 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
     <div class="file-list" id="srvBrowseList" style="overflow-y:auto; border:0; border-radius:0"><div class="file-row"><span class="file-name">Cargando...</span></div></div>
     <div style="display:flex; gap:10px; padding:12px 16px; border-top:1px solid var(--border-color)">
       <button class="cmd-btn" style="flex:1" onclick="srvBrowsePick()">Elegir esta carpeta</button>
+    </div>
+  </div>
+</div>
+
+<!-- PLAYER INSPECTOR MODAL -->
+<div id="playerModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.72); backdrop-filter:blur(10px); z-index:450; align-items:center; justify-content:center; padding:20px">
+  <div style="background:var(--bg-card); border:1px solid rgba(168,85,247,0.4); border-radius:18px; width:min(520px, 100%); max-height:90vh; overflow-y:auto; padding:24px; box-shadow:0 16px 50px rgba(0,0,0,0.8), 0 0 30px rgba(168,85,247,0.25)">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start">
+      <div style="display:flex; gap:16px; align-items:center">
+        <img id="pmAvatar" src="" class="p-avatar" style="width:52px; height:52px; border-radius:12px" alt="">
+        <div>
+          <div style="font-size:20px; font-weight:800; color:#fff" id="pmName">Jugador</div>
+          <div style="font-size:11px; font-family:'JetBrains Mono',monospace; color:var(--text-dim)" id="pmUuid">—</div>
+        </div>
+      </div>
+      <button class="icon-btn" onclick="closePlayerModal()">✕</button>
+    </div>
+
+    <div class="p-stats-grid">
+      <div class="p-stat-card"><div class="p-stat-val" id="pmHours">—</div><div class="p-stat-lbl">Horas jugadas</div></div>
+      <div class="p-stat-card"><div class="p-stat-val" id="pmDeaths">—</div><div class="p-stat-lbl">Muertes</div></div>
+      <div class="p-stat-card"><div class="p-stat-val" id="pmMobKills">—</div><div class="p-stat-lbl">Mobs abatidos</div></div>
+      <div class="p-stat-card"><div class="p-stat-val" id="pmDist">—</div><div class="p-stat-lbl">Km recorridos</div></div>
+    </div>
+
+    <div id="pmLiveSection" style="background:rgba(255,255,255,0.03); border:1px solid var(--border-color); border-radius:12px; padding:12px; margin-bottom:14px">
+      <div style="font-size:12px; font-weight:700; color:#38bdf8; margin-bottom:6px">Estado en Vivo (RCON):</div>
+      <div style="display:flex; justify-content:space-between; font-size:12.5px; flex-wrap:wrap; gap:8px">
+        <span>Coordenadas: <b id="pmCoords" style="color:#fff; font-family:'JetBrains Mono',monospace">—</b></span>
+        <span>Nivel Exp: <b id="pmLevel" style="color:#22c55e">—</b></span>
+      </div>
+    </div>
+
+    <div style="font-size:12px; font-weight:700; color:var(--text-muted); margin-bottom:8px">Acciones rápidas sobre el jugador:</div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px">
+      <button class="term-tool-btn" onclick="pmQuickCmd('heal')">❤️ Curar vida</button>
+      <button class="term-tool-btn" onclick="pmQuickCmd('feed')">🍗 Alimentar</button>
+      <button class="term-tool-btn" onclick="pmQuickCmd('creative')">🎨 Modo Creativo</button>
+      <button class="term-tool-btn" onclick="pmQuickCmd('survival')">⚔️ Supervivencia</button>
+      <button class="term-tool-btn" onclick="pmQuickCmd('spawn')">📍 Spawnpoint</button>
+      <button class="term-tool-btn" onclick="pmQuickCmd('clearlag')">🧹 Vaciar inventario</button>
+    </div>
+  </div>
+</div>
+
+<!-- COMMAND PALETTE (CTRL+K) -->
+<div id="cmdPalette" onclick="if(event.target===this)closeCmdPalette()">
+  <div class="cp-box">
+    <div class="cp-input-wrap">
+      <svg class="ico" viewBox="0 0 24 24" style="color:var(--text-muted); width:18px; height:18px"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input id="cpInput" class="cp-input" placeholder="Buscar sección o comando (ej: reiniciar, archivos, mca, spark, backups...)" autocomplete="off" oninput="renderCmdPalette()" onkeydown="handlePaletteKey(event)">
+      <span style="font-size:11px; background:rgba(255,255,255,0.06); padding:2px 6px; border-radius:4px; color:var(--text-dim)">ESC</span>
+    </div>
+    <div class="cp-list" id="cpList"></div>
+    <div class="cp-footer">
+      <span>↑ ↓ para navegar · ENTER para ejecutar</span>
+      <span>PKHosting Spotlight</span>
     </div>
   </div>
 </div>
@@ -3223,7 +3553,7 @@ async function savePublicIp() {
   } catch (e) { showToast('Error al guardar IP'); }
 }
 
-const KNOWN_TABS = ['console', 'metrics', 'files', 'backups', 'tasks', 'history', 'settings'];
+const KNOWN_TABS = ['console', 'metrics', 'files', 'worlds', 'backups', 'tasks', 'history', 'fleet', 'settings'];
 function rememberTab(name) {
   try {
     localStorage.setItem('pkTab', name);
@@ -3236,16 +3566,28 @@ function switchTab(name, fromHash) {
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
   
-  const targetNav = Array.from(document.querySelectorAll('.nav-item')).find(el => el.textContent.toLowerCase().includes(name === 'console' ? 'consola' : name === 'metrics' ? 'métrica' : name === 'files' ? 'archivo' : name === 'backups' ? 'backup' : name === 'tasks' ? 'tarea' : name === 'history' ? 'historial' : 'config'));
+  const targetNav = Array.from(document.querySelectorAll('.nav-item')).find(el => el.textContent.toLowerCase().includes(
+    name === 'console' ? 'consola' :
+    name === 'metrics' ? 'métrica' :
+    name === 'files' ? 'archivo' :
+    name === 'worlds' ? 'mundo' :
+    name === 'backups' ? 'backup' :
+    name === 'tasks' ? 'tarea' :
+    name === 'history' ? 'historial' :
+    name === 'fleet' ? 'flota' : 'config'
+  ));
   if (targetNav) targetNav.classList.add('active');
 
   const tab = document.getElementById('tab-' + name);
   if (tab) tab.classList.add('active');
 
-  if (name === 'metrics') { renderCharts(); loadHeat(); }
+  if (name === 'metrics') { renderCharts(); loadHeat(); refreshPingMetrics(); }
   if (name === 'files') { loadFiles(); loadMods(); }
+  if (name === 'worlds') { loadWorldManager(); }
+  if (name === 'backups') loadBackups();
   if (name === 'tasks') loadSchedules();
   if (name === 'history') loadHistory();
+  if (name === 'fleet') loadFleetView();
   if (name === 'console') { loadQuick(); loadModeration(); refreshCmdList(); }
   if (name === 'settings') { loadProps(); refreshPublicIp(); loadDiscord(); loadQuickCfg(); loadServers(); }
 }
@@ -3333,7 +3675,7 @@ let _wlOn = false;
 async function loadModeration() {
   try {
     const d = await (await fetch(U('/api/lists'))).json();
-    const chip = (n, act, danger) => `<button class="term-tool-btn"${danger ? ' style="color:#f87171;border-color:#7f1d1d"' : ''} title="${act}" onclick="modAct('${act}','${n.replace(/'/g, "")}')">${n} ✕</button>`;
+    const chip = (n, act, danger) => `<button class="p-chip"${danger ? ' style="color:#f87171;border-color:#7f1d1d"' : ''} title="${act}" onclick="modAct('${act}','${n.replace(/'/g, "")}')"><img src="https://mc-heads.net/avatar/${encodeURIComponent(n)}/18" class="p-avatar" style="width:16px;height:16px" onerror="this.style.display='none'">${n} ✕</button>`;
     document.getElementById('modOps').innerHTML = (d.ops && d.ops.length) ? d.ops.map(n => chip(n, 'deop')).join(' ') : '—';
     document.getElementById('modBans').innerHTML = (d.banned && d.banned.length) ? d.banned.map(b => chip(b.name, 'pardon', true)).join(' ') : '—';
     _wlOn = !!d.whitelist_on;
@@ -3353,7 +3695,7 @@ async function loadHistory() {
       const dt = new Date(e.t * 1000).toLocaleString();
       const what = e.ev === 'join' ? 'entró' : `salió (${fmtSess(e.dur || 0)})`;
       const dot = e.ev === 'join' ? '#34d399' : '#f87171';
-      return `<div class="file-row"><span class="file-icon" style="color:${dot}" title="${e.ev === 'join' ? 'Entrada' : 'Salida'}">●</span><span class="file-name">${e.name} ${what}</span><span class="file-size">${dt}</span></div>`;
+      return `<div class="file-row"><img src="https://mc-heads.net/avatar/${encodeURIComponent(e.name)}/22" class="p-avatar" style="width:22px;height:22px" onerror="this.style.display='none'"><span class="file-icon" style="color:${dot}" title="${e.ev === 'join' ? 'Entrada' : 'Salida'}">●</span><span class="file-name" style="cursor:pointer" onclick="openPlayerModal('${e.name}')">${e.name} ${what}</span><span class="file-size">${dt}</span></div>`;
     }).join('');
   } catch (e) {}
 }
@@ -3561,11 +3903,13 @@ async function refreshStats() {
       const sess = d.sessions || {};
       rows.innerHTML = d.player_names.map(n => {
         const safe = n.replace(/'/g, "").replace(/"/g, '&quot;');
-        const t = sess[n] != null ? `<br><span style="font-size:11px;color:var(--text-dim)">conectado ${fmtSess(sess[n])}</span>` : '';
+        const t = sess[n] != null ? ` · <span style="font-size:11px;color:var(--text-dim)">${fmtSess(sess[n])}</span>` : '';
         return `<div class="file-row">
-          <span class="file-name">${safe}${t}</span>
+          <img class="p-avatar" src="https://mc-heads.net/avatar/${encodeURIComponent(n)}/28" alt="${safe}" onerror="this.src='/icon.svg'">
+          <span class="file-name" style="cursor:pointer" onclick="openPlayerModal('${safe}')" title="Ver ficha del jugador"><b>${safe}</b>${t}</span>
           <span class="file-actions">
-            <button class="cmd-btn" title="Dar OP" onclick="playerAction('op', '${safe}')">OP</button>
+            <button class="cmd-btn" title="Ficha del jugador" onclick="openPlayerModal('${safe}')">Ficha</button>
+            <button class="term-tool-btn" title="Dar OP" onclick="playerAction('op', '${safe}')">OP</button>
             <button class="term-tool-btn" title="Quitar OP" onclick="playerAction('deop', '${safe}')">DeOP</button>
             <button class="term-tool-btn" title="Expulsar" onclick="playerAction('kick', '${safe}')">Kick</button>
             <button class="term-tool-btn" style="color:#f87171; border-color:#7f1d1d" title="Banear" onclick="playerAction('ban', '${safe}')">Ban</button>
@@ -3595,6 +3939,18 @@ async function refreshStats() {
     } else {
       tpsVal.textContent = d.status === 'RUNNING' ? '…' : '—';
       document.getElementById('tpsSub').textContent = d.status === 'RUNNING' ? 'Muestreando…' : 'Servidor apagado';
+    }
+
+    const perfBanner = document.getElementById('perfBanner');
+    if (perfBanner) {
+      if (d.status === 'RUNNING' && ((t.ok && t.tps != null && t.tps < 16.0) || memPct > 90)) {
+        perfBanner.style.display = 'flex';
+        document.getElementById('perfBannerMsg').textContent = (t.ok && t.tps < 16.0)
+          ? `TPS crítico (${t.tps.toFixed(1)} / 20) detectado.`
+          : `Uso de memoria RAM elevado (${memPct.toFixed(1)}%).`;
+      } else {
+        perfBanner.style.display = 'none';
+      }
     }
 
     document.getElementById('detStatus').textContent = d.status;
@@ -4486,8 +4842,573 @@ async function saveProps() {
   }
 }
 
-const TAB_HASH = { consola: 'console', metricas: 'metrics', sistema: 'metrics', archivos: 'files', backups: 'backups', tareas: 'tasks', historial: 'history', jugadores: 'history', configuracion: 'settings', ajustes: 'settings' };
-const TAB_SLUG = { console: 'consola', metrics: 'metricas', files: 'archivos', backups: 'backups', tasks: 'tareas', history: 'historial', settings: 'configuracion' };
+/* ══════════════════════════════════════════════════
+   PLAYER INSPECTOR (Ficha detallada & acciones rápidas)
+══════════════════════════════════════════════════ */
+let CURRENT_PM_PLAYER = '';
+async function openPlayerModal(name) {
+  CURRENT_PM_PLAYER = name;
+  const modal = document.getElementById('playerModal');
+  modal.style.display = 'flex';
+  document.getElementById('pmName').textContent = name;
+  document.getElementById('pmAvatar').src = 'https://mc-heads.net/body/' + encodeURIComponent(name) + '/120';
+  document.getElementById('pmUuid').textContent = 'Consultando...';
+  document.getElementById('pmHours').textContent = '…';
+  document.getElementById('pmDeaths').textContent = '…';
+  document.getElementById('pmMobKills').textContent = '…';
+  document.getElementById('pmDist').textContent = '…';
+  document.getElementById('pmCoords').textContent = '…';
+  document.getElementById('pmLevel').textContent = '…';
+
+  try {
+    const r = await (await fetch(U('/api/player-info?name=' + encodeURIComponent(name)))).json();
+    if (r.ok) {
+      document.getElementById('pmUuid').textContent = r.uuid || 'Sin UUID registrado';
+      document.getElementById('pmHours').textContent = r.hours_played != null ? r.hours_played + ' h' : '—';
+      document.getElementById('pmDeaths').textContent = r.deaths != null ? r.deaths : '0';
+      document.getElementById('pmMobKills').textContent = r.mob_kills != null ? r.mob_kills.toLocaleString() : '0';
+      document.getElementById('pmDist').textContent = r.km_traveled != null ? r.km_traveled + ' km' : '—';
+      document.getElementById('pmCoords').textContent = r.coords ? `X:${r.coords[0]} Y:${r.coords[1]} Z:${r.coords[2]}` : (r.level != null ? 'En línea' : 'Desconectado');
+      document.getElementById('pmLevel').textContent = r.level != null ? r.level : '—';
+    }
+  } catch (e) {
+    document.getElementById('pmUuid').textContent = 'Error al cargar estadísticas';
+  }
+}
+function closePlayerModal() {
+  document.getElementById('playerModal').style.display = 'none';
+}
+async function pmQuickCmd(act) {
+  if (!CURRENT_PM_PLAYER) return;
+  const p = CURRENT_PM_PLAYER;
+  let cmd = '';
+  if (act === 'heal') cmd = `effect give ${p} instant_health 1 255`;
+  else if (act === 'feed') cmd = `effect give ${p} saturation 1 255`;
+  else if (act === 'creative') cmd = `gamemode creative ${p}`;
+  else if (act === 'survival') cmd = `gamemode survival ${p}`;
+  else if (act === 'spawn') cmd = `spawnpoint ${p}`;
+  else if (act === 'clearlag') {
+    if (!confirm(`¿Vaciar todo el inventario de "${p}"?`)) return;
+    cmd = `clear ${p}`;
+  }
+  if (!cmd) return;
+  try {
+    const r = await (await fetch(U('/api/cmd'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cmd }) })).json();
+    showToast(r.msg || 'Comando enviado');
+    addNotif(`Comando sobre ${p}: ${act}`, 'Ahora mismo', 'zap');
+  } catch (e) {
+    showToast('Error al enviar acción', 'error');
+  }
+}
+
+/* ══════════════════════════════════════════════════
+   MONITOR DE RED Y LATENCIA
+══════════════════════════════════════════════════ */
+async function refreshPingMetrics() {
+  const elMc = document.getElementById('pingLocalMc');
+  const elRcon = document.getElementById('pingLocalRcon');
+  const elTun = document.getElementById('pingTunnel');
+  if (elMc) elMc.textContent = '…';
+  if (elRcon) elRcon.textContent = '…';
+  if (elTun) elTun.textContent = '…';
+
+  try {
+    const r = await (await fetch(U('/api/network-ping'))).json();
+    const paintPing = (el, subEl, ms, labelDefault) => {
+      if (!el) return;
+      if (ms == null) {
+        el.textContent = 'Inactivo';
+        el.style.color = 'var(--text-dim)';
+      } else {
+        el.textContent = ms + ' ms';
+        el.style.color = ms < 15 ? '#34d399' : (ms < 60 ? '#fbbf24' : '#f87171');
+      }
+    };
+    paintPing(elMc, document.getElementById('pingLocalMcSub'), r.local_mc_ms);
+    paintPing(elRcon, document.getElementById('pingLocalRconSub'), r.local_rcon_ms);
+    paintPing(elTun, document.getElementById('pingTunnelSub'), r.tunnel_ms);
+    if (r.public_target) {
+      const sub = document.getElementById('pingTunnelSub');
+      if (sub) sub.textContent = r.public_target;
+    }
+  } catch (e) {}
+}
+
+/* ══════════════════════════════════════════════════
+   SPARK PROFILER
+══════════════════════════════════════════════════ */
+async function sparkAction(act) {
+  const box = document.getElementById('sparkResultBox');
+  box.style.display = 'block';
+  box.textContent = 'Ejecutando diagnóstico spark en el servidor (' + act + ')...';
+  try {
+    const r = await (await fetch(U('/api/spark'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: act }) })).json();
+    box.textContent = r.msg || 'Completado';
+    if (r.msg && r.msg.includes('https://spark.lucko.me/')) {
+      const idx = r.msg.indexOf('https://spark.lucko.me/');
+      const link = idx >= 0 ? r.msg.slice(idx).split(' ')[0].split('\n')[0] : '';
+      if (link) {
+        showToast('Reporte spark generado: ' + link, 'success');
+        addNotif('Reporte Spark disponible: ' + link, 'Ahora', 'activity');
+      }
+    } else {
+      showToast(r.ok ? 'Spark OK' : (r.msg || 'Error'), r.ok ? 'success' : 'error');
+    }
+  } catch (e) {
+    box.textContent = 'Error al comunicar con spark.';
+  }
+}
+function sparkQuickAction(act) {
+  switchTab('metrics');
+  setTimeout(() => sparkAction(act), 400);
+}
+
+/* ══════════════════════════════════════════════════
+   MODRINTH EXPLORER (Buscador & Instalador 1-click)
+══════════════════════════════════════════════════ */
+function toggleModrinthView() {
+  const s = document.getElementById('modrinthSection');
+  s.style.display = s.style.display === 'none' ? 'block' : 'none';
+  if (s.style.display === 'block') {
+    const inp = document.getElementById('mrSearchInput');
+    inp.focus();
+    if (!document.getElementById('mrResults').dataset.loaded) {
+      searchModrinth();
+    }
+  }
+}
+async function searchModrinth() {
+  const q = document.getElementById('mrSearchInput').value.trim();
+  const box = document.getElementById('mrResults');
+  box.dataset.loaded = '1';
+  box.innerHTML = '<div style="color:var(--text-dim);font-size:12px;padding:12px">Buscando en Modrinth para NeoForge 1.21.1...</div>';
+  try {
+    const r = await (await fetch(U('/api/modrinth/search?q=' + encodeURIComponent(q)))).json();
+    if (!r.ok || !r.hits || !r.hits.length) {
+      box.innerHTML = '<div style="color:var(--text-dim);font-size:12px;padding:12px">No se encontraron mods para esa búsqueda.</div>';
+      return;
+    }
+    box.innerHTML = r.hits.map(h => {
+      const icon = h.icon || '/icon.svg';
+      const safeTitle = escHtml(h.title);
+      const safeDesc = escHtml(h.description || 'Sin descripción');
+      const dlK = h.downloads > 1000000 ? (h.downloads / 1000000).toFixed(1) + 'M' : Math.round(h.downloads / 1000) + 'k';
+      return `<div class="mr-card">
+        <div style="display:flex; gap:12px; align-items:flex-start">
+          <img src="${icon}" class="mr-icon" alt="" onerror="this.src='/icon.svg'">
+          <div style="flex:1; min-width:0">
+            <div style="font-weight:700; font-size:13.5px; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${safeTitle}</div>
+            <div style="font-size:11px; color:var(--text-dim)">por ${escHtml(h.author || 'Desconocido')} · ${dlK} descargas</div>
+          </div>
+        </div>
+        <p style="font-size:11.5px; color:#cbd5e1; margin:10px 0 14px; line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden">${safeDesc}</p>
+        <div style="display:flex; justify-content:space-between; align-items:center">
+          <span class="mchip ld">NeoForge</span>
+          <button class="cmd-btn" style="padding:4px 12px; font-size:11.5px" onclick="installModrinth('${escHtml(h.slug || h.id)}', '${safeTitle.replace(/'/g, "")}')">Instalar</button>
+        </div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    box.innerHTML = '<div style="color:#f87171;font-size:12px;padding:12px">Error conectando con la API de Modrinth.</div>';
+  }
+}
+async function installModrinth(slug, title) {
+  showToast(`Descargando ${title} desde Modrinth...`);
+  try {
+    const r = await (await fetch(U('/api/modrinth/install'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug, loader: 'neoforge', game_ver: '1.21.1' })
+    })).json();
+    showToast(r.msg || 'Instalado', r.ok ? 'success' : 'error');
+    if (r.ok) {
+      addNotif(`Mod instalado: ${title}`, 'Ahora', 'download');
+      loadMods();
+    }
+  } catch (e) {
+    showToast('Error al descargar mod', 'error');
+  }
+}
+
+/* ══════════════════════════════════════════════════
+   WORLD MANAGER & MCA REGION CLEANER
+══════════════════════════════════════════════════ */
+let WORLD_DATA = null;
+let MCA_ACTIVE_DIM = 'overworld';
+async function loadWorldManager() {
+  const container = document.getElementById('mcaListContainer');
+  if (container) container.innerHTML = '<div class="mca-row" style="color:var(--text-dim)">Cargando análisis del mundo...</div>';
+  try {
+    const d = await (await fetch(U('/api/world'))).json();
+    if (!d || !d.exists) {
+      if (container) container.innerHTML = '<div class="mca-row">La carpeta del mundo no existe en este servidor.</div>';
+      return;
+    }
+    WORLD_DATA = d;
+    const mb = bytes => bytes > 1073741824 ? (bytes / 1073741824).toFixed(2) + ' GB' : (bytes > 1048576 ? (bytes / 1048576).toFixed(1) + ' MB' : Math.round(bytes / 1024) + ' KB');
+    
+    (d.dimensions || []).forEach(dim => {
+      if (dim.id === 'overworld') {
+        document.getElementById('dimOwSize').textContent = mb(dim.size);
+        document.getElementById('dimOwRegions').textContent = dim.regions_count + ' regiones';
+      } else if (dim.id === 'nether') {
+        document.getElementById('dimNetherSize').textContent = mb(dim.size);
+        document.getElementById('dimNetherRegions').textContent = dim.regions_count + ' regiones';
+      } else if (dim.id === 'end') {
+        document.getElementById('dimEndSize').textContent = mb(dim.size);
+        document.getElementById('dimEndRegions').textContent = dim.regions_count + ' regiones';
+      }
+    });
+
+    renderMcaList();
+  } catch (e) {
+    if (container) container.innerHTML = '<div class="mca-row">Error al cargar datos del mundo.</div>';
+  }
+}
+function selectMcaDim(dim) {
+  MCA_ACTIVE_DIM = dim;
+  document.querySelectorAll('#mcaDimSeg button').forEach(b => {
+    b.classList.toggle('on', b.dataset.dim === dim || b.textContent.toLowerCase().includes(dim === 'overworld' ? 'over' : dim === 'nether' ? 'nether' : 'end'));
+  });
+  renderMcaList();
+}
+function renderMcaList() {
+  const container = document.getElementById('mcaListContainer');
+  if (!container || !WORLD_DATA) return;
+  const dim = (WORLD_DATA.dimensions || []).find(d => d.id === MCA_ACTIVE_DIM);
+  if (!dim || !dim.regions || !dim.regions.length) {
+    container.innerHTML = '<div class="mca-row" style="color:var(--text-dim)">Sin archivos de región en esta dimensión.</div>';
+    document.getElementById('mcaSelectedCount').textContent = '0 regiones seleccionadas';
+    return;
+  }
+  const mb = bytes => bytes > 1048576 ? (bytes / 1048576).toFixed(1) + ' MB' : Math.round(bytes / 1024) + ' KB';
+  container.innerHTML = dim.regions.map((r, i) => {
+    const x0 = r.x * 512, x1 = (r.x + 1) * 512 - 1;
+    const z0 = r.z * 512, z1 = (r.z + 1) * 512 - 1;
+    return `<div class="mca-row">
+      <input type="checkbox" class="mca-chk" data-file="${r.file}" onchange="updateMcaSelectionCount()">
+      <span style="color:#e2e8f0; font-weight:700; width:130px">${r.file}</span>
+      <span style="color:var(--text-dim); flex:1">Bloques: [X ${x0}..${x1}, Z ${z0}..${z1}]</span>
+      <span style="color:#93c5fd">${mb(r.size)}</span>
+    </div>`;
+  }).join('');
+  updateMcaSelectionCount();
+}
+function updateMcaSelectionCount() {
+  const checked = document.querySelectorAll('.mca-chk:checked').length;
+  document.getElementById('mcaSelectedCount').textContent = `${checked} regiones seleccionadas (${checked * 1024} chunks)`;
+}
+function toggleSelectAllMca(check) {
+  document.querySelectorAll('.mca-chk').forEach(c => c.checked = check);
+  updateMcaSelectionCount();
+}
+function calcMcaFromCoords() {
+  const x = parseInt(document.getElementById('calcCoordX').value, 10);
+  const z = parseInt(document.getElementById('calcCoordZ').value, 10);
+  const res = document.getElementById('calcMcaResult');
+  if (isNaN(x) || isNaN(z)) {
+    res.textContent = 'Introduce X y Z';
+    return;
+  }
+  const rx = Math.floor(x / 512);
+  const rz = Math.floor(z / 512);
+  res.textContent = `Región: r.${rx}.${rz}.mca (Chunks ${rx*32}..${rx*32+31}, ${rz*32}..${rz*32+31})`;
+}
+function selectCalculatedMca() {
+  const x = parseInt(document.getElementById('calcCoordX').value, 10);
+  const z = parseInt(document.getElementById('calcCoordZ').value, 10);
+  if (isNaN(x) || isNaN(z)) return;
+  const rx = Math.floor(x / 512);
+  const rz = Math.floor(z / 512);
+  const targetFn = `r.${rx}.${rz}.mca`;
+  const chk = document.querySelector(`.mca-chk[data-file="${targetFn}"]`);
+  if (chk) {
+    chk.checked = true;
+    chk.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    updateMcaSelectionCount();
+    showToast(`Región ${targetFn} seleccionada`);
+  } else {
+    showToast(`El archivo ${targetFn} no existe en ${MCA_ACTIVE_DIM} (chunks no generados aún)`, 'info');
+  }
+}
+async function deleteSelectedMca() {
+  const files = Array.from(document.querySelectorAll('.mca-chk:checked')).map(c => c.dataset.file);
+  if (!files.length) {
+    showToast('Selecciona al menos una región', 'info');
+    return;
+  }
+  if (!confirm(`⚠️ ATENCIÓN: ¿Seguro que deseas eliminar ${files.length} archivos .mca (${files.length * 1024} chunks) de ${MCA_ACTIVE_DIM.toUpperCase()}?\n\nLos terrenos se borrarán y se regenerarán limpios la próxima vez que alguien entre.`)) return;
+  try {
+    const r = await (await fetch(U('/api/world/mca'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete', dimension: MCA_ACTIVE_DIM, files })
+    })).json();
+    showToast(r.msg || 'Regiones eliminadas', r.ok ? 'success' : 'error');
+    if (r.ok) {
+      addNotif(`Borrado MCA: ${files.length} regiones en ${MCA_ACTIVE_DIM}`, 'Ahora', 'trash');
+      loadWorldManager();
+    }
+  } catch (e) {
+    showToast('Error de conexión', 'error');
+  }
+}
+async function mcaResetDim(dim) {
+  if (!confirm(`⚠️ ALERTA: ¿Deseas reiniciar por completo la dimensión ${dim.toUpperCase()}?\n\nToda construcción, portal o progreso en esa dimensión desaparecerá.`)) return;
+  try {
+    const r = await (await fetch(U('/api/world/mca'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'reset_dimension', dimension: dim })
+    })).json();
+    showToast(r.msg || 'Dimensión reiniciada', r.ok ? 'success' : 'error');
+    if (r.ok) {
+      addNotif(`Dimensión reiniciada: ${dim.toUpperCase()}`, 'Ahora', 'rotate-ccw');
+      loadWorldManager();
+    }
+  } catch (e) {
+    showToast('Error al reiniciar dimensión', 'error');
+  }
+}
+
+/* ══════════════════════════════════════════════════
+   FLOTA MULTI-SERVIDOR (Fleet View)
+══════════════════════════════════════════════════ */
+async function loadFleetView() {
+  const box = document.getElementById('fleetCardsContainer');
+  if (!box) return;
+  try {
+    const d = await (await fetch(U('/api/fleet'))).json();
+    const srvs = (d && d.servers) || [];
+    if (!srvs.length) {
+      box.innerHTML = '<div class="scard" style="padding:16px">Sin servidores registrados.</div>';
+      return;
+    }
+    box.innerHTML = srvs.map(s => `
+      <div class="scard" style="padding:18px; display:flex; flex-direction:column; justify-content:space-between; ${s.current ? 'border-color:#a855f7; box-shadow:0 0 20px rgba(168,85,247,0.3)' : ''}">
+        <div>
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px">
+            <div>
+              <div style="font-size:18px; font-weight:800; color:#fff">${escHtml(s.name)}${s.current ? ' <span class="mchip ld">ACTUAL</span>' : ''}</div>
+              <div style="font-size:11.5px; color:var(--text-dim)">${escHtml(s.server_dir)}</div>
+            </div>
+            <span class="status-pill ${s.running ? 'RUNNING' : 'OFFLINE'}">
+              <span class="status-pulse"></span>
+              <span>${s.running ? 'ONLINE' : 'OFFLINE'}</span>
+            </span>
+          </div>
+          <div style="display:flex; gap:16px; margin:14px 0; font-size:12.5px">
+            <div><span style="color:var(--text-dim)">Puerto:</span> <b>:${s.mc_port}</b></div>
+            <div><span style="color:var(--text-dim)">RAM Máx:</span> <b>${s.max_mem_gb} GB</b></div>
+          </div>
+        </div>
+        <div style="display:flex; gap:8px; margin-top:10px">
+          ${s.current ? '<button class="term-tool-btn" style="flex:1" disabled>Servidor en uso</button>' : `<button class="cmd-btn" style="flex:1" onclick="location.search='?server='+encodeURIComponent('${s.id}')">Conmutar a este</button>`}
+          <button class="term-tool-btn" onclick="serverAction('${s.running ? 'restart' : 'start'}')">${s.running ? 'Reiniciar' : 'Iniciar'}</button>
+        </div>
+      </div>`).join('');
+  } catch (e) {
+    box.innerHTML = '<div class="scard" style="padding:16px">Error al cargar flota de servidores.</div>';
+  }
+}
+
+/* ══════════════════════════════════════════════════
+   GLOBAL COMMAND PALETTE (Ctrl + K)
+══════════════════════════════════════════════════ */
+const PALETTE_ACTIONS = [
+  { title: 'Consola del servidor', cat: 'Navegar', action: () => switchTab('console') },
+  { title: 'Métricas del sistema & TPS', cat: 'Navegar', action: () => switchTab('metrics') },
+  { title: 'Archivos y Mods', cat: 'Navegar', action: () => switchTab('files') },
+  { title: 'Mundos y MCA Region Cleaner', cat: 'Navegar', action: () => switchTab('worlds') },
+  { title: 'Copias de seguridad (Backups)', cat: 'Navegar', action: () => switchTab('backups') },
+  { title: 'Tareas programadas', cat: 'Navegar', action: () => switchTab('tasks') },
+  { title: 'Historial de conexiones', cat: 'Navegar', action: () => switchTab('history') },
+  { title: 'Flota de servidores', cat: 'Navegar', action: () => switchTab('fleet') },
+  { title: 'Configuración y Ajustes', cat: 'Navegar', action: () => switchTab('settings') },
+  { title: 'Iniciar Servidor', cat: 'Control', action: () => serverAction('start') },
+  { title: 'Reiniciar Servidor', cat: 'Control', action: () => serverAction('restart') },
+  { title: 'Detener Servidor', cat: 'Control', action: () => serverAction('stop') },
+  { title: 'Reload Servidor (Datapacks/Mods)', cat: 'Control', action: () => serverAction('reload') },
+  { title: 'Hacer Backup ahora', cat: 'Backups', action: () => { switchTab('backups'); setTimeout(backupNow, 300); } },
+  { title: 'Diagnóstico de Salud Spark', cat: 'Rendimiento', action: () => sparkQuickAction('health') },
+  { title: 'Explorador de Mods Modrinth', cat: 'Mods', action: () => { switchTab('files'); setTimeout(toggleModrinthView, 300); } },
+  { title: 'Pantalla completa de terminal', cat: 'Herramientas', action: () => toggleTermFullscreen() },
+  { title: 'Copiar IP pública', cat: 'Herramientas', action: () => copyIp() },
+  { title: 'Cerrar sesión', cat: 'Sesión', action: () => logout() }
+];
+
+let PALETTE_ACTIVE_IDX = 0;
+let PALETTE_FILTERED = [];
+
+function openCmdPalette() {
+  document.getElementById('cmdPalette').style.display = 'flex';
+  const inp = document.getElementById('cpInput');
+  inp.value = '';
+  renderCmdPalette();
+  inp.focus();
+}
+function closeCmdPalette() {
+  document.getElementById('cmdPalette').style.display = 'none';
+}
+function renderCmdPalette() {
+  const q = document.getElementById('cpInput').value.toLowerCase().trim();
+  PALETTE_FILTERED = PALETTE_ACTIONS.filter(a => !q || a.title.toLowerCase().includes(q) || a.cat.toLowerCase().includes(q));
+  PALETTE_ACTIVE_IDX = 0;
+  const list = document.getElementById('cpList');
+  if (!PALETTE_FILTERED.length) {
+    list.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-dim);font-size:13px">Sin coincidencias</div>';
+    return;
+  }
+  list.innerHTML = PALETTE_FILTERED.map((item, idx) => `
+    <div class="cp-item${idx === PALETTE_ACTIVE_IDX ? ' active' : ''}" onclick="runPaletteItem(${idx})">
+      <span>${escHtml(item.title)}</span>
+      <span class="cp-badge">${escHtml(item.cat)}</span>
+    </div>`).join('');
+}
+function handlePaletteKey(e) {
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (PALETTE_FILTERED.length) {
+      PALETTE_ACTIVE_IDX = (PALETTE_ACTIVE_IDX + 1) % PALETTE_FILTERED.length;
+      updatePaletteSelection();
+    }
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (PALETTE_FILTERED.length) {
+      PALETTE_ACTIVE_IDX = (PALETTE_ACTIVE_IDX - 1 + PALETTE_FILTERED.length) % PALETTE_FILTERED.length;
+      updatePaletteSelection();
+    }
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    runPaletteItem(PALETTE_ACTIVE_IDX);
+  } else if (e.key === 'Escape') {
+    closeCmdPalette();
+  }
+}
+function updatePaletteSelection() {
+  document.querySelectorAll('.cp-item').forEach((el, idx) => {
+    el.classList.toggle('active', idx === PALETTE_ACTIVE_IDX);
+    if (idx === PALETTE_ACTIVE_IDX) el.scrollIntoView({ block: 'nearest' });
+  });
+}
+function runPaletteItem(idx) {
+  const item = PALETTE_FILTERED[idx];
+  if (item && item.action) {
+    closeCmdPalette();
+    item.action();
+  }
+}
+window.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    const p = document.getElementById('cmdPalette');
+    if (p.style.display === 'flex') closeCmdPalette();
+    else openCmdPalette();
+  } else if (e.key === 'Escape') {
+    closeCmdPalette();
+    closePlayerModal();
+    if (document.querySelector('.terminal-wrapper.fullscreen')) toggleTermFullscreen();
+  }
+});
+
+/* ══════════════════════════════════════════════════
+   TERMINAL FULLSCREEN & THEMES & EDITOR UPGRADES
+══════════════════════════════════════════════════ */
+function toggleTermFullscreen() {
+  const w = document.querySelector('.terminal-wrapper');
+  w.classList.toggle('fullscreen');
+}
+function setTermTheme(th) {
+  const w = document.querySelector('.terminal-wrapper');
+  ['matrix', 'monokai', 'tokyo', 'dracula'].forEach(t => w.classList.remove('term-theme-' + t));
+  if (th !== 'default') {
+    w.classList.add('term-theme-' + th);
+  }
+  try { localStorage.setItem('pkTermTheme', th); } catch(e) {}
+}
+(function restoreTermTheme() {
+  try {
+    const saved = localStorage.getItem('pkTermTheme');
+    if (saved) {
+      const sel = document.getElementById('termThemeSel');
+      if (sel) sel.value = saved;
+      setTermTheme(saved);
+    }
+  } catch(e) {}
+})();
+
+function fsUpdateEditorStats() {
+  const ed = document.getElementById('fsEditor');
+  const lines = ed.value.split('\n').length;
+  const chars = ed.value.length;
+  document.getElementById('fsEditStats').textContent = `${lines} líneas · ${chars} caracteres`;
+}
+function fsHandleEditorTab(e) {
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const el = e.target;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    el.value = el.value.substring(0, start) + '  ' + el.value.substring(end);
+    el.selectionStart = el.selectionEnd = start + 2;
+    fsUpdateEditorStats();
+  }
+}
+let FS_FONT_SIZE = 12.5;
+function fsChangeFontSize(delta) {
+  FS_FONT_SIZE = Math.max(10, Math.min(22, FS_FONT_SIZE + delta));
+  document.getElementById('fsEditor').style.fontSize = FS_FONT_SIZE + 'px';
+}
+
+/* ══════════════════════════════════════════════════
+   CENTRO DE NOTIFICACIONES (Activity Feed)
+══════════════════════════════════════════════════ */
+let NOTIFS = [];
+function addNotif(title, timeStr, iconKind) {
+  NOTIFS.unshift({ title, time: timeStr || new Date().toLocaleTimeString(), icon: iconKind || 'info' });
+  if (NOTIFS.length > 25) NOTIFS.pop();
+  renderNotifs();
+  const dot = document.getElementById('notifDot');
+  if (dot) dot.style.display = 'block';
+}
+function renderNotifs() {
+  const list = document.getElementById('notifList');
+  if (!list) return;
+  if (!NOTIFS.length) {
+    list.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-dim);font-size:12px">Sin notificaciones pendientes</div>';
+    return;
+  }
+  list.innerHTML = NOTIFS.map(n => `
+    <div class="notif-item">
+      <span style="color:#c084fc; font-size:14px">●</span>
+      <div style="flex:1">
+        <div>${escHtml(n.title)}</div>
+        <div class="notif-time">${escHtml(n.time)}</div>
+      </div>
+    </div>`).join('');
+}
+function toggleNotifDropdown() {
+  const d = document.getElementById('notifDropdown');
+  d.style.display = d.style.display === 'block' ? 'none' : 'block';
+  const dot = document.getElementById('notifDot');
+  if (dot) dot.style.display = 'none';
+}
+function clearNotifs() {
+  NOTIFS = [];
+  renderNotifs();
+  const dot = document.getElementById('notifDot');
+  if (dot) dot.style.display = 'none';
+}
+document.addEventListener('click', e => {
+  const d = document.getElementById('notifDropdown');
+  const btn = document.getElementById('notifBtn');
+  if (d && d.style.display === 'block' && !d.contains(e.target) && !btn.contains(e.target)) {
+    d.style.display = 'none';
+  }
+});
+
+const TAB_HASH = { consola: 'console', metricas: 'metrics', sistema: 'metrics', archivos: 'files', mundos: 'worlds', mca: 'worlds', backups: 'backups', tareas: 'tasks', historial: 'history', jugadores: 'history', flota: 'fleet', servidores: 'fleet', configuracion: 'settings', ajustes: 'settings' };
+const TAB_SLUG = { console: 'consola', metrics: 'metricas', files: 'archivos', worlds: 'mundos', backups: 'backups', tasks: 'tareas', history: 'historial', fleet: 'flota', settings: 'configuracion' };
 function tabFromHash() {
   const h = (location.hash || '').replace(/^#/, '');
   const m = /^[a-z]+/.exec(h);
@@ -4626,6 +5547,348 @@ def list_mods():
     except FileNotFoundError:
         pass
     return out
+
+
+def search_modrinth(query, loader="neoforge", game_ver="1.21.1", limit=12):
+    q = urllib.parse.quote(query)
+    facets = [f'["versions:{game_ver}"]']
+    if loader:
+        facets.append(f'["categories:{loader}"]')
+    facets.append('["project_type:mod"]')
+    facets_param = urllib.parse.quote(f"[{','.join(facets)}]")
+    url = f"https://api.modrinth.com/v2/search?query={q}&facets={facets_param}&limit={limit}"
+    req = urllib.request.Request(url, headers={"User-Agent": "PKHosting-Panel/2.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read().decode())
+            hits = []
+            for h in data.get("hits", []):
+                hits.append({
+                    "id": h.get("project_id"),
+                    "slug": h.get("slug"),
+                    "title": h.get("title"),
+                    "description": h.get("description"),
+                    "author": h.get("author"),
+                    "icon": h.get("icon_url"),
+                    "downloads": h.get("downloads", 0),
+                    "follows": h.get("follows", 0),
+                    "categories": h.get("categories", [])
+                })
+            return True, hits
+    except Exception as e:
+        return False, str(e)
+
+
+def install_modrinth_project(slug_or_id, loader="neoforge", game_ver="1.21.1"):
+    srv = S()
+    mods_dir = os.path.join(srv.server_dir, "mods")
+    os.makedirs(mods_dir, exist_ok=True)
+    slug = urllib.parse.quote(slug_or_id)
+    url = f"https://api.modrinth.com/v2/project/{slug}/version?game_versions=%5B%22{game_ver}%22%5D&loaders=%5B%22{loader}%22%5D"
+    req = urllib.request.Request(url, headers={"User-Agent": "PKHosting-Panel/2.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            versions = json.loads(resp.read().decode())
+        if not versions:
+            url_fallback = f"https://api.modrinth.com/v2/project/{slug}/version"
+            req_fb = urllib.request.Request(url_fallback, headers={"User-Agent": "PKHosting-Panel/2.0"})
+            with urllib.request.urlopen(req_fb, timeout=10) as resp:
+                versions = json.loads(resp.read().decode())
+        if not versions:
+            return False, "No se encontraron versiones disponibles para este mod"
+        
+        target_file = None
+        for v in versions:
+            for f in v.get("files", []):
+                fn = f.get("filename", "")
+                if fn.endswith(".jar"):
+                    target_file = f
+                    break
+            if target_file:
+                break
+        
+        if not target_file:
+            return False, "No se encontró ningún archivo .jar en la versión de Modrinth"
+        
+        dl_url = target_file.get("url")
+        dl_fn = target_file.get("filename")
+        dest_path = os.path.join(mods_dir, dl_fn)
+        req_dl = urllib.request.Request(dl_url, headers={"User-Agent": "PKHosting-Panel/2.0"})
+        with urllib.request.urlopen(req_dl, timeout=30) as resp, open(dest_path, "wb") as out_f:
+            while True:
+                chunk = resp.read(65536)
+                if not chunk:
+                    break
+                out_f.write(chunk)
+        return True, f"Mod '{dl_fn}' instalado correctamente en mods/ (requiere reinicio)"
+    except Exception as e:
+        return False, f"Error descargando mod: {e}"
+
+
+def get_world_summary():
+    srv = S()
+    wname = srv.world_name or "world"
+    wdir = os.path.join(srv.server_dir, wname)
+    if not os.path.isdir(wdir):
+        wdir = os.path.join(srv.server_dir, "world")
+    if not os.path.isdir(wdir):
+        return {"exists": False, "name": wname, "path": wdir}
+
+    dims = [
+        {"id": "overworld", "label": "Overworld (Superficie)", "path": os.path.join(wdir, "region")},
+        {"id": "nether", "label": "The Nether (Inframundo)", "path": os.path.join(wdir, "DIM-1", "region")},
+        {"id": "end", "label": "The End (Fin)", "path": os.path.join(wdir, "DIM1", "region")}
+    ]
+    
+    total_size = 0
+    dim_results = []
+    for d in dims:
+        rp = d["path"]
+        mca_files = []
+        d_size = 0
+        if os.path.isdir(rp):
+            for fn in os.listdir(rp):
+                if fn.endswith(".mca"):
+                    fp = os.path.join(rp, fn)
+                    try:
+                        sz = os.path.getsize(fp)
+                        d_size += sz
+                        m = re.match(r"r\.(-?\d+)\.(-?\d+)\.mca", fn)
+                        rx, rz = int(m.group(1)), int(m.group(2)) if m else (0, 0)
+                        mca_files.append({"file": fn, "x": rx, "z": rz, "size": sz})
+                    except Exception:
+                        pass
+        total_size += d_size
+        dim_results.append({
+            "id": d["id"],
+            "label": d["label"],
+            "exists": os.path.isdir(rp),
+            "size": d_size,
+            "regions_count": len(mca_files),
+            "regions": sorted(mca_files, key=lambda r: (r["x"], r["z"]))[:200]
+        })
+    
+    return {
+        "exists": True,
+        "name": wname,
+        "path": wdir,
+        "total_size": total_size,
+        "dimensions": dim_results
+    }
+
+
+def mca_delete_regions(dim_id, region_files):
+    srv = S()
+    wname = srv.world_name or "world"
+    wdir = os.path.join(srv.server_dir, wname)
+    if not os.path.isdir(wdir):
+        wdir = os.path.join(srv.server_dir, "world")
+    
+    dim_paths = {
+        "overworld": os.path.join(wdir, "region"),
+        "nether": os.path.join(wdir, "DIM-1", "region"),
+        "end": os.path.join(wdir, "DIM1", "region")
+    }
+    target_dir = dim_paths.get(dim_id)
+    if not target_dir or not os.path.isdir(target_dir):
+        return False, "Dimensión no encontrada"
+
+    deleted = 0
+    errors = []
+    for fn in region_files:
+        fn = os.path.basename(fn)
+        if not re.match(r"^r\.-?\d+\.-?\d+\.mca$", fn):
+            continue
+        fp = os.path.join(target_dir, fn)
+        try:
+            if os.path.isfile(fp):
+                os.remove(fp)
+                deleted += 1
+                poi_dir = os.path.join(os.path.dirname(target_dir), "poi") if dim_id != "overworld" else os.path.join(wdir, "poi")
+                ent_dir = os.path.join(os.path.dirname(target_dir), "entities") if dim_id != "overworld" else os.path.join(wdir, "entities")
+                for sub_dir in (poi_dir, ent_dir):
+                    sub_f = os.path.join(sub_dir, fn)
+                    if os.path.isfile(sub_f):
+                        try: os.remove(sub_f)
+                        except Exception: pass
+        except Exception as e:
+            errors.append(f"{fn}: {e}")
+    
+    msg = f"Se eliminaron {deleted} regiones ({deleted * 1024} chunks) de {dim_id.upper()}."
+    if errors:
+        msg += f" Hubo {len(errors)} errores."
+    return True, msg
+
+
+def mca_reset_dimension(dim_id):
+    srv = S()
+    wname = srv.world_name or "world"
+    wdir = os.path.join(srv.server_dir, wname)
+    if not os.path.isdir(wdir):
+        wdir = os.path.join(srv.server_dir, "world")
+    
+    if dim_id not in ("nether", "end"):
+        return False, "Por seguridad, solo se pueden reiniciar dimensiones secundarias (Nether o The End)"
+    
+    target_dim = os.path.join(wdir, "DIM-1" if dim_id == "nether" else "DIM1")
+    if not os.path.isdir(target_dim):
+        return False, "La carpeta de la dimensión no existe"
+    
+    count = 0
+    try:
+        import shutil
+        for item in os.listdir(target_dim):
+            p = os.path.join(target_dim, item)
+            if os.path.isdir(p):
+                shutil.rmtree(p)
+                count += 1
+            elif os.path.isfile(p):
+                os.remove(p)
+                count += 1
+        return True, f"Dimensión {dim_id.upper()} reiniciada con éxito (se regenerará al entrar un jugador)"
+    except Exception as e:
+        return False, f"Error reiniciando dimensión: {e}"
+
+
+def get_player_details(srv, player_name):
+    uc_path = os.path.join(srv.server_dir, "usercache.json")
+    uuid = None
+    if os.path.isfile(uc_path):
+        try:
+            with open(uc_path) as f:
+                uc = json.load(f)
+                for entry in uc:
+                    if entry.get("name", "").lower() == player_name.lower():
+                        uuid = entry.get("uuid")
+                        break
+        except Exception:
+            pass
+
+    stats_data = {}
+    if uuid:
+        wname = srv.world_name or "world"
+        for candidate in (wname, "world", "PrankLindorf"):
+            sp = os.path.join(srv.server_dir, candidate, "stats", f"{uuid}.json")
+            if os.path.isfile(sp):
+                try:
+                    with open(sp) as f:
+                        stats_data = json.load(f).get("stats", {})
+                        break
+                except Exception:
+                    pass
+
+    custom = stats_data.get("minecraft:custom", {})
+    play_time_ticks = custom.get("minecraft:play_time", 0) or custom.get("minecraft:total_world_time", 0)
+    deaths = custom.get("minecraft:deaths", 0)
+    mob_kills = custom.get("minecraft:mob_kills", 0)
+    player_kills = custom.get("minecraft:player_kills", 0)
+    walk_cm = custom.get("minecraft:walk_one_cm", 0)
+    sprint_cm = custom.get("minecraft:sprint_one_cm", 0)
+    fly_cm = custom.get("minecraft:fly_one_cm", 0)
+    total_dist_km = round((walk_cm + sprint_cm + fly_cm) / 100000, 2)
+    hours = round(play_time_ticks / (20 * 3600), 1)
+
+    coords = None
+    level = None
+    if _srv_running(srv):
+        ok, res = rcon_send("data get entity " + player_name + " Pos")
+        if ok and "[" in res and "]" in res:
+            try:
+                coords_str = res[res.index("[")+1 : res.index("]")]
+                coords = [round(float(c.rstrip("d").strip()), 1) for c in coords_str.split(",")]
+            except Exception:
+                pass
+        ok_lvl, res_lvl = rcon_send("experience query " + player_name + " levels")
+        if ok_lvl and res_lvl:
+            try:
+                m = re.search(r"has (\d+) experience levels", res_lvl)
+                if m: level = int(m.group(1))
+            except Exception:
+                pass
+
+    return {
+        "ok": True,
+        "name": player_name,
+        "uuid": uuid,
+        "hours_played": hours,
+        "deaths": deaths,
+        "mob_kills": mob_kills,
+        "player_kills": player_kills,
+        "km_traveled": total_dist_km,
+        "coords": coords,
+        "level": level
+    }
+
+
+def get_network_ping(srv):
+    def ping_tcp(host, port, timeout=1.2):
+        if not host or not port: return None
+        t0 = time.time()
+        try:
+            s = socket.create_connection((host, int(port)), timeout=timeout)
+            s.close()
+            return round((time.time() - t0) * 1000, 1)
+        except Exception:
+            return None
+
+    local_mc = ping_tcp("127.0.0.1", srv.mc_port)
+    local_rcon = ping_tcp("127.0.0.1", srv.rcon_port)
+    
+    pub_ip = get_public_ip()
+    pub_host, pub_port = None, None
+    if pub_ip and ":" in pub_ip:
+        pub_host, pub_port = pub_ip.split(":", 1)
+    elif pub_ip:
+        pub_host, pub_port = pub_ip, srv.mc_port
+
+    tunnel_ping = ping_tcp(pub_host, pub_port) if pub_host else None
+
+    return {
+        "ok": True,
+        "local_mc_ms": local_mc,
+        "local_rcon_ms": local_rcon,
+        "tunnel_ms": tunnel_ping,
+        "public_target": f"{pub_host}:{pub_port}" if pub_host else None
+    }
+
+
+def handle_spark_action(srv, action):
+    if not _srv_running(srv):
+        return False, "El servidor debe estar encendido para interactuar con spark"
+
+    if action == "health":
+        ok, res = rcon_send("spark health --memory")
+        return ok, res or "Sin respuesta de spark"
+    elif action == "sampler_start":
+        ok, res = rcon_send("spark sampler start --timeout 45")
+        return ok, res or "Muestreo spark iniciado"
+    elif action == "sampler_stop":
+        ok, res = rcon_send("spark sampler stop --upload")
+        return ok, res or "Muestreo spark detenido"
+    elif action == "tps":
+        ok, res = rcon_send("spark tps")
+        return ok, res or "Sin respuesta de spark"
+    elif action == "gc":
+        ok, res = rcon_send("spark gc")
+        return ok, res or "Recolección de basura ejecutada"
+    return False, "Acción de spark no reconocida"
+
+
+def get_fleet_status():
+    fleet = []
+    for sid, s in SERVERS.items():
+        is_run = _srv_running(s)
+        fleet.append({
+            "id": s.id,
+            "name": s.name,
+            "subtitle": s.subtitle,
+            "server_dir": s.server_dir,
+            "mc_port": s.mc_port,
+            "max_mem_gb": s.max_mem_gb,
+            "running": is_run,
+            "current": s.id == S().id
+        })
+    return {"ok": True, "servers": fleet}
 
 
 def handle_upload(handler, dest_rel):
@@ -5047,6 +6310,26 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
         if u.path == "/api/history":
             return self.send_json({"ok": True, **history_read(S())})
 
+        if u.path == "/api/world":
+            return self.send_json(get_world_summary())
+
+        if u.path == "/api/modrinth/search":
+            qs = parse_qs(u.query)
+            q = qs.get("q", [""])[0]
+            ok, res = search_modrinth(q)
+            return self.send_json({"ok": ok, "hits": res if ok else [], "error": None if ok else res})
+
+        if u.path == "/api/player-info":
+            qs = parse_qs(u.query)
+            name = qs.get("name", [""])[0]
+            return self.send_json(get_player_details(S(), name))
+
+        if u.path == "/api/network-ping":
+            return self.send_json(get_network_ping(S()))
+
+        if u.path == "/api/fleet":
+            return self.send_json(get_fleet_status())
+
         self.send_response(404)
         self.end_headers()
 
@@ -5291,6 +6574,30 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
                 nxt = next(iter(SERVERS))
                 return self.send_json({"ok": True, "msg": f"Servidor '{obj.name}' eliminado", "switchTo": nxt})
             return self.send_json({"ok": False, "msg": "Acción inválida"}, code=400)
+
+        if u.path == "/api/world/mca":
+            action = payload.get("action", "")
+            dim = payload.get("dimension", "overworld")
+            if action == "delete":
+                files = payload.get("files", [])
+                ok, msg = mca_delete_regions(dim, files)
+                return self.send_json({"ok": ok, "msg": msg})
+            elif action == "reset_dimension":
+                ok, msg = mca_reset_dimension(dim)
+                return self.send_json({"ok": ok, "msg": msg})
+            return self.send_json({"ok": False, "msg": "Acción desconocida"}, code=400)
+
+        if u.path == "/api/modrinth/install":
+            slug = payload.get("slug", "")
+            loader = payload.get("loader", "neoforge")
+            game_ver = payload.get("game_ver", "1.21.1")
+            ok, msg = install_modrinth_project(slug, loader, game_ver)
+            return self.send_json({"ok": ok, "msg": msg})
+
+        if u.path == "/api/spark":
+            action = payload.get("action", "health")
+            ok, msg = handle_spark_action(S(), action)
+            return self.send_json({"ok": ok, "msg": msg})
 
         if u.path == "/api/mod":
             action, name = payload.get("action", ""), payload.get("name", "")
