@@ -3183,7 +3183,7 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
             <label style="font-size:12px; color:var(--text-muted); cursor:pointer; display:inline-flex; align-items:center; gap:6px"><input type="checkbox" id="mcaSelectAll" onchange="toggleSelectAllMca(this.checked)"> Seleccionar todos</label>
             <span id="mcaSelectedCount" style="font-size:12px; color:#c084fc; font-weight:700">0 regiones seleccionadas</span>
           </div>
-          <button class="cmd-btn danger" style="background:#dc2626; color:#fff" onclick="deleteSelectedMca()">Borrar regiones seleccionadas</button>
+          <button class="cmd-btn danger" id="mcaDeleteBtn" style="background:#dc2626; color:#fff" onclick="deleteSelectedMca()">Borrar regiones seleccionadas</button>
         </div>
 
         <div class="mca-grid" id="mcaListContainer">
@@ -5101,6 +5101,11 @@ let MCA_TILES = {};
 let MCA_VIEW = { cx: 0, cz: 0, scale: 14 };
 let MCA_SEL = { overworld: new Set(), nether: new Set(), end: new Set() };
 let MCA_HOVER = null;
+const CHUNK_ZOOM = 320;
+let MCA_CHUNK_SEL = { overworld: new Set(), nether: new Set(), end: new Set() };
+let MCA_DETAIL_CACHE = {};
+let MCA_HOVER_CHUNK = null;
+let MAP_NEED_DETAILS = [];
 async function loadWorldManager() {
   const container = document.getElementById('mcaListContainer');
   if (container) container.innerHTML = '<div class="mca-row" style="color:var(--text-dim)">Cargando análisis del mundo...</div>';
@@ -5174,9 +5179,14 @@ function mcaChkToggle(el) {
 }
 function updateMcaSelectionCount() {
   const sel = MCA_SEL[MCA_ACTIVE_DIM] || new Set();
+  const csel = MCA_CHUNK_SEL[MCA_ACTIVE_DIM] || new Set();
   const checked = document.querySelectorAll('.mca-chk:checked').length;
   const n = Math.max(sel.size, checked);
-  document.getElementById('mcaSelectedCount').textContent = `${n} regiones seleccionadas (${n * 1024} chunks)`;
+  const el = document.getElementById('mcaSelectedCount');
+  if (csel.size) el.textContent = `${n} regiones + ${csel.size} chunks sueltos seleccionados`;
+  else el.textContent = `${n} regiones seleccionadas (${n * 1024} chunks)`;
+  const btn = document.getElementById('mcaDeleteBtn');
+  if (btn) btn.textContent = (n || csel.size) ? `Borrar selección (${n} reg. + ${csel.size} chunks)` : 'Borrar regiones seleccionadas';
 }
 function toggleSelectAllMca(check) {
   const dim = (WORLD_DATA.dimensions || []).find(d => d.id === MCA_ACTIVE_DIM);
@@ -5199,7 +5209,7 @@ function setMapMode(mode) {
   drawWorldMap();
 }
 function mapZoom(f) {
-  MCA_VIEW.scale = Math.max(3, Math.min(128, MCA_VIEW.scale * f));
+  MCA_VIEW.scale = Math.max(3, Math.min(1024, MCA_VIEW.scale * f));
   drawWorldMap();
 }
 function mapResetView() {
@@ -5208,6 +5218,7 @@ function mapResetView() {
 }
 function mapClearSel() {
   (MCA_SEL[MCA_ACTIVE_DIM] || new Set()).clear();
+  (MCA_CHUNK_SEL[MCA_ACTIVE_DIM] || new Set()).clear();
   renderMcaList();
   drawWorldMap();
 }
@@ -5260,6 +5271,7 @@ function initWorldMap() {
       return;
     }
     MCA_HOVER = mapPick(p.x, p.y);
+    MCA_HOVER_CHUNK = mapPickChunk(p.x, p.y, MCA_HOVER);
     drawWorldMap();
     const tip = document.getElementById('worldMapTip');
     if (MCA_HOVER && tip) {
@@ -5268,11 +5280,18 @@ function initWorldMap() {
       tip.style.display = 'block';
       tip.style.left = (p.x + 14) + 'px';
       tip.style.top = (p.y + 14) + 'px';
-      tip.textContent = r.file + ' · R(' + r.x + ',' + r.z + ') · ' + (r.present || 0) + '/1024 chunks · ' + dt;
+      let txt = r.file + ' · R(' + r.x + ',' + r.z + ') · ' + (r.present || 0) + '/1024 chunks · ' + dt;
+      if (MCA_HOVER_CHUNK) {
+        const bx0 = (r.x * 32 + MCA_HOVER_CHUNK.cx) * 16, bx1 = bx0 + 15;
+        const bz0 = (r.z * 32 + MCA_HOVER_CHUNK.cz) * 16, bz1 = bz0 + 15;
+        txt += ' · chunk (' + MCA_HOVER_CHUNK.cx + ',' + MCA_HOVER_CHUNK.cz + ') X ' + bx0 + '..' + bx1 + ' Z ' + bz0 + '..' + bz1;
+      }
+      tip.textContent = txt;
     } else if (tip) tip.style.display = 'none';
   });
   cv.addEventListener('mouseleave', () => {
     MCA_HOVER = null;
+    MCA_HOVER_CHUNK = null;
     const tip = document.getElementById('worldMapTip');
     if (tip) tip.style.display = 'none';
     drawWorldMap();
@@ -5283,6 +5302,17 @@ function initWorldMap() {
     const p = pos(e);
     const r = mapPick(p.x, p.y);
     if (!r) return;
+    if (MCA_VIEW.scale >= CHUNK_ZOOM) {
+      const ch = mapPickChunk(p.x, p.y, r);
+      if (!ch) return;
+      const csel = MCA_CHUNK_SEL[MCA_ACTIVE_DIM] || (MCA_CHUNK_SEL[MCA_ACTIVE_DIM] = new Set());
+      const ck = r.file + ':' + ch.cx + ':' + ch.cz;
+      if (csel.has(ck)) csel.delete(ck);
+      else csel.add(ck);
+      updateMcaSelectionCount();
+      drawWorldMap();
+      return;
+    }
     const sel = MCA_SEL[MCA_ACTIVE_DIM] || (MCA_SEL[MCA_ACTIVE_DIM] = new Set());
     if (sel.has(r.file)) sel.delete(r.file);
     else sel.add(r.file);
@@ -5303,7 +5333,7 @@ function initWorldMap() {
       MCA_VIEW.cx += (px - r.width / 2) / MCA_VIEW.scale;
       MCA_VIEW.cz += (py - r.height / 2) / MCA_VIEW.scale;
     }
-    MCA_VIEW.scale = Math.min(128, MCA_VIEW.scale * 1.6);
+    MCA_VIEW.scale = Math.min(1024, MCA_VIEW.scale * 1.6);
     drawWorldMap();
   });
 }
@@ -5320,6 +5350,16 @@ function mapPick(px, py) {
   }
   return best;
 }
+function mapPickChunk(px, py, r) {
+  if (!r || MCA_VIEW.scale < CHUNK_ZOOM) return null;
+  const cv = document.getElementById('worldMapCanvas');
+  if (!cv) return null;
+  const w = cv.clientWidth, h = cv.clientHeight, s = MCA_VIEW.scale;
+  const x = (r.x - MCA_VIEW.cx) * s + w / 2, y = (r.z - MCA_VIEW.cz) * s + h / 2;
+  const cx = Math.floor((px - x) / s * 32), cz = Math.floor((py - y) / s * 32);
+  if (cx < 0 || cx > 31 || cz < 0 || cz > 31) return null;
+  return { cx, cz };
+}
 function mapQueueTile(key, rx, rz) {
   if (MCA_TILES[key]) return;
   const dim = MCA_ACTIVE_DIM;
@@ -5328,6 +5368,61 @@ function mapQueueTile(key, rx, rz) {
   img.onload = () => { MCA_TILES[key].ok = true; MCA_TILES[key].loading = false; drawWorldMap(); };
   img.onerror = () => { MCA_TILES[key].ok = false; MCA_TILES[key].loading = false; };
   img.src = U('/api/world/tile?dimension=' + encodeURIComponent(dim) + '&rx=' + rx + '&rz=' + rz);
+}
+function mapQueueDetail(key, file) {
+  if (MCA_DETAIL_CACHE[key]) return;
+  MCA_DETAIL_CACHE[key] = { loading: true, grid: null };
+  fetch(U('/api/world/region?dimension=' + encodeURIComponent(MCA_ACTIVE_DIM) + '&file=' + encodeURIComponent(file)))
+    .then(r => r.json())
+    .then(d => {
+      MCA_DETAIL_CACHE[key] = { loading: false, grid: (d && d.ok && d.grid) || null };
+      drawWorldMap();
+    })
+    .catch(() => { MCA_DETAIL_CACHE[key] = { loading: false, grid: null }; });
+}
+function drawChunkOverlay(ctx, r, x, y, s) {
+  const key = MCA_ACTIVE_DIM + ':' + r.file;
+  const det = MCA_DETAIL_CACHE[key];
+  const chunkSel = MCA_CHUNK_SEL[MCA_ACTIVE_DIM] || new Set();
+  const cs = s / 32;
+  if (!det || !det.grid) {
+    if (!det) MAP_NEED_DETAILS.push({ key, file: r.file, d: (r.x - MCA_VIEW.cx) * (r.x - MCA_VIEW.cx) + (r.z - MCA_VIEW.cz) * (r.z - MCA_VIEW.cz) });
+    ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 1; i < 32; i++) {
+      ctx.moveTo(x + i * cs, y); ctx.lineTo(x + i * cs, y + s);
+      ctx.moveTo(x, y + i * cs); ctx.lineTo(x + s, y + i * cs);
+    }
+    ctx.stroke();
+    return;
+  }
+  for (let cz = 0; cz < 32; cz++) {
+    for (let cx = 0; cx < 32; cx++) {
+      const gen = det.grid[cz * 32 + cx];
+      const ck = r.file + ':' + cx + ':' + cz;
+      if (chunkSel.has(ck)) {
+        ctx.fillStyle = 'rgba(168,85,247,0.55)';
+        ctx.fillRect(x + cx * cs + 0.5, y + cz * cs + 0.5, cs - 1, cs - 1);
+      } else if (!gen) {
+        ctx.fillStyle = 'rgba(0,0,0,0.35)';
+        ctx.fillRect(x + cx * cs + 0.5, y + cz * cs + 0.5, cs - 1, cs - 1);
+      }
+      if (MCA_HOVER_CHUNK && MCA_HOVER_CHUNK.file === r.file && MCA_HOVER_CHUNK.cx === cx && MCA_HOVER_CHUNK.cz === cz) {
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(x + cx * cs + 1, y + cz * cs + 1, cs - 2, cs - 2);
+      }
+    }
+  }
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let i = 1; i < 32; i++) {
+    ctx.moveTo(x + i * cs, y); ctx.lineTo(x + i * cs, y + s);
+    ctx.moveTo(x, y + i * cs); ctx.lineTo(x + s, y + i * cs);
+  }
+  ctx.stroke();
 }
 function drawWorldMap() {
   const cv = document.getElementById('worldMapCanvas');
@@ -5355,6 +5450,8 @@ function drawWorldMap() {
   ctx.fillText('0,0 spawn', ox + 5, oy - 5);
   const terrain = MCA_MAP_MODE === 'terrain';
   const pendingTiles = [];
+  MAP_NEED_DETAILS = [];
+  const chunkSel = MCA_CHUNK_SEL[MCA_ACTIVE_DIM] || new Set();
   for (const r of regs) {
     const x = (r.x - MCA_VIEW.cx) * s + w / 2, y = (r.z - MCA_VIEW.cz) * s + h / 2;
     if (x + s < -20 || y + s < -20 || x > w + 20 || y > h + 20) continue;
@@ -5391,10 +5488,17 @@ function drawWorldMap() {
       ctx.lineWidth = 1;
       ctx.strokeRect(x + 0.5, y + 0.5, s - 1, s - 1);
     }
+    if (s >= CHUNK_ZOOM && (r.present > 0)) {
+      drawChunkOverlay(ctx, r, x, y, s);
+    }
   }
   if (pendingTiles.length) {
     pendingTiles.sort((a, b) => a.d - b.d);
     pendingTiles.slice(0, 60).forEach(t => mapQueueTile(t.key, t.rx, t.rz));
+  }
+  if (MAP_NEED_DETAILS.length) {
+    MAP_NEED_DETAILS.sort((a, b) => a.d - b.d);
+    MAP_NEED_DETAILS.slice(0, 24).forEach(t => mapQueueDetail(t.key, t.file));
   }
   const lg = document.getElementById('mapLegend');
   if (lg) lg.innerHTML = MCA_MAP_MODE === 'terrain'
@@ -5403,7 +5507,8 @@ function drawWorldMap() {
     ? '<span><span class="lm-sw" style="background:rgba(52,211,153,0.85)"></span>Llena (90%+)</span><span><span class="lm-sw" style="background:rgba(52,211,153,0.5)"></span>Media</span><span><span class="lm-sw" style="background:rgba(251,191,36,0.55)"></span>Escasa</span><span><span class="lm-sw" style="background:rgba(148,163,184,0.2)"></span>Vacía</span>'
     : '<span><span class="lm-sw" style="background:rgba(52,211,153,0.85)"></span>Reciente</span><span><span class="lm-sw" style="background:rgba(168,85,247,0.6)"></span>Intermedia</span><span><span class="lm-sw" style="background:rgba(100,116,139,0.5)"></span>Antigua</span><span><span class="lm-sw" style="background:rgba(148,163,184,0.2)"></span>Vacía</span>';
   const hint = document.getElementById('mapHint');
-  if (hint) hint.textContent = regs.length + ' regiones · ' + sel.size + ' seleccionadas · Arrastra para mover · rueda para zoom · clic para seleccionar';
+  const nChunks = (MCA_CHUNK_SEL[MCA_ACTIVE_DIM] || new Set()).size;
+  if (hint) hint.textContent = regs.length + ' regiones · ' + sel.size + ' reg. + ' + nChunks + ' chunks seleccionados · Arrastra para mover · rueda o doble clic para zoom · con zoom alto el clic selecciona chunks sueltos';
 }
 async function showRegionDetail(file) {
   const box = document.getElementById('regionDetail');
@@ -5420,6 +5525,8 @@ async function showRegionDetail(file) {
       if (title) title.textContent = file + ' (sin datos de chunks)';
       return;
     }
+    MCA_DETAIL_CACHE[MCA_ACTIVE_DIM + ':' + file] = { loading: false, grid: r.grid };
+    drawWorldMap();
     const x0 = r.x * 512, x1 = (r.x + 1) * 512 - 1;
     const z0 = r.z * 512, z1 = (r.z + 1) * 512 - 1;
     if (title) title.textContent = r.file + ' · R(' + r.x + ',' + r.z + ')';
@@ -5468,25 +5575,52 @@ function selectCalculatedMca() {
 }
 async function deleteSelectedMca() {
   const sel = MCA_SEL[MCA_ACTIVE_DIM] || new Set();
+  const csel = MCA_CHUNK_SEL[MCA_ACTIVE_DIM] || new Set();
   const files = sel.size ? Array.from(sel) : Array.from(document.querySelectorAll('.mca-chk:checked')).map(c => c.dataset.file);
-  if (!files.length) {
-    showToast('Selecciona al menos una región', 'info');
+  const chunks = Array.from(csel).map(k => {
+    const p = k.split(':');
+    return { file: p[0], cx: parseInt(p[1], 10), cz: parseInt(p[2], 10) };
+  });
+  if (!files.length && !chunks.length) {
+    showToast('Selecciona al menos una región o un chunk (haz zoom para ver chunks)', 'info');
     return;
   }
-  if (!confirm(`⚠️ ATENCIÓN: ¿Seguro que deseas eliminar ${files.length} archivos .mca (${files.length * 1024} chunks) de ${MCA_ACTIVE_DIM.toUpperCase()}?\n\nLos terrenos se borrarán y se regenerarán limpios la próxima vez que alguien entre.`)) return;
+  const parts = [];
+  if (files.length) parts.push(`${files.length} archivos .mca (${files.length * 1024} chunks)`);
+  if (chunks.length) parts.push(`${chunks.length} chunks sueltos`);
+  const NL = String.fromCharCode(10);
+  let warnMsg = `⚠️ ATENCIÓN: ¿Seguro que deseas eliminar ${parts.join(' + ')} de ${MCA_ACTIVE_DIM.toUpperCase()}?` + NL + NL + `Los terrenos se borrarán y se regenerarán limpios la próxima vez que alguien entre.`;
+  if (chunks.length) warnMsg += NL + NL + 'NOTA: borrar chunks requiere el servidor DETENIDO.';
+  if (!confirm(warnMsg)) return;
   try {
-    const r = await (await fetch(U('/api/world/mca'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'delete', dimension: MCA_ACTIVE_DIM, files })
-    })).json();
-    showToast(r.msg || 'Regiones eliminadas', r.ok ? 'success' : 'error');
-    if (r.ok) {
-      addNotif(`Borrado MCA: ${files.length} regiones en ${MCA_ACTIVE_DIM}`, 'Ahora', 'trash');
-      MCA_SEL[MCA_ACTIVE_DIM] = new Set();
-      closeRegionDetail();
-      loadWorldManager();
+    if (chunks.length) {
+      const rc = await (await fetch(U('/api/world/mca'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete_chunks', dimension: MCA_ACTIVE_DIM, chunks })
+      })).json();
+      showToast(rc.msg || 'Chunks eliminados', rc.ok ? 'success' : 'error');
+      if (rc.ok) {
+        addNotif(`Borrado MCA: ${chunks.length} chunks en ${MCA_ACTIVE_DIM}`, 'Ahora', 'trash');
+        MCA_CHUNK_SEL[MCA_ACTIVE_DIM] = new Set();
+      } else {
+        return;
+      }
     }
+    if (files.length) {
+      const r = await (await fetch(U('/api/world/mca'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete', dimension: MCA_ACTIVE_DIM, files })
+      })).json();
+      showToast(r.msg || 'Regiones eliminadas', r.ok ? 'success' : 'error');
+      if (r.ok) {
+        addNotif(`Borrado MCA: ${files.length} regiones en ${MCA_ACTIVE_DIM}`, 'Ahora', 'trash');
+        MCA_SEL[MCA_ACTIVE_DIM] = new Set();
+      }
+    }
+    closeRegionDetail();
+    loadWorldManager();
   } catch (e) {
     showToast('Error de conexión', 'error');
   }
@@ -6235,12 +6369,114 @@ _TILE_LOCKS = {}
 _TILE_LOCKS_GUARD = threading.Lock()
 
 
+TILE_PX = 512
+
+
 def _tile_paths(srv, dim_id, rx, rz):
     dd = os.path.join(srv.data_dir, "tiles", dim_id)
-    return dd, os.path.join(dd, f"r.{rx}.{rz}.png")
+    return dd, os.path.join(dd, f"r.{rx}.{rz}.{TILE_PX}.png")
 
 
-def render_region_tile(srv, dim_id, rx, rz, size=256):
+def mca_zero_chunks(fp, chunk_idxs):
+    """Pone a cero las entradas de los chunks dados en la cabecera del .mca.
+    Devuelve la cantidad de entradas que realmente cambiaron."""
+    idxs = sorted({int(i) for i in chunk_idxs if 0 <= int(i) < 1024})
+    if not idxs:
+        return 0
+    with open(fp, "r+b") as f:
+        head = f.read(8192)
+        if len(head) < 8192:
+            raise ValueError("Archivo .mca incompleto")
+        loc = bytearray(head[:4096])
+        tim = bytearray(head[4096:8192])
+        changed = 0
+        for i in idxs:
+            o = i * 4
+            if loc[o:o + 4] != b"\x00\x00\x00\x00":
+                loc[o:o + 4] = b"\x00\x00\x00\x00"
+                tim[o:o + 4] = b"\x00\x00\x00\x00"
+                changed += 1
+        if changed:
+            f.seek(0)
+            f.write(bytes(loc))
+            f.write(bytes(tim))
+    return changed
+
+
+def mca_world_dirs(srv):
+    wname = srv.world_name or "world"
+    wdir = os.path.join(srv.server_dir, wname)
+    if not os.path.isdir(wdir):
+        wdir = os.path.join(srv.server_dir, "world")
+    return wdir, {
+        "overworld": os.path.join(wdir, "region"),
+        "nether": os.path.join(wdir, "DIM-1", "region"),
+        "end": os.path.join(wdir, "DIM1", "region")
+    }
+
+
+def mca_delete_chunks(dim_id, chunks):
+    """Borra chunks sueltos (requiere servidor detenido). chunks: [{file, cx, cz}]."""
+    srv = S()
+    if _srv_running(srv):
+        return False, "Detén el servidor antes de borrar chunks (los archivos del mundo están en uso)"
+    wdir, dim_paths = mca_world_dirs(srv)
+    target_dir = dim_paths.get(dim_id)
+    if not target_dir or not os.path.isdir(target_dir):
+        return False, "Dimensión no encontrada"
+    by_file = {}
+    for c in chunks or []:
+        try:
+            fn = os.path.basename(str(c.get("file", "")))
+            cx, cz = int(c.get("cx", -1)), int(c.get("cz", -1))
+        except (TypeError, ValueError):
+            continue
+        if not re.match(r"^r\.-?\d+\.-?\d+\.mca$", fn):
+            continue
+        if not (0 <= cx < 32 and 0 <= cz < 32):
+            continue
+        by_file.setdefault(fn, set()).add(cz * 32 + cx)
+    if not by_file:
+        return False, "Sin chunks válidos para borrar"
+    import shutil as _sh
+    touched, cleared = 0, 0
+    for fn, idxs in sorted(by_file.items()):
+        fp = os.path.join(target_dir, fn)
+        if not os.path.isfile(fp):
+            continue
+        try:
+            bak = fp + ".bak"
+            try:
+                _sh.copyfile(fp, bak)
+            except Exception:
+                pass
+            n = mca_zero_chunks(fp, idxs)
+            if n:
+                touched += 1
+                cleared += n
+                base = os.path.dirname(target_dir)
+                poi_dir = os.path.join(base, "poi")
+                ent_dir = os.path.join(base, "entities")
+                if dim_id == "overworld":
+                    poi_dir = os.path.join(wdir, "poi")
+                    ent_dir = os.path.join(wdir, "entities")
+                for sub in (poi_dir, ent_dir):
+                    sf = os.path.join(sub, fn)
+                    if os.path.isfile(sf):
+                        try:
+                            mca_zero_chunks(sf, idxs)
+                        except Exception:
+                            pass
+        except Exception as e:
+            return False, f"Error en {fn}: {e}"
+    if not touched:
+        return False, "Esos chunks ya estaban vacíos"
+    return True, (f"Se borraron {cleared} chunks en {touched} regiones de "
+                  f"{dim_id.upper()} (copia .bak guardada junto a cada .mca). "
+                  f"Se regenerarán al explorar la zona.")
+
+
+def render_region_tile(srv, dim_id, rx, rz, size=TILE_PX):
     wname = srv.world_name or "world"
     wdir = os.path.join(srv.server_dir, wname)
     if not os.path.isdir(wdir):
@@ -6378,6 +6614,12 @@ def get_region_tile(srv, dim_id, rx, rz):
             return None, "Región vacía"
         try:
             os.makedirs(dd, exist_ok=True)
+            legacy = os.path.join(dd, f"r.{rx}.{rz}.png")
+            try:
+                if os.path.isfile(legacy):
+                    os.remove(legacy)
+            except Exception:
+                pass
             tmp = tp + ".tmp"
             with open(tmp, "wb") as f:
                 f.write(png)
@@ -7443,6 +7685,9 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
                 return self.send_json({"ok": ok, "msg": msg})
             elif action == "reset_dimension":
                 ok, msg = mca_reset_dimension(dim)
+                return self.send_json({"ok": ok, "msg": msg})
+            elif action == "delete_chunks":
+                ok, msg = mca_delete_chunks(dim, payload.get("chunks", []))
                 return self.send_json({"ok": ok, "msg": msg})
             return self.send_json({"ok": False, "msg": "Acción desconocida"}, code=400)
 
