@@ -5432,6 +5432,13 @@ function marqueeSelect(m) {
   drawWorldMap();
   updateRegionPreview();
 }
+function mapTileVersion(rx, rz) {
+  try {
+    const dim = (WORLD_DATA.dimensions || []).find(d => d.id === MCA_ACTIVE_DIM);
+    const r = dim && dim.regions ? dim.regions.find(q => q.x === rx && q.z === rz) : null;
+    return (r && r.mtime) || 0;
+  } catch (e) { return 0; }
+}
 function mapQueueTile(key, rx, rz) {
   if (MCA_TILES[key]) return;
   const dim = MCA_ACTIVE_DIM;
@@ -5439,7 +5446,31 @@ function mapQueueTile(key, rx, rz) {
   MCA_TILES[key] = { img, ok: false, loading: true };
   img.onload = () => { MCA_TILES[key].ok = true; MCA_TILES[key].loading = false; drawWorldMap(); try { updateRegionPreview(); } catch (e) {} };
   img.onerror = () => { MCA_TILES[key].ok = false; MCA_TILES[key].loading = false; };
-  img.src = U('/api/world/tile?dimension=' + encodeURIComponent(dim) + '&rx=' + rx + '&rz=' + rz);
+  const v = mapTileVersion(rx, rz);
+  img.src = U('/api/world/tile?dimension=' + encodeURIComponent(dim) + '&rx=' + rx + '&rz=' + rz + (v ? '&v=' + v : ''));
+}
+function mapInvalidateFiles(files) {
+  (files || []).forEach(fn => {
+    const m = /^r\\.(-?\\d+)\\.(-?\\d+)\\.mca$/.exec(fn);
+    if (!m) return;
+    delete MCA_TILES[MCA_ACTIVE_DIM + ':' + m[1] + ':' + m[2]];
+    delete MCA_DETAIL_CACHE[MCA_ACTIVE_DIM + ':' + fn];
+  });
+}
+function mapInvalidateDim(dim) {
+  Object.keys(MCA_TILES).forEach(k => { if (k.indexOf(dim + ':') === 0) delete MCA_TILES[k]; });
+  Object.keys(MCA_DETAIL_CACHE).forEach(k => { if (k.indexOf(dim + ':') === 0) delete MCA_DETAIL_CACHE[k]; });
+  MCA_SEL[dim] = new Set();
+  MCA_CHUNK_SEL[dim] = new Set();
+}
+async function mapRefreshDetail() {
+  if (!MCA_DETAIL_FILE) return;
+  try {
+    const dim = (WORLD_DATA.dimensions || []).find(d => d.id === MCA_ACTIVE_DIM);
+    const still = dim && dim.regions ? dim.regions.some(r => r.file === MCA_DETAIL_FILE) : false;
+    if (still) await showRegionDetail(MCA_DETAIL_FILE);
+    else closeRegionDetail();
+  } catch (e) {}
 }
 function mapQueueDetail(key, file) {
   if (MCA_DETAIL_CACHE[key]) return;
@@ -5768,6 +5799,7 @@ async function deleteSelectedMca() {
       if (rc.ok) {
         addNotif(`Borrado MCA: ${chunks.length} chunks en ${MCA_ACTIVE_DIM}`, 'Ahora', 'trash');
         MCA_CHUNK_SEL[MCA_ACTIVE_DIM] = new Set();
+        mapInvalidateFiles(chunks.map(c => c.file));
       } else {
         return;
       }
@@ -5782,10 +5814,12 @@ async function deleteSelectedMca() {
       if (r.ok) {
         addNotif(`Borrado MCA: ${files.length} regiones en ${MCA_ACTIVE_DIM}`, 'Ahora', 'trash');
         MCA_SEL[MCA_ACTIVE_DIM] = new Set();
+        mapInvalidateFiles(files);
       }
     }
-    closeRegionDetail();
-    loadWorldManager();
+    await loadWorldManager();
+    await mapRefreshDetail();
+    updateMcaSelectionCount();
   } catch (e) {
     showToast('Error de conexión', 'error');
   }
@@ -5801,7 +5835,10 @@ async function mcaResetDim(dim) {
     showToast(r.msg || 'Dimensión reiniciada', r.ok ? 'success' : 'error');
     if (r.ok) {
       addNotif(`Dimensión reiniciada: ${dim.toUpperCase()}`, 'Ahora', 'rotate-ccw');
-      loadWorldManager();
+      mapInvalidateDim(dim);
+      await loadWorldManager();
+      await mapRefreshDetail();
+      updateMcaSelectionCount();
     }
   } catch (e) {
     showToast('Error al reiniciar dimensión', 'error');
@@ -6605,17 +6642,37 @@ def mca_delete_chunks(dim_id, chunks):
         return False, "Sin chunks válidos para borrar"
     import shutil as _sh
     touched, cleared = 0, 0
+    tile_dd = os.path.join(srv.data_dir, "tiles", dim_id)
     for fn, idxs in sorted(by_file.items()):
         fp = os.path.join(target_dir, fn)
         if not os.path.isfile(fp):
             continue
         try:
-            bak = fp + ".bak"
-            try:
-                _sh.copyfile(fp, bak)
-            except Exception:
-                pass
-            n = mca_zero_chunks(fp, idxs)
+            m0 = re.match(r"^r\.(-?\d+)\.(-?\d+)\.mca$", fn)
+            tkey = (srv.id, dim_id, int(m0.group(1)), int(m0.group(2))) if m0 else None
+            with _TILE_LOCKS_GUARD:
+                tlk = _TILE_LOCKS.setdefault(tkey, threading.Lock()) if tkey else None
+            if tlk is None:
+                import contextlib as _cl
+                tlk = _cl.nullcontext()
+            with tlk:
+                bak = fp + ".bak"
+                try:
+                    _sh.copyfile(fp, bak)
+                except Exception:
+                    pass
+                n = mca_zero_chunks(fp, idxs)
+                try:
+                    m = re.match(r"^r\.(-?\d+)\.(-?\d+)\.mca$", fn)
+                    for tp in (os.path.join(tile_dd, f"r.{m.group(1)}.{m.group(2)}.png"),
+                               os.path.join(tile_dd, f"r.{m.group(1)}.{m.group(2)}.{TILE_PX}.png")):
+                        try:
+                            if os.path.isfile(tp):
+                                os.remove(tp)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
             if n:
                 touched += 1
                 cleared += n
@@ -6752,12 +6809,12 @@ def get_region_tile(srv, dim_id, rx, rz):
     if not os.path.isfile(fp):
         return None, "La región no existe"
     try:
-        src_mtime = int(os.path.getmtime(fp))
+        src_mtime = os.path.getmtime(fp)
     except Exception:
         return None, "Sin acceso"
     dd, tp = _tile_paths(srv, dim_id, rx, rz)
     try:
-        if os.path.isfile(tp) and int(os.path.getmtime(tp)) >= src_mtime:
+        if os.path.isfile(tp) and os.path.getmtime(tp) >= src_mtime:
             with open(tp, "rb") as f:
                 return f.read(), None
     except Exception:
@@ -6769,7 +6826,7 @@ def get_region_tile(srv, dim_id, rx, rz):
             lk = _TILE_LOCKS[key] = threading.Lock()
     with lk:
         try:
-            if os.path.isfile(tp) and int(os.path.getmtime(tp)) >= src_mtime:
+            if os.path.isfile(tp) and os.path.getmtime(tp) >= src_mtime:
                 with open(tp, "rb") as f:
                     return f.read(), None
         except Exception:
@@ -6931,15 +6988,24 @@ def mca_delete_regions(dim_id, region_files):
 
     deleted = 0
     errors = []
+    tile_dd = os.path.join(S().data_dir, "tiles", dim_id)
     for fn in region_files:
         fn = os.path.basename(fn)
-        if not re.match(r"^r\.-?\d+\.-?\d+\.mca$", fn):
+        m = re.match(r"^r\.(-?\d+)\.(-?\d+)\.mca$", fn)
+        if not m:
             continue
         fp = os.path.join(target_dir, fn)
         try:
             if os.path.isfile(fp):
                 os.remove(fp)
                 deleted += 1
+                for tp in (os.path.join(tile_dd, f"r.{m.group(1)}.{m.group(2)}.png"),
+                           os.path.join(tile_dd, f"r.{m.group(1)}.{m.group(2)}.{TILE_PX}.png")):
+                    try:
+                        if os.path.isfile(tp):
+                            os.remove(tp)
+                    except Exception:
+                        pass
                 poi_dir = os.path.join(os.path.dirname(target_dir), "poi") if dim_id != "overworld" else os.path.join(wdir, "poi")
                 ent_dir = os.path.join(os.path.dirname(target_dir), "entities") if dim_id != "overworld" else os.path.join(wdir, "entities")
                 for sub_dir in (poi_dir, ent_dir):
@@ -6981,6 +7047,12 @@ def mca_reset_dimension(dim_id):
             elif os.path.isfile(p):
                 os.remove(p)
                 count += 1
+        try:
+            tdd = os.path.join(srv.data_dir, "tiles", dim_id)
+            if os.path.isdir(tdd):
+                shutil.rmtree(tdd)
+        except Exception:
+            pass
         return True, f"Dimensión {dim_id.upper()} reiniciada con éxito (se regenerará al entrar un jugador)"
     except Exception as e:
         return False, f"Error reiniciando dimensión: {e}"
