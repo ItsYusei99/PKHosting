@@ -2638,8 +2638,10 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
 .worldmap-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
 .worldmap-legend { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--text-dim); }
 .worldmap-legend .lm-sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; }
-#worldMapCanvas { width: 100%; height: 420px; display: block; border: 1px solid var(--border-color); border-radius: 10px; background: #06060b radial-gradient(circle at 50% 50%, rgba(168,85,247,0.06), transparent 70%); cursor: grab; touch-action: none; }
+#worldMapCanvas { width: 100% !important; height: clamp(420px, 58vh, 640px) !important; display: block; border: 1px solid var(--border-color); border-radius: 10px; background: #06060b radial-gradient(circle at 50% 50%, rgba(168,85,247,0.06), transparent 70%); cursor: grab; touch-action: none; }
 #worldMapCanvas:active { cursor: grabbing; }
+#mcaMapCard.map-full { position: fixed; inset: 12px; z-index: 500; overflow-y: auto; margin: 0; box-shadow: 0 24px 80px rgba(0,0,0,0.8), 0 0 40px rgba(168,85,247,0.25); }
+#mcaMapCard.map-full #worldMapCanvas { height: calc(100vh - 300px) !important; min-height: 420px; }
 #worldMapTip { position: absolute; pointer-events: none; display: none; background: #0c0817; border: 1px solid rgba(168,85,247,0.5); border-radius: 8px; padding: 8px 10px; font-size: 11.5px; font-family: 'JetBrains Mono', monospace; color: #e9d5ff; z-index: 50; box-shadow: 0 8px 24px rgba(0,0,0,0.6); white-space: nowrap; }
 #regionDetail { display: none; margin-top: 10px; background: rgba(168,85,247,0.05); border: 1px solid rgba(168,85,247,0.25); border-radius: 10px; padding: 12px; }
 #regionChunks { display: grid; grid-template-columns: repeat(32, 1fr); gap: 1px; margin-top: 8px; max-width: 384px; }
@@ -3120,7 +3122,7 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
       </div>
 
       <!-- MCA Region Cleaner Card -->
-      <div class="system-details-card">
+      <div class="system-details-card" id="mcaMapCard">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px">
           <div>
             <h3 style="margin:0; font-size:15px">MCA Region Cleaner <span style="font-size:11.5px; color:var(--text-muted)">(Herramienta estilo MCA Selector)</span></h3>
@@ -3147,6 +3149,7 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
           <button class="term-tool-btn" onclick="mapZoom(0.8)" title="Alejar">－</button>
           <button class="term-tool-btn" onclick="mapResetView()" title="Centrar en el origen">◎ Origen</button>
           <button class="term-tool-btn" onclick="mapClearSel()" title="Quitar selección del mapa">Limpiar selección</button>
+          <button class="term-tool-btn" onclick="toggleMapFullscreen()" title="Mapa a pantalla completa (Esc para salir)">⛶ Expandir</button>
           <span class="worldmap-legend" id="mapLegend"></span>
           <span style="flex:1"></span>
           <span id="mapHint" style="font-size:11px; color:var(--text-dim)">Arrastra para mover · rueda para zoom · clic para seleccionar</span>
@@ -5196,7 +5199,7 @@ function setMapMode(mode) {
   drawWorldMap();
 }
 function mapZoom(f) {
-  MCA_VIEW.scale = Math.max(3, Math.min(64, MCA_VIEW.scale * f));
+  MCA_VIEW.scale = Math.max(3, Math.min(128, MCA_VIEW.scale * f));
   drawWorldMap();
 }
 function mapResetView() {
@@ -5208,6 +5211,17 @@ function mapClearSel() {
   renderMcaList();
   drawWorldMap();
 }
+function toggleMapFullscreen() {
+  const card = document.getElementById('mcaMapCard');
+  if (!card) return;
+  card.classList.toggle('map-full');
+  if (card.classList.contains('map-full')) card.scrollIntoView({ block: 'start' });
+  requestAnimationFrame(() => setTimeout(drawWorldMap, 60));
+}
+window.addEventListener('resize', () => {
+  const t = document.getElementById('tab-worlds');
+  if (t && t.classList.contains('active')) drawWorldMap();
+});
 function mapRegionColor(r, tmin, tmax) {
   if (!(r.present > 0)) return { fill: 'rgba(148,163,184,0.10)', edge: 'rgba(148,163,184,0.25)' };
   if (MCA_MAP_MODE === 'fill') {
@@ -5280,6 +5294,18 @@ function initWorldMap() {
     e.preventDefault();
     mapZoom(e.deltaY < 0 ? 1.15 : 0.87);
   }, { passive: false });
+  cv.addEventListener('dblclick', e => {
+    const r = cv.getBoundingClientRect();
+    const px = e.clientX - r.left, py = e.clientY - r.top;
+    const hit = mapPick(px, py);
+    if (hit) { MCA_VIEW.cx = hit.x; MCA_VIEW.cz = hit.z; }
+    else {
+      MCA_VIEW.cx += (px - r.width / 2) / MCA_VIEW.scale;
+      MCA_VIEW.cz += (py - r.height / 2) / MCA_VIEW.scale;
+    }
+    MCA_VIEW.scale = Math.min(128, MCA_VIEW.scale * 1.6);
+    drawWorldMap();
+  });
 }
 function mapPick(px, py) {
   const cv = document.getElementById('worldMapCanvas');
@@ -5307,7 +5333,7 @@ function drawWorldMap() {
   const cv = document.getElementById('worldMapCanvas');
   if (!cv) return;
   const dpr = window.devicePixelRatio || 1;
-  const w = cv.clientWidth || cv.parentElement.clientWidth, h = 420;
+  const w = cv.clientWidth || cv.parentElement.clientWidth, h = cv.clientHeight || 420;
   if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
     cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
   }
@@ -5620,6 +5646,8 @@ window.addEventListener('keydown', e => {
     closeCmdPalette();
     closePlayerModal();
     if (document.querySelector('.terminal-wrapper.fullscreen')) toggleTermFullscreen();
+    const mc = document.getElementById('mcaMapCard');
+    if (mc && mc.classList.contains('map-full')) toggleMapFullscreen();
   }
 });
 
