@@ -2645,6 +2645,7 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
 #worldMapTip { position: absolute; pointer-events: none; display: none; background: #0c0817; border: 1px solid rgba(168,85,247,0.5); border-radius: 8px; padding: 8px 10px; font-size: 11.5px; font-family: 'JetBrains Mono', monospace; color: #e9d5ff; z-index: 50; box-shadow: 0 8px 24px rgba(0,0,0,0.6); white-space: nowrap; }
 #regionDetail { display: none; margin-top: 10px; background: rgba(168,85,247,0.05); border: 1px solid rgba(168,85,247,0.25); border-radius: 10px; padding: 12px; }
 #regionChunks { display: grid; grid-template-columns: repeat(32, 1fr); gap: 1px; margin-top: 8px; max-width: 384px; }
+#regionPreview { width: 100% !important; max-width: 384px; height: auto !important; aspect-ratio: 1; display: block; border-radius: 8px; border: 1px solid var(--border-color); background: #06060b; margin-top: 8px; }
 #regionChunks .chk { aspect-ratio: 1; border-radius: 1px; background: rgba(255,255,255,0.06); min-width: 0; }
 #regionChunks .chk.full { background: #34d399; }
 #regionChunks .chk.empty { background: rgba(255,255,255,0.05); }
@@ -3166,6 +3167,8 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
               <button class="term-tool-btn" style="font-size:11px" onclick="closeRegionDetail()">Cerrar</button>
             </div>
           </div>
+          <div style="font-size:11px; color:var(--text-dim); margin-top:6px">Vista previa del terreno (morado = chunks en selección)</div>
+          <canvas id="regionPreview" width="512" height="512"></canvas>
           <div id="regionChunks"></div>
         </div>
 
@@ -5106,6 +5109,8 @@ let MCA_CHUNK_SEL = { overworld: new Set(), nether: new Set(), end: new Set() };
 let MCA_DETAIL_CACHE = {};
 let MCA_HOVER_CHUNK = null;
 let MAP_NEED_DETAILS = [];
+let MCA_MARQUEE = null;
+let MCA_DETAIL_FILE = null;
 async function loadWorldManager() {
   const container = document.getElementById('mcaListContainer');
   if (container) container.innerHTML = '<div class="mca-row" style="color:var(--text-dim)">Cargando análisis del mundo...</div>';
@@ -5143,6 +5148,7 @@ function selectMcaDim(dim) {
   document.querySelectorAll('#mcaDimSeg button').forEach(b => {
     b.classList.toggle('on', b.dataset.dim === dim || b.textContent.toLowerCase().includes(dim === 'overworld' ? 'over' : dim === 'nether' ? 'nether' : 'end'));
   });
+  closeRegionDetail();
   renderMcaList();
   drawWorldMap();
 }
@@ -5187,6 +5193,7 @@ function updateMcaSelectionCount() {
   else el.textContent = `${n} regiones seleccionadas (${n * 1024} chunks)`;
   const btn = document.getElementById('mcaDeleteBtn');
   if (btn) btn.textContent = (n || csel.size) ? `Borrar selección (${n} reg. + ${csel.size} chunks)` : 'Borrar regiones seleccionadas';
+  try { updateRegionPreview(); } catch (e) {}
 }
 function toggleSelectAllMca(check) {
   const dim = (WORLD_DATA.dimensions || []).find(d => d.id === MCA_ACTIVE_DIM);
@@ -5258,10 +5265,33 @@ function initWorldMap() {
     const r = cv.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   };
-  cv.addEventListener('mousedown', e => { drag = pos(e); moved = 0; });
-  window.addEventListener('mouseup', () => { drag = null; });
+  cv.addEventListener('contextmenu', e => e.preventDefault());
+  cv.addEventListener('mousedown', e => {
+    const p = pos(e);
+    if (e.shiftKey || e.button === 2) {
+      MCA_MARQUEE = { x0: p.x, y0: p.y, x1: p.x, y1: p.y, sub: (e.button === 2) || e.altKey };
+      drag = null; moved = 0;
+      drawWorldMap();
+      return;
+    }
+    drag = p; moved = 0;
+  });
+  window.addEventListener('mouseup', () => {
+    if (MCA_MARQUEE) {
+      const m = MCA_MARQUEE;
+      MCA_MARQUEE = null;
+      if (Math.abs(m.x1 - m.x0) > 6 || Math.abs(m.y1 - m.y0) > 6) marqueeSelect(m);
+      else drawWorldMap();
+    }
+    drag = null;
+  });
   cv.addEventListener('mousemove', e => {
     const p = pos(e);
+    if (MCA_MARQUEE) {
+      MCA_MARQUEE.x1 = p.x; MCA_MARQUEE.y1 = p.y;
+      drawWorldMap();
+      return;
+    }
     if (drag) {
       const dx = (p.x - drag.x) / MCA_VIEW.scale, dy = (p.y - drag.y) / MCA_VIEW.scale;
       moved += Math.abs(p.x - drag.x) + Math.abs(p.y - drag.y);
@@ -5360,12 +5390,54 @@ function mapPickChunk(px, py, r) {
   if (cx < 0 || cx > 31 || cz < 0 || cz > 31) return null;
   return { cx, cz };
 }
+function marqueeSelect(m) {
+  const cv = document.getElementById('worldMapCanvas');
+  if (!cv) return;
+  const w = cv.clientWidth, h = cv.clientHeight, s = MCA_VIEW.scale;
+  const wx0 = (Math.min(m.x0, m.x1) - w / 2) / s + MCA_VIEW.cx;
+  const wx1 = (Math.max(m.x0, m.x1) - w / 2) / s + MCA_VIEW.cx;
+  const wz0 = (Math.min(m.y0, m.y1) - h / 2) / s + MCA_VIEW.cz;
+  const wz1 = (Math.max(m.y0, m.y1) - h / 2) / s + MCA_VIEW.cz;
+  const sub = !!m.sub;
+  const regs = mapRegions();
+  if (s >= CHUNK_ZOOM) {
+    const csel = MCA_CHUNK_SEL[MCA_ACTIVE_DIM] || (MCA_CHUNK_SEL[MCA_ACTIVE_DIM] = new Set());
+    let n = 0;
+    for (const r of regs) {
+      if (r.x + 1 < wx0 || r.x > wx1 || r.z + 1 < wz0 || r.z > wz1) continue;
+      if (!(r.present > 0)) continue;
+      const cx0 = Math.max(0, Math.floor((wx0 - r.x) * 32)), cx1 = Math.min(31, Math.floor((wx1 - r.x) * 32));
+      const cz0 = Math.max(0, Math.floor((wz0 - r.z) * 32)), cz1 = Math.min(31, Math.floor((wz1 - r.z) * 32));
+      for (let cz = cz0; cz <= cz1; cz++) {
+        for (let cx = cx0; cx <= cx1; cx++) {
+          const ck = r.file + ':' + cx + ':' + cz;
+          if (sub) { if (csel.delete(ck)) n++; }
+          else if (!csel.has(ck)) { csel.add(ck); n++; }
+        }
+      }
+    }
+    showToast(sub ? (n + ' chunks quitados de la selección') : (n + ' chunks añadidos a la selección'), 'success');
+  } else {
+    const sel = MCA_SEL[MCA_ACTIVE_DIM] || (MCA_SEL[MCA_ACTIVE_DIM] = new Set());
+    let n = 0;
+    for (const r of regs) {
+      if (r.x + 1 < wx0 || r.x > wx1 || r.z + 1 < wz0 || r.z > wz1) continue;
+      if (sub) { if (sel.delete(r.file)) n++; }
+      else if (!sel.has(r.file)) { sel.add(r.file); n++; }
+    }
+    renderMcaList();
+    showToast(sub ? (n + ' regiones quitadas de la selección') : (n + ' regiones añadidas a la selección'), 'success');
+  }
+  updateMcaSelectionCount();
+  drawWorldMap();
+  updateRegionPreview();
+}
 function mapQueueTile(key, rx, rz) {
   if (MCA_TILES[key]) return;
   const dim = MCA_ACTIVE_DIM;
   const img = new Image();
   MCA_TILES[key] = { img, ok: false, loading: true };
-  img.onload = () => { MCA_TILES[key].ok = true; MCA_TILES[key].loading = false; drawWorldMap(); };
+  img.onload = () => { MCA_TILES[key].ok = true; MCA_TILES[key].loading = false; drawWorldMap(); try { updateRegionPreview(); } catch (e) {} };
   img.onerror = () => { MCA_TILES[key].ok = false; MCA_TILES[key].loading = false; };
   img.src = U('/api/world/tile?dimension=' + encodeURIComponent(dim) + '&rx=' + rx + '&rz=' + rz);
 }
@@ -5492,6 +5564,17 @@ function drawWorldMap() {
       drawChunkOverlay(ctx, r, x, y, s);
     }
   }
+  if (MCA_MARQUEE) {
+    const mx = Math.min(MCA_MARQUEE.x0, MCA_MARQUEE.x1), my = Math.min(MCA_MARQUEE.y0, MCA_MARQUEE.y1);
+    const mw = Math.abs(MCA_MARQUEE.x1 - MCA_MARQUEE.x0), mh = Math.abs(MCA_MARQUEE.y1 - MCA_MARQUEE.y0);
+    ctx.fillStyle = MCA_MARQUEE.sub ? 'rgba(248,113,113,0.12)' : 'rgba(168,85,247,0.15)';
+    ctx.fillRect(mx, my, mw, mh);
+    ctx.strokeStyle = MCA_MARQUEE.sub ? '#f87171' : '#c084fc';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(mx + 0.5, my + 0.5, mw - 1, mh - 1);
+    ctx.setLineDash([]);
+  }
   if (pendingTiles.length) {
     pendingTiles.sort((a, b) => a.d - b.d);
     pendingTiles.slice(0, 60).forEach(t => mapQueueTile(t.key, t.rx, t.rz));
@@ -5508,7 +5591,7 @@ function drawWorldMap() {
     : '<span><span class="lm-sw" style="background:rgba(52,211,153,0.85)"></span>Reciente</span><span><span class="lm-sw" style="background:rgba(168,85,247,0.6)"></span>Intermedia</span><span><span class="lm-sw" style="background:rgba(100,116,139,0.5)"></span>Antigua</span><span><span class="lm-sw" style="background:rgba(148,163,184,0.2)"></span>Vacía</span>';
   const hint = document.getElementById('mapHint');
   const nChunks = (MCA_CHUNK_SEL[MCA_ACTIVE_DIM] || new Set()).size;
-  if (hint) hint.textContent = regs.length + ' regiones · ' + sel.size + ' reg. + ' + nChunks + ' chunks seleccionados · Arrastra para mover · rueda o doble clic para zoom · con zoom alto el clic selecciona chunks sueltos';
+  if (hint) hint.textContent = regs.length + ' regiones · ' + sel.size + ' reg. + ' + nChunks + ' chunks seleccionados · Arrastra para mover · Shift+arrastrar selecciona en área (Alt o botón derecho quita) · rueda o doble clic para zoom';
 }
 async function showRegionDetail(file) {
   const box = document.getElementById('regionDetail');
@@ -5516,9 +5599,11 @@ async function showRegionDetail(file) {
   const meta = document.getElementById('regionDetailMeta');
   const grid = document.getElementById('regionChunks');
   if (!box) return;
+  MCA_DETAIL_FILE = file;
   box.style.display = 'block';
   if (title) title.textContent = file + ' (cargando chunks…)';
   if (grid) grid.innerHTML = '';
+  updateRegionPreview();
   try {
     const r = await (await fetch(U('/api/world/region?dimension=' + encodeURIComponent(MCA_ACTIVE_DIM) + '&file=' + encodeURIComponent(file)))).json();
     if (!r || !r.ok) {
@@ -5532,6 +5617,7 @@ async function showRegionDetail(file) {
     if (title) title.textContent = r.file + ' · R(' + r.x + ',' + r.z + ')';
     if (meta) meta.textContent = r.present + '/1024 chunks · bloques X ' + x0 + '..' + x1 + ' · Z ' + z0 + '..' + z1;
     if (grid) grid.innerHTML = r.grid.map(v => `<span class="chk ${v ? 'full' : 'empty'}" title="${v ? 'Chunk generado' : 'Sin generar'}"></span>`).join('');
+    updateRegionPreview();
   } catch (e) {
     if (title) title.textContent = file + ' (error al cargar)';
   }
@@ -5539,6 +5625,85 @@ async function showRegionDetail(file) {
 function closeRegionDetail() {
   const box = document.getElementById('regionDetail');
   if (box) box.style.display = 'none';
+  MCA_DETAIL_FILE = null;
+}
+function updateRegionPreview() {
+  const cv = document.getElementById('regionPreview');
+  if (!cv || !MCA_DETAIL_FILE) return;
+  const box = document.getElementById('regionDetail');
+  if (!box || box.style.display === 'none') return;
+  const m = /^r\\.(-?\\d+)\\.(-?\\d+)\\.mca$/.exec(MCA_DETAIL_FILE);
+  if (!m) return;
+  const rx = parseInt(m[1], 10), rz = parseInt(m[2], 10);
+  const size = 512;
+  if (cv.width !== size) { cv.width = size; cv.height = size; }
+  const ctx = cv.getContext('2d');
+  ctx.clearRect(0, 0, size, size);
+  ctx.fillStyle = '#06060b';
+  ctx.fillRect(0, 0, size, size);
+  const key = MCA_ACTIVE_DIM + ':' + MCA_DETAIL_FILE;
+  const tkey = MCA_ACTIVE_DIM + ':' + rx + ':' + rz;
+  const drawOverlay = () => {
+    const csel = MCA_CHUNK_SEL[MCA_ACTIVE_DIM] || new Set();
+    const cs = size / 32;
+    let anySel = false;
+    for (let cz = 0; cz < 32; cz++) {
+      for (let cx = 0; cx < 32; cx++) {
+        if (csel.has(MCA_DETAIL_FILE + ':' + cx + ':' + cz)) {
+          anySel = true;
+          ctx.fillStyle = 'rgba(168,85,247,0.55)';
+          ctx.fillRect(cx * cs + 0.5, cz * cs + 0.5, cs - 1, cs - 1);
+        }
+      }
+    }
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 1; i < 32; i++) {
+      ctx.moveTo(i * cs, 0); ctx.lineTo(i * cs, size);
+      ctx.moveTo(0, i * cs); ctx.lineTo(size, i * cs);
+    }
+    ctx.stroke();
+    if (!anySel) {
+      ctx.fillStyle = 'rgba(233,213,255,0.75)';
+      ctx.font = '12px JetBrains Mono, monospace';
+      ctx.fillText('Sin chunks en selección: haz zoom y clic en el mapa', 12, size - 12);
+    }
+  };
+  const t = MCA_TILES[tkey];
+  const paintTile = img => {
+    try { ctx.drawImage(img, 0, 0, size, size); } catch (e) {}
+    drawOverlay();
+  };
+  if (t && t.img && t.ok) {
+    paintTile(t.img);
+    return;
+  }
+  const det = MCA_DETAIL_CACHE[key];
+  if (det && det.grid) {
+    const cs = size / 32;
+    for (let cz = 0; cz < 32; cz++) {
+      for (let cx = 0; cx < 32; cx++) {
+        ctx.fillStyle = det.grid[cz * 32 + cx] ? '#34d399' : 'rgba(255,255,255,0.05)';
+        ctx.fillRect(cx * cs + 0.5, cz * cs + 0.5, cs - 1, cs - 1);
+      }
+    }
+    drawOverlay();
+    return;
+  }
+  ctx.fillStyle = 'rgba(148,163,184,0.5)';
+  ctx.font = '13px JetBrains Mono, monospace';
+  ctx.fillText('Cargando vista previa…', 12, 24);
+  if (!t) mapQueueTile(tkey, rx, rz);
+  if (!det) mapQueueDetail(key, MCA_DETAIL_FILE);
+  const iv = setInterval(() => {
+    const tt = MCA_TILES[tkey], dd = MCA_DETAIL_CACHE[key];
+    if ((tt && tt.img && tt.ok) || (dd && dd.grid)) {
+      clearInterval(iv);
+      updateRegionPreview();
+    }
+  }, 500);
+  setTimeout(() => clearInterval(iv), 15000);
 }
 function calcMcaFromCoords() {
   const x = parseInt(document.getElementById('calcCoordX').value, 10);
