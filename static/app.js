@@ -1166,11 +1166,13 @@ async function skAct(action, id) {
 
 let MODS_CACHE = [];
 let MODS_VIEW = [];
+let MOD_UPDATES = {};
 async function loadMods() {
   try {
     const d = await (await fetch(U('/api/mods'))).json();
     MODS_CACHE = (d && d.mods) || [];
     renderMods();
+    modCheckUpdates(false);
   } catch (e) {
     document.getElementById('modsList').innerHTML = '<div class="file-row">Error al cargar mods</div>';
   }
@@ -1250,6 +1252,8 @@ function renderMods() {
         <span class="mod-meta">${chips}<span>${mb(m.size)}</span></span>
       </span>
       <span class="mod-state ${m.enabled ? 's-on' : 's-off'}">${m.enabled ? 'ON' : 'OFF'}</span>
+      ${MOD_UPDATES[m.name] ? `<button class="icon-btn" title="Actualizar a ${escHtml(MOD_UPDATES[m.name].latest)} (${escHtml(MOD_UPDATES[m.name].date)})" onclick="modUpdateIdx(${i})" style="color:#4ade80">\u2191</button>` : ''}
+      ${m.prev ? `<button class="icon-btn" title="Revertir a la copia anterior" onclick="modRollbackIdx(${i})" style="color:#facc15">\u21a9</button>` : ''}
       <button class="msw" role="switch" aria-checked="${m.enabled}" aria-label="Activar o desactivar ${escHtml(m.name)}" title="${m.enabled ? 'Desactivar' : 'Activar'} (requiere reinicio)" onclick="modToggleIdx(${i})"></button>
       <button class="icon-btn danger" title="Eliminar" onclick="modDelIdx(${i})">${SVG_TRASH}</button>
     </div>`;
@@ -1281,6 +1285,47 @@ async function modDelIdx(i) {
 async function modToggle(name) { // compatibilidad
   try {
     const r = await (await fetch(U('/api/mod'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'toggle', name }) })).json();
+    showToast(r.msg || 'OK', r.ok === false ? 'error' : 'success');
+  } catch (e) { showToast('Error', 'error'); }
+  loadMods();
+}
+async function modCheckUpdates(force) {
+  const bar = document.getElementById('modUpdBar');
+  try {
+    const d = await (await fetch(U('/api/mod-updates' + (force ? '?refresh=1' : '')))).json();
+    if (!d.ok) return;
+    MOD_UPDATES = {};
+    (d.available || []).forEach(a => { MOD_UPDATES[a.file] = a; });
+    const n = (d.available || []).length;
+    if (d.running) {
+      if (bar) bar.textContent = 'Comprobando actualizaciones en Modrinth (' + d.checked + ' revisados)...';
+      setTimeout(() => modCheckUpdates(false), 15000);
+    } else if (bar) {
+      bar.textContent = n ? n + ' actualización(es) disponible(s) — servidor detenido requerido' +
+        (d.unknown ? ' · ' + d.unknown + ' sin coincidencia en Modrinth' : '') : 'Todo al día' +
+        (d.unknown ? ' · ' + d.unknown + ' sin coincidencia en Modrinth' : '');
+    }
+    renderMods();
+  } catch (e) {}
+}
+async function modUpdateIdx(i) {
+  const m = MODS_VIEW[i];
+  if (!m) return;
+  const u = MOD_UPDATES[m.name];
+  if (!u) return;
+  if (!confirm('¿Actualizar "' + m.name + '" a ' + u.latest + ' (' + u.date + ')?\nEl servidor debe estar detenido. Se guarda copia anterior.')) return;
+  try {
+    const r = await (await fetch(U('/api/mod'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'update', name: m.name }) })).json();
+    showToast(r.msg || 'OK', r.ok === false ? 'error' : 'success');
+  } catch (e) { showToast('Error', 'error'); }
+  loadMods();
+}
+async function modRollbackIdx(i) {
+  const m = MODS_VIEW[i];
+  if (!m) return;
+  if (!confirm('¿Revertir "' + m.name + '" a la copia anterior? El servidor debe estar detenido.')) return;
+  try {
+    const r = await (await fetch(U('/api/mod'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'rollback', name: m.name }) })).json();
     showToast(r.msg || 'OK', r.ok === false ? 'error' : 'success');
   } catch (e) { showToast('Error', 'error'); }
   loadMods();

@@ -28,6 +28,7 @@ import sys
 import threading
 import time
 import zlib
+import zipfile
 import gzip
 import binascii
 import io
@@ -1971,6 +1972,13 @@ def backup_cfg_set(srv, payload):
     return True, "Configuración de backups guardada"
 
 
+def _updates_state(srv):
+    st = getattr(srv, "updates_state", None)
+    if st is None:
+        st = srv.updates_state = {"running": False, "updated": 0}
+    return st
+
+
 def list_mods():
     srv = S()
     mods = os.path.join(srv.server_dir, "mods")
@@ -1981,13 +1989,144 @@ def list_mods():
                 continue
             if name.endswith(".jar.disabled"):
                 out.append({"name": name[:-9], "enabled": False,
-                            "size": os.path.getsize(os.path.join(mods, name))})
+                            "size": os.path.getsize(os.path.join(mods, name)),
+                            "prev": os.path.isfile(os.path.join(mods, name[:-9] + ".prev"))})
             elif name.endswith(".jar"):
                 out.append({"name": name, "enabled": True,
-                            "size": os.path.getsize(os.path.join(mods, name))})
+                            "size": os.path.getsize(os.path.join(mods, name)),
+                            "prev": os.path.isfile(os.path.join(mods, name + ".prev"))})
     except FileNotFoundError:
         pass
     return out
+
+
+_MOD_TOML_MODID = re.compile(r'^\s*modId\s*=\s*"([^"]+)"', re.M)
+_MOD_TOML_VER = re.compile(r'^\s*version\s*=\s*"([^"]+)"', re.M)
+_MOD_TOML_NAME = re.compile(r'^\s*displayName\s*=\s*"([^"]+)"', re.M)
+
+
+def _mod_toml_meta(path):
+    """Lee modId/version/displayName de META-INF/neoforge.mods.toml sin dependencias."""
+    try:
+        with zipfile.ZipFile(path) as z:
+            names = z.namelist()
+            toml_name = next((n for n in names if n.endswith("neoforge.mods.toml")), None)
+            if not toml_name:
+                return []
+            text = z.read(toml_name).decode("utf-8", "replace")
+    except Exception:
+        return []
+    out = []
+    for blk in re.split(r"(?m)^\[\[mods\]\]", text)[1:]:
+        mid = _MOD_TOML_MODID.search(blk)
+        if not mid:
+            continue
+        ver = _MOD_TOML_VER.search(blk)
+        nm = _MOD_TOML_NAME.search(blk)
+        out.append({"id": mid.group(1),
+                    "version": (ver.group(1) if ver else ""),
+                    "title": (nm.group(1) if nm else "")})
+    return out
+
+
+def mod_updates_cache_file(srv):
+    return os.path.join(srv.data_dir, "mod-updates.json")
+
+
+def _updates_load(srv):
+    try:
+        with open(mod_updates_cache_file(srv)) as f:
+            d = json.load(f)
+            return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _updates_save(srv, d):
+    try:
+        os.makedirs(srv.data_dir, exist_ok=True)
+        tmp = mod_updates_cache_file(srv) + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(d, f)
+        os.replace(tmp, mod_updates_cache_file(srv))
+    except Exception:
+        pass
+
+
+def _mr_get(path, timeout=10):
+    req = urllib.request.Request("https://api.modrinth.com" + path,
+                                 headers={"User-Agent": "PKHosting-Panel/2.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode())
+
+
+def _same_version(cur, latest, cur_file, latest_file):
+    cur, latest = (cur or "").strip(), (latest or "").strip()
+    if not cur or not latest:
+        return False
+    if latest == cur or latest.startswith(cur) or cur.startswith(latest):
+        return True
+    return bool(cur_file and latest_file and cur_file == latest_file)
+
+
+def mod_update_check(srv, mod_id, current, loader="neoforge", game_ver="1.21.1", cur_file=None):
+    """Devuelve {latest, date, url, filename} o {error}. Solo stdlib."""
+    try:
+        proj = _mr_get(f"/v2/project/{urllib.parse.quote(mod_id)}")
+    except Exception:
+        return {"error": "no está en Modrinth"}
+    slug = proj.get("slug") or mod_id
+    try:
+        vers = _mr_get(f"/v2/project/{urllib.parse.quote(slug)}/version"
+                       f"?loaders=%5B%22{loader}%22%5D&game_versions=%5B%22{game_ver}%22%5D")
+    except Exception as e:
+        return {"error": str(e)[:120]}
+    if not vers:
+        return {"error": "sin versiones compatibles"}
+    latest = vers[0]
+    jar = next((f for f in latest.get("files", []) if f.get("filename", "").endswith(".jar")), None)
+    if not jar:
+        return {"error": "sin .jar en la última versión"}
+    lv = latest.get("version_number", "")
+    return {"latest": lv, "date": (latest.get("date_published", "") or "")[:10],
+            "url": jar.get("url"), "filename": jar.get("filename"),
+            "same": _same_version(current, lv, cur_file, jar.get("filename"))}
+
+
+def refresh_mod_updates(srv):
+    """Recorre los mods con modId conocido (caché 6 h). Pensado para hilo de fondo."""
+    _ctx.srv = srv
+    mods_dir = os.path.join(srv.server_dir, "mods")
+    cache = _updates_load(srv)
+    now = time.time()
+    try:
+        entries = list_mods()
+    except Exception:
+        entries = []
+    for m in entries:
+        if not m.get("enabled"):
+            continue
+        try:
+            meta = _mod_toml_meta(os.path.join(mods_dir, m["name"]))
+        except Exception:
+            continue
+        for mm in meta:
+            mid = mm["id"]
+            hit = cache.get(mid)
+            if hit and hit.get("algo") == 2 and now - hit.get("checked", 0) < 6 * 3600:
+                continue
+            try:
+                res = mod_update_check(srv, mid, mm.get("version"), cur_file=m["name"])
+            except Exception as e:
+                res = {"error": str(e)[:120]}
+            res.update(current=mm.get("version", ""), title=mm.get("title", ""),
+                       file=m["name"], checked=now, algo=2)
+            cache[mid] = res
+            time.sleep(0.2)
+    _updates_save(srv, cache)
+    with srv.backup_lock:
+        srv.updates_state.update(running=False, updated=now)
+    _ctx.srv = None
 
 
 def search_modrinth(query, loader="neoforge", game_ver="1.21.1", limit=12):
@@ -3474,6 +3613,21 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
         if u.path == "/api/mods":
             return self.send_json({"ok": True, "mods": list_mods()})
 
+        if u.path == "/api/mod-updates":
+            srv = S()
+            st = _updates_state(srv)
+            if parse_qs(u.query).get("refresh"):
+                if not st["running"]:
+                    st["running"] = True
+                    threading.Thread(target=refresh_mod_updates, args=(srv,), daemon=True).start()
+            cache = _updates_load(srv)
+            avail = [dict(v, id=k) for k, v in cache.items()
+                     if not v.get("error") and not v.get("same", True) and v.get("latest")]
+            unknown = sum(1 for v in cache.values() if v.get("error"))
+            return self.send_json({"ok": True, "running": st["running"], "updated": st["updated"],
+                                   "available": sorted(avail, key=lambda x: x.get("title") or x["id"]),
+                                   "checked": len(cache), "unknown": unknown})
+
         if u.path == "/api/backup-download":
             qs = parse_qs(u.query)
             name = os.path.basename(qs.get("name", [""])[0])
@@ -3936,6 +4090,58 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
                     return self.send_json({"ok": True, "msg": f"{n} mods {word} (requiere reinicio)"})
                 except Exception as e:
                     return self.send_json({"ok": False, "msg": str(e)}, code=500)
+            if action in ("update", "rollback"):
+                if find_running_mc_pid() is not None:
+                    return self.send_json({"ok": False, "msg": "Detén el servidor para actualizar o revertir mods"}, code=400)
+                base = os.path.basename(name)
+                if not base or "/" in name or "\\" in name or ".." in name:
+                    return self.send_json({"ok": False, "msg": "Nombre inválido"}, code=400)
+                on_f = os.path.join(mods, base if base.endswith(".jar") else base + ".jar")
+                prev_f = on_f + ".prev"
+                try:
+                    if action == "rollback":
+                        if not os.path.isfile(prev_f):
+                            return self.send_json({"ok": False, "msg": "No hay copia anterior"}, code=404)
+                        if os.path.isfile(on_f):
+                            os.replace(on_f, on_f + ".tmp")
+                            os.replace(prev_f, on_f)
+                            os.replace(on_f + ".tmp", prev_f)
+                        else:
+                            os.replace(prev_f, on_f)
+                        _updates_save(S(), {})
+                        return self.send_json({"ok": True, "msg": f"{base} revertido (requiere reinicio)"})
+                    cache = _updates_load(S())
+                    meta = _mod_toml_meta(on_f) if os.path.isfile(on_f) else []
+                    cand = next((dict(v, id=k) for k, v in cache.items()
+                                 if v.get("file") == os.path.basename(on_f) and v.get("url")), None)
+                    if cand is None and meta:
+                        r = mod_update_check(S(), meta[0]["id"], meta[0].get("version"))
+                        if r.get("url"):
+                            cand = dict(r, id=meta[0]["id"])
+                    if not cand or not cand.get("url"):
+                        return self.send_json({"ok": False, "msg": "Sin actualización disponible"}, code=404)
+                    req = urllib.request.Request(cand["url"], headers={"User-Agent": "PKHosting-Panel/2.0"})
+                    tmp = on_f + ".dl"
+                    with urllib.request.urlopen(req, timeout=60) as resp, open(tmp, "wb") as out:
+                        while True:
+                            chunk = resp.read(65536)
+                            if not chunk:
+                                break
+                            out.write(chunk)
+                    if os.path.isfile(on_f):
+                        if os.path.isfile(prev_f):
+                            os.remove(prev_f)
+                        os.replace(on_f, prev_f)
+                    os.replace(tmp, on_f)
+                    _updates_save(S(), {})
+                    return self.send_json({"ok": True, "msg": f"{base} actualizado a {cand.get('latest', '')} (copia anterior guardada, requiere reinicio)"})
+                except Exception as e:
+                    try:
+                        if os.path.isfile(on_f + ".dl"):
+                            os.remove(on_f + ".dl")
+                    except Exception:
+                        pass
+                    return self.send_json({"ok": False, "msg": str(e)[:200]}, code=500)
             base = os.path.basename(name)
             if not base or "/" in name or "\\" in name or ".." in name:
                 return self.send_json({"ok": False, "msg": "Nombre inválido"}, code=400)
