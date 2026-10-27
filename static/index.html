@@ -1,0 +1,819 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PKHosting Panel — PrankLindorf</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0a0a13">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<script>if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{});}</script>
+<script>window.onerror=function(){/* noop: sin telemetría */};</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/app.css?server=__SRV__&v=__V__">
+</head>
+<body>
+<div class="orbs" aria-hidden="true"><i></i><i></i></div>
+<div id="scrollProgress"></div>
+
+<!-- SIDEBAR -->
+<aside>
+  <div class="sidebar-header">
+    <div class="brand-icon"><img src="/icon.svg" alt="PKHosting"></div>
+    <div>
+      <div class="brand-name">PK<span>Hosting</span></div>
+      <div class="brand-sub">Game Manager</div>
+    </div>
+  </div>
+
+  <div class="server-selector">
+    <div class="server-label">Servidor Activo</div>
+    <div class="server-title">
+      <span class="mini-dot" id="sideDot"></span>
+      <span>PrankLindorf</span>
+    </div>
+  </div>
+
+  <nav>
+    <a class="nav-item active" onclick="switchTab('console')">
+      <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></span> Consola
+    </a>
+    <a class="nav-item" onclick="switchTab('metrics')">
+      <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span> Métricas
+    </a>
+    <a class="nav-item" onclick="switchTab('files')">
+      <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span> Archivos & Mods
+    </a>
+    <a class="nav-item" onclick="switchTab('worlds')">
+      <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span> Mundos & MCA
+    </a>
+    <a class="nav-item" onclick="switchTab('backups')">
+      <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><rect x="1" y="3" width="22" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><line x1="10" y1="12" x2="14" y2="12"/></svg></span> Backups
+    </a>
+    <a class="nav-item" onclick="switchTab('tasks')">
+      <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span> Tareas
+    </a>
+    <a class="nav-item" onclick="switchTab('history')">
+      <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><polyline points="12 7 12 12 15 15"/></svg></span> Historial
+    </a>
+    <a class="nav-item" onclick="switchTab('fleet')">
+      <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></span> Flota Servidores
+    </a>
+    <a class="nav-item" onclick="switchTab('settings')">
+      <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span> Configuración
+    </a>
+  </nav>
+
+  <div class="sidebar-footer">
+    <button class="logout-btn" onclick="logout()" title="Cerrar sesión"><svg class="ico" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg> Cerrar sesión</button>
+    <div class="ip-chip" onclick="copyIp()">
+      <span id="ipText">localhost:25566</span>
+      <span class="copy-badge" id="copyBadge">Copiar</span>
+    </div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<main>
+  <div id="perfBanner">
+    <div style="display:flex; align-items:center; gap:8px">
+      <span>⚠️ Rendimiento comprometido: <span id="perfBannerMsg">TPS bajo</span></span>
+    </div>
+    <div style="display:flex; align-items:center; gap:8px">
+      <button class="term-tool-btn" style="background:rgba(0,0,0,0.35);color:#fff" onclick="switchTab('metrics')">Ver métricas</button>
+      <button class="term-tool-btn" style="background:rgba(0,0,0,0.35);color:#fff" onclick="sparkQuickAction('health')">Diagnóstico Spark</button>
+      <button class="icon-btn" onclick="document.getElementById('perfBanner').style.display='none'">✕</button>
+    </div>
+  </div>
+
+  <header>
+    <div class="header-info">
+      <h1>
+        <span>PrankLindorf</span>
+        <span class="status-pill OFFLINE" id="statusBadge">
+          <span class="status-pulse"></span>
+          <span id="statusText">OFFLINE</span>
+        </span>
+      </h1>
+      <div class="header-subtitle">NeoForge 1.21.1 · Java 21 · Puerto 25566</div>
+    </div>
+
+    <div style="display:flex; align-items:center; gap:10px; position:relative">
+      <div class="hdr-tools" role="toolbar" aria-label="Herramientas del panel">
+        <button class="tool-btn" onclick="openCmdPalette()" title="Paleta de comandos (Ctrl+K)">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <kbd>Ctrl K</kbd>
+        </button>
+        <button class="tool-btn icon-only" id="notifBtn" onclick="toggleNotifDropdown()" title="Centro de notificaciones" aria-label="Centro de notificaciones" aria-haspopup="true" aria-expanded="false">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <span class="notif-dot" id="notifDot"></span>
+        </button>
+      </div>
+
+      <div id="notifDropdown" role="dialog" aria-label="Registro de actividad">
+        <div class="notif-header">
+          <span>Registro de Actividad</span>
+          <button class="term-tool-btn" style="font-size:11px" onclick="clearNotifs()">Limpiar</button>
+        </div>
+        <div class="notif-list" id="notifList">
+          <div style="padding:16px;text-align:center;color:var(--text-dim);font-size:12px">Sin notificaciones pendientes</div>
+        </div>
+      </div>
+    <div class="header-actions">
+      <div class="power-btn-group">
+        <button class="pbtn pbtn-start" id="btnStart" onclick="serverAction('start')">
+          <svg class="ico" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg> Iniciar
+        </button>
+        <button class="pbtn pbtn-restart" id="btnRestart" onclick="serverAction('restart')">
+          <svg class="ico" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Reiniciar
+        </button>
+        <button class="pbtn pbtn-restart" id="btnReload" onclick="serverAction('reload')" title="Recarga datapacks/mods (comando reload del servidor)">
+          <svg class="ico" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg> Reload
+        </button>
+        <button class="pbtn pbtn-stop" id="btnStop" onclick="serverAction('stop')">
+          <svg class="ico" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1"/></svg> Detener
+        </button>
+        <button class="pbtn pbtn-kill" id="btnKill" onclick="serverAction('kill')">
+          <svg class="ico" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Matar
+        </button>
+      </div>
+    </div>
+    </div>
+  </header>
+
+  <div class="page-container">
+    <!-- STATS CARDS -->
+    <div class="stats-cards">
+      <div class="scard">
+        <div class="scard-label">
+          <span>Uptime</span>
+          <span class="scard-ico"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span>
+        </div>
+        <div class="scard-val" id="cardUptime">-</div>
+        <div class="scard-sub" id="cardUptimeSub">Servidor apagado</div>
+      </div>
+
+      <div class="scard">
+        <div class="scard-label">
+          <span>Uso de CPU</span>
+          <span class="scard-ico"><svg class="ico" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></span>
+        </div>
+        <div class="scard-val" id="cardCpu">0.0%</div>
+        <div class="scard-sub">16 núcleos disponibles</div>
+        <div class="scard-bar"><div class="scard-bar-fill" id="barCpu"></div></div>
+      </div>
+
+      <div class="scard">
+        <div class="scard-label">
+          <span>Memoria RAM</span>
+          <span class="scard-ico"><svg class="ico" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></span>
+        </div>
+        <div class="scard-val" id="cardMem">0 MB</div>
+        <div class="scard-sub" id="cardMemSub">Límite: 8.00 GB</div>
+        <div class="scard-bar"><div class="scard-bar-fill" id="barMem"></div></div>
+      </div>
+
+      <div class="scard">
+        <div class="scard-label">
+          <span>Jugadores</span>
+          <span class="scard-ico"><svg class="ico" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+        </div>
+        <div class="scard-val" id="cardPlayers">0 / 20</div>
+      </div>
+    </div>
+
+    <!-- TAB 1: CONSOLA -->
+    <div id="tab-console" class="tab-content active">
+      <div class="terminal-wrapper">
+        <div class="terminal-topbar">
+          <div>Consola del Servidor (Registro en Vivo)</div>
+          <div class="terminal-topbar-tools">
+            <input id="logSearch" class="tin" placeholder="Buscar…" oninput="renderConsole()">
+            <button class="term-tool-btn" id="fltAll" onclick="setLogFilter('')">Todos</button>
+            <button class="term-tool-btn" onclick="setLogFilter('INFO')">INFO</button>
+            <button class="term-tool-btn" onclick="setLogFilter('WARN')">WARN</button>
+            <button class="term-tool-btn" onclick="setLogFilter('ERROR')">ERROR</button>
+            <button class="term-tool-btn" onclick="toggleAutoScroll()" id="btnAutoScroll">Auto-scroll: ON</button>
+            <button class="term-tool-btn" onclick="copyLogs()">Copiar registro</button>
+            <button class="term-tool-btn" onclick="clearTerminal()">Limpiar</button>
+            <select class="tin" id="termThemeSel" onchange="setTermTheme(this.value)" style="padding:4px 8px;font-size:11px" title="Tema de la terminal">
+              <option value="default">Tema: Morado</option>
+              <option value="matrix">Tema: Matrix</option>
+              <option value="monokai">Tema: Monokai</option>
+              <option value="tokyo">Tema: Tokyo Night</option>
+              <option value="dracula">Tema: Dracula</option>
+            </select>
+            <button class="term-tool-btn" onclick="toggleTermFullscreen()" title="Pantalla completa (Esc para salir)">⛶</button>
+          </div>
+        </div>
+        <div class="terminal-body" id="termBody">Conectando a la consola del servidor...</div>
+        <div class="terminal-input-bar">
+          <div class="cmd-field">
+            <span class="cmd-prompt">&gt;</span>
+            <input type="text" class="cmd-input" id="cmdInput" list="cmdList" placeholder="Comandos MC (/say, /op, /list...) + panel: start · stop · restart · reload · kill" onkeydown="handleCmdKey(event)" autocomplete="off">
+            <datalist id="cmdList"></datalist>
+          </div>
+          <button class="cmd-btn" onclick="submitCmd()">Enviar</button>
+        </div>
+        <div id="quickCmds" style="display:flex; gap:6px; flex-wrap:wrap; padding:8px 14px; border-top:1px solid var(--border-color)"></div>
+      </div>
+      <div class="system-details-card" id="playerMgmt" style="margin-top:12px; display:none">
+        <h3 style="margin-bottom:8px; font-size:15px;">Gestión de jugadores</h3>
+        <div class="file-list" id="playerRows"></div>
+      </div>
+      <div class="system-details-card" style="margin-top:12px">
+        <h3 style="margin-bottom:8px; font-size:15px;">Moderación</h3>
+        <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:10px" id="modLists">
+          <div><div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;margin-bottom:4px">OPs</div><div id="modOps" style="font-size:12.5px">—</div></div>
+          <div><div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;margin-bottom:4px">Baneados</div><div id="modBans" style="font-size:12.5px">—</div></div>
+          <div><div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;margin-bottom:4px">Whitelist <a onclick="wlToggle()" style="color:var(--accent-cyan);cursor:pointer" id="wlState"></a></div><div id="modWl" style="font-size:12.5px">—</div></div>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap">
+          <input id="wlName" class="tin" maxlength="16" placeholder="Añadir a whitelist" style="flex:1; min-width:160px">
+          <button class="cmd-btn" onclick="wlAdd()">Añadir</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: METRICAS -->
+    <div id="tab-metrics" class="tab-content">
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-header">
+            <div class="chart-title"><svg class="ico" viewBox="0 0 24 24" style="width:16px;height:16px;vertical-align:-3px"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> TPS del servidor</div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <div class="chart-badge" id="tpsBadge">—</div>
+              <button class="term-tool-btn" onclick="refreshTps()">Actualizar</button>
+            </div>
+          </div>
+          <div class="scard-val" id="tpsVal" style="font-size:34px">—</div>
+          <div class="scard-sub" id="tpsSub">Sin datos todavía</div>
+          <div class="scard-bar"><div class="scard-bar-fill" id="tpsBar" style="width:0%"></div></div>
+        </div>
+      </div>
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-header">
+            <div class="chart-title"><svg class="ico" viewBox="0 0 24 24" style="width:16px;height:16px;vertical-align:-3px"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> Uso de CPU del Proceso</div>
+            <div style="display:flex;gap:8px;align-items:center"><div class="chart-badge" id="chartCpuBadge">0.0%</div><div class="chart-badge sub" id="chartCpuPeak">pico — · prom —</div></div>
+          </div>
+          <canvas id="canvasCpu"></canvas>
+        </div>
+
+        <div class="chart-card">
+          <div class="chart-header">
+            <div class="chart-title"><svg class="ico" viewBox="0 0 24 24" style="width:16px;height:16px;vertical-align:-3px"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg> Memoria RAM Asignada</div>
+            <div style="display:flex;gap:8px;align-items:center"><div class="chart-badge" id="chartMemBadge">0 MB</div><div class="chart-badge sub" id="chartMemPeak">pico — · prom —</div></div>
+          </div>
+          <canvas id="canvasMem"></canvas>
+        </div>
+      </div>
+
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-header">
+            <div class="chart-title">CPU — últimas 24 h</div>
+            <div class="chart-badge" id="h24CpuBadge">—</div>
+          </div>
+          <canvas id="canvasH24Cpu"></canvas>
+        </div>
+        <div class="chart-card">
+          <div class="chart-header">
+            <div class="chart-title">RAM — últimas 24 h</div>
+            <div class="chart-badge" id="h24MemBadge">—</div>
+          </div>
+          <canvas id="canvasH24Mem"></canvas>
+        </div>
+      </div>
+
+      <div class="chart-card" style="margin-bottom:20px">
+        <div class="chart-header">
+          <div class="chart-title">Actividad — últimos 14 días</div>
+          <div class="chart-badge" id="heatBadge">—</div>
+        </div>
+        <div class="heat" id="heatMap" style="height:74px"></div>
+        <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--text-dim); margin-top:6px">
+          <span>menos</span><span><span style="color:#c084fc">■</span> joins · <span style="color:#34d399">■</span> día con backup</span><span>más</span>
+        </div>
+      </div>
+
+      <div class="system-details-card">
+        <h3 style="margin-bottom:14px; font-size:16px;">Información del Servidor y Entorno</h3>
+        <table class="details-table">
+          <tr><td>Estado del Proceso</td><td id="detStatus">OFFLINE</td></tr>
+          <tr><td>Identificador de Proceso (PID)</td><td id="detPid">-</td></tr>
+          <tr><td>Carga del Sistema (1m, 5m, 15m)</td><td id="detLoad">-</td></tr>
+          <tr><td>Tamaño del Mundo (PrankLindorf)</td><td id="detWorld">-</td></tr>
+          <tr><td>Disco usado (servidor)</td><td id="detDisk">-</td></tr>
+          <tr><td>Red host (RX/TX)</td><td id="detNet">-</td></tr>
+          <tr><td>Puerto Minecraft</td><td>25566 (TCP / UDP)</td></tr>
+          <tr><td>Entorno Java</td><td>OpenJDK 21 (64-Bit Server VM)</td></tr>
+          <tr><td>Directorio</td><td>~/PrankLindorf-NeoForge</td></tr>
+        </table>
+      </div>
+
+      <div class="system-details-card" style="margin-top:14px">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
+          <h3 style="font-size:15px; margin:0">Monitor de Red y Latencia</h3>
+          <button class="term-tool-btn" onclick="refreshPingMetrics()">Medir latencia</button>
+        </div>
+        <div class="stats-cards" style="grid-template-columns:repeat(3, 1fr); margin-bottom:0">
+          <div class="scard" style="padding:14px">
+            <div class="scard-label"><span>Local Minecraft (TCP)</span></div>
+            <div class="scard-val" id="pingLocalMc" style="font-size:22px">—</div>
+            <div class="scard-sub" id="pingLocalMcSub">127.0.0.1:25566</div>
+          </div>
+          <div class="scard" style="padding:14px">
+            <div class="scard-label"><span>Local RCON</span></div>
+            <div class="scard-val" id="pingLocalRcon" style="font-size:22px">—</div>
+            <div class="scard-sub" id="pingLocalRconSub">127.0.0.1:25575</div>
+          </div>
+          <div class="scard" style="padding:14px">
+            <div class="scard-label"><span>Túnel Público (Playit)</span></div>
+            <div class="scard-val" id="pingTunnel" style="font-size:22px">—</div>
+            <div class="scard-sub" id="pingTunnelSub">Túnel playit.gg</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="system-details-card" style="margin-top:14px">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
+          <div>
+            <h3 style="font-size:15px; margin:0">Diagnósticos de Rendimiento Spark</h3>
+            <div style="font-size:11.5px; color:var(--text-dim); margin-top:2px">Mod oficial integrado para NeoForge 1.21.1</div>
+          </div>
+          <span class="mchip ld">spark 1.10</span>
+        </div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px">
+          <button class="cmd-btn" onclick="sparkAction('health')"><svg class="ico" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg> Diagnóstico de Salud (Health)</button>
+          <button class="btn-ghost" onclick="sparkAction('sampler_start')">Grabar Sampler (45s)</button>
+          <button class="btn-ghost" onclick="sparkAction('sampler_stop')">Subir & Ver Reporte</button>
+          <button class="btn-ghost" onclick="sparkAction('tps')">Ver TPS Spark</button>
+          <button class="term-tool-btn" onclick="sparkAction('gc')">Forzar GC</button>
+        </div>
+        <div id="sparkResultBox" style="display:none; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:10px; padding:14px; font-family:'JetBrains Mono',monospace; font-size:12px; white-space:pre-wrap; max-height:280px; overflow-y:auto; color:#d8b4fe"></div>
+      </div>
+    </div>
+
+    <!-- TAB 3: ARCHIVOS -->
+    <div id="tab-files" class="tab-content">
+      <div class="fs-toolbar">
+        <button class="cmd-btn" onclick="fsCreate('file')"><svg class="ico" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg> Nuevo archivo</button>
+        <button class="cmd-btn" onclick="fsCreate('dir')"><svg class="ico" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg> Nueva carpeta</button>
+        <label class="cmd-btn" style="cursor:pointer"><svg class="ico" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Subir<input type="file" id="fsUploadInput" style="display:none" multiple onchange="fsUpload()"></label>
+        <span class="opt-sw" onclick="fsToggleSw('fsUnzip')" title="Descomprimir automáticamente los .zip al subirlos"><span class="tsw" id="fsUnzipSw" role="switch" tabindex="0" aria-checked="false" aria-label="Descomprimir .zip" onkeydown="swKey('fsUnzip',event)"></span><span class="opt-lbl">Descomprimir .zip</span><input type="checkbox" id="fsUnzip" hidden></span>
+        <span style="flex:1"></span>
+        <span class="fs-crumb"><a onclick="fsNavUp()">↑ Subir</a>&nbsp;<span id="fsBreadcrumb">/</span></span>
+        <button class="term-tool-btn" onclick="loadFiles()">Recargar</button>
+      </div>
+      <div class="fs-toolbar">
+        <label style="font-size:12px; color:var(--text-muted)">Ordenar:</label>
+        <div class="seg" id="fsSeg">
+          <button data-k="name" class="on" onclick="fsSortKey('name')">Nombre</button>
+          <button data-k="mtime" onclick="fsSortKey('mtime')">Fecha</button>
+          <button data-k="size" onclick="fsSortKey('size')">Tamaño</button>
+        </div>
+        <button class="term-tool-btn" id="fsSortDir" onclick="fsToggleDir()" title="Dirección">↓</button>
+        <span class="opt-sw" onclick="fsToggleSw('fsGroup')" title="Mostrar las carpetas antes que los archivos"><span class="tsw on" id="fsGroupSw" role="switch" tabindex="0" aria-checked="true" aria-label="Carpetas primero" onkeydown="swKey('fsGroup',event)"></span><span class="opt-lbl">Carpetas primero</span><input type="checkbox" id="fsGroup" checked hidden onchange="loadFiles()"></span>
+      </div>
+      <div class="file-list" id="filesContainer">
+        <div class="file-row"><span>Cargando archivos del servidor...</span></div>
+      </div>
+      <div class="system-details-card" style="margin-top:12px">
+        <div class="mods-head">
+          <h3>Mods instalados <span style="font-size:11px;color:var(--text-dim)">(los cambios requieren reinicio)</span></h3>
+          <span class="mods-count" id="modCounts"></span>
+          <span style="flex:1"></span>
+          <input class="mod-search" id="modSearch" placeholder="Buscar mod..." oninput="renderMods()" autocomplete="off">
+          <button class="btn-ghost" onclick="modBulk(true)">Activar todos</button>
+          <button class="btn-ghost" onclick="modBulk(false)">Desactivar todos</button>
+          <button class="btn-ghost" onclick="toggleModrinthView()" style="color:#38bdf8; border-color:rgba(56,189,248,0.4)">🌐 Explorador Modrinth</button>
+        </div>
+        <div class="file-list" id="modsList"><div class="file-row"><span class="file-name">Cargando mods...</span></div></div>
+        <div id="modrinthSection" style="display:none; margin-top:16px; border-top:1px solid var(--border-color); padding-top:14px">
+          <div style="display:flex; gap:10px; align-items:center; margin-bottom:12px; flex-wrap:wrap">
+            <input id="mrSearchInput" class="tin" placeholder="Buscar mods para NeoForge 1.21.1 en Modrinth (ej. create, jei, appleskin, ferritecore...)" style="flex:1; min-width:220px" onkeydown="if(event.key==='Enter')searchModrinth()">
+            <button class="cmd-btn" onclick="searchModrinth()">Buscar</button>
+            <button class="term-tool-btn" onclick="toggleModrinthView()">Cerrar</button>
+          </div>
+          <div id="mrResults" class="mr-grid"><div style="color:var(--text-dim); font-size:12px; padding:12px">Escribe un término y pulsa Buscar</div></div>
+        </div>
+      </div>
+    </div>
+      <div id="fsEditModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:200; align-items:center; justify-content:center; padding:20px">
+        <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:12px; width:min(860px,100%); max-height:90vh; display:flex; flex-direction:column; overflow:hidden">
+          <div style="display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--border-color)">
+            <span style="font-family:'JetBrains Mono',monospace; font-size:12.5px; color:#93c5fd; flex:1; overflow:hidden; text-overflow:ellipsis" id="fsEditPath">—</span>
+            <span id="fsEditStats" style="font-size:11px; color:var(--text-dim)">0 líneas</span>
+            <button class="term-tool-btn" onclick="fsChangeFontSize(1)" title="Aumentar texto">A+</button>
+            <button class="term-tool-btn" onclick="fsChangeFontSize(-1)" title="Reducir texto">A-</button>
+            <button class="term-tool-btn" onclick="fsDownloadCurrent()">Descargar</button>
+            <button class="term-tool-btn" onclick="fsCloseEdit()">Cerrar ✕</button>
+          </div>
+          <textarea id="fsEditor" style="flex:1; min-height:360px; background:var(--bg-terminal); color:#cbd5e1; border:0; padding:14px; font-family:'JetBrains Mono',monospace; font-size:12.5px; resize:vertical; tab-size:2; line-height:1.45" placeholder="Cargando..." oninput="fsUpdateEditorStats()" onkeydown="fsHandleEditorTab(event)"></textarea>
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-top:1px solid var(--border-color)">
+            <span style="font-size:11px; color:var(--text-dim)">Presiona TAB para indentar código sin perder el foco</span>
+            <button class="cmd-btn" onclick="fsSaveEdit()">Guardar cambios</button>
+          </div>
+        </div>
+      </div>
+
+    <!-- TAB: MUNDOS & MCA REGION CLEANER -->
+    <div id="tab-worlds" class="tab-content">
+      <div class="stats-cards" style="grid-template-columns:repeat(3,1fr); margin-bottom:16px">
+        <div class="dim-card" id="dimCardOverworld">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start">
+            <div>
+              <div style="font-size:11px; color:var(--text-muted); font-weight:700">DIMENSIÓN 0</div>
+              <div style="font-size:18px; font-weight:800; color:#34d399; margin:4px 0">Overworld</div>
+              <div style="font-size:11.5px; color:var(--text-dim)">Superficie principal</div>
+            </div>
+            <span class="mchip ld" id="dimOwRegions">0 regiones</span>
+          </div>
+          <div style="margin-top:14px; display:flex; justify-content:space-between; align-items:center">
+            <span style="font-size:18px; font-weight:800; color:#fff" id="dimOwSize">—</span>
+            <button class="cmd-btn" style="padding:4px 12px; font-size:11.5px" onclick="selectMcaDim('overworld')">Explorar MCA</button>
+          </div>
+        </div>
+
+        <div class="dim-card" id="dimCardNether">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start">
+            <div>
+              <div style="font-size:11px; color:var(--text-muted); font-weight:700">DIMENSIÓN -1</div>
+              <div style="font-size:18px; font-weight:800; color:#f87171; margin:4px 0">The Nether</div>
+              <div style="font-size:11.5px; color:var(--text-dim)">Inframundo (DIM-1)</div>
+            </div>
+            <span class="mchip ld" id="dimNetherRegions">0 regiones</span>
+          </div>
+          <div style="margin-top:14px; display:flex; justify-content:space-between; align-items:center">
+            <span style="font-size:18px; font-weight:800; color:#fff" id="dimNetherSize">—</span>
+            <div style="display:flex; gap:6px">
+              <button class="term-tool-btn" style="color:#f87171; border-color:#7f1d1d; font-size:11px" onclick="mcaResetDim('nether')">Reiniciar</button>
+              <button class="cmd-btn" style="padding:4px 12px; font-size:11.5px" onclick="selectMcaDim('nether')">Explorar</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="dim-card" id="dimCardEnd">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start">
+            <div>
+              <div style="font-size:11px; color:var(--text-muted); font-weight:700">DIMENSIÓN 1</div>
+              <div style="font-size:18px; font-weight:800; color:#c084fc; margin:4px 0">The End</div>
+              <div style="font-size:11.5px; color:var(--text-dim)">El Fin (DIM1)</div>
+            </div>
+            <span class="mchip ld" id="dimEndRegions">0 regiones</span>
+          </div>
+          <div style="margin-top:14px; display:flex; justify-content:space-between; align-items:center">
+            <span style="font-size:18px; font-weight:800; color:#fff" id="dimEndSize">—</span>
+            <div style="display:flex; gap:6px">
+              <button class="term-tool-btn" style="color:#f87171; border-color:#7f1d1d; font-size:11px" onclick="mcaResetDim('end')">Reiniciar</button>
+              <button class="cmd-btn" style="padding:4px 12px; font-size:11.5px" onclick="selectMcaDim('end')">Explorar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MCA Region Cleaner Card -->
+      <div class="system-details-card" id="mcaMapCard">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px">
+          <div>
+            <h3 style="margin:0; font-size:15px">MCA Region Cleaner <span style="font-size:11.5px; color:var(--text-muted)">(Herramienta estilo MCA Selector)</span></h3>
+            <div style="font-size:11.5px; color:var(--text-dim); margin-top:2px">Elimina regiones (.mca) para regenerar terreno, limpiar chunks corruptos o liberar espacio</div>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center">
+            <div class="seg" id="mcaDimSeg">
+              <button data-dim="overworld" class="on" onclick="selectMcaDim('overworld')">Overworld</button>
+              <button data-dim="nether" onclick="selectMcaDim('nether')">Nether</button>
+              <button data-dim="end" onclick="selectMcaDim('end')">The End</button>
+            </div>
+            <button class="term-tool-btn" onclick="loadWorldManager()">Recargar</button>
+          </div>
+        </div>
+
+        <!-- Visor de mapa estilo MCA Selector -->
+        <div class="worldmap-toolbar">
+          <div class="seg" id="mapModeSeg">
+            <button data-mode="terrain" class="on" onclick="setMapMode('terrain')">Terreno</button>
+            <button data-mode="activity" onclick="setMapMode('activity')">Actividad</button>
+            <button data-mode="fill" onclick="setMapMode('fill')">Llenado</button>
+          </div>
+          <button class="term-tool-btn" onclick="mapZoom(1.25)" title="Acercar">＋</button>
+          <button class="term-tool-btn" onclick="mapZoom(0.8)" title="Alejar">－</button>
+          <button class="term-tool-btn" onclick="mapResetView()" title="Centrar en el origen">◎ Origen</button>
+          <button class="term-tool-btn" onclick="mapClearSel()" title="Quitar selección del mapa">Limpiar selección</button>
+          <button class="term-tool-btn" onclick="toggleMapFullscreen()" title="Mapa a pantalla completa (Esc para salir)">⛶ Expandir</button>
+          <span class="worldmap-legend" id="mapLegend"></span>
+          <span style="flex:1"></span>
+          <span id="mapHint" style="font-size:11px; color:var(--text-dim)">Arrastra para mover · rueda para zoom · clic para seleccionar</span>
+        </div>
+        <div style="position:relative; margin-bottom:12px">
+          <canvas id="worldMapCanvas"></canvas>
+          <div id="worldMapTip"></div>
+        </div>
+        <div id="regionDetail">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px">
+            <div style="font-size:12.5px; font-weight:700; color:#fff; font-family:'JetBrains Mono',monospace" id="regionDetailTitle">r.0.0.mca</div>
+            <div style="display:flex; gap:8px; align-items:center">
+              <span style="font-size:11.5px; color:var(--text-dim)" id="regionDetailMeta"></span>
+              <button class="term-tool-btn" style="font-size:11px" onclick="closeRegionDetail()">Cerrar</button>
+            </div>
+          </div>
+          <div style="font-size:11px; color:var(--text-dim); margin-top:6px">Vista previa del terreno (morado = chunks en selección)</div>
+          <canvas id="regionPreview" width="512" height="512"></canvas>
+          <div id="regionChunks"></div>
+        </div>
+
+        <!-- Calculadora de Coordenadas -->
+        <div style="background:rgba(168,85,247,0.06); border:1px solid rgba(168,85,247,0.2); border-radius:10px; padding:12px; margin-bottom:12px; margin-top:12px; display:flex; align-items:center; gap:12px; flex-wrap:wrap">
+          <span style="font-size:12px; font-weight:700; color:#d8b4fe">Calculadora de Coordenadas:</span>
+          <input type="number" id="calcCoordX" class="tin" placeholder="Bloque X" style="width:110px; padding:6px 10px; font-size:12px" oninput="calcMcaFromCoords()">
+          <input type="number" id="calcCoordZ" class="tin" placeholder="Bloque Z" style="width:110px; padding:6px 10px; font-size:12px" oninput="calcMcaFromCoords()">
+          <span id="calcMcaResult" style="font-size:12.5px; font-family:'JetBrains Mono',monospace; color:#38bdf8">Introduce X y Z</span>
+          <button class="term-tool-btn" style="font-size:11px" onclick="selectCalculatedMca()">Marcar en lista</button>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px">
+          <div style="display:flex; gap:12px; align-items:center">
+            <label style="font-size:12px; color:var(--text-muted); cursor:pointer; display:inline-flex; align-items:center; gap:6px"><input type="checkbox" id="mcaSelectAll" onchange="toggleSelectAllMca(this.checked)"> Seleccionar todos</label>
+            <span id="mcaSelectedCount" style="font-size:12px; color:#c084fc; font-weight:700">0 regiones seleccionadas</span>
+          </div>
+          <button class="cmd-btn danger" id="mcaDeleteBtn" style="background:#dc2626; color:#fff" onclick="deleteSelectedMca()">Borrar regiones seleccionadas</button>
+        </div>
+
+        <div class="mca-grid" id="mcaListContainer">
+          <div class="mca-row" style="color:var(--text-dim)">Cargando archivos de región...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: BACKUPS -->
+    <div id="tab-backups" class="tab-content">
+      <div class="stats-cards" style="grid-template-columns:repeat(3,1fr); margin-bottom:16px">
+        <div class="scard">
+          <div class="scard-label"><span>Próximo automático</span></div>
+          <div class="scard-val" id="bkNext" style="font-size:19px">—</div>
+          <div class="scard-sub" id="bkNextSub">—</div>
+        </div>
+        <div class="scard">
+          <div class="scard-label"><span>Espacio en backups</span></div>
+          <div class="scard-val" id="bkSpace" style="font-size:19px">—</div>
+          <div class="scard-sub" id="bkSpaceSub">—</div>
+        </div>
+        <div class="scard">
+          <div class="scard-label"><span>Copias guardadas</span></div>
+          <div class="scard-val" id="bkCount" style="font-size:19px">—</div>
+          <div class="scard-sub" id="bkCountSub">—</div>
+        </div>
+      </div>
+      <div class="system-details-card" style="margin-bottom:12px">
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center">
+          <button class="cmd-btn" onclick="backupNow()"><svg class="ico" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Backup ahora</button>
+          <button class="term-tool-btn" onclick="loadBackups()">Recargar</button>
+          <span id="bkStatus" style="font-size:12px; color:var(--text-muted)">Cargando estado...</span>
+        </div>
+        <div id="bkJob" style="font-size:12.5px; color:#c084fc; margin-top:8px; min-height:18px"></div>
+        <div id="bkProgWrap" style="display:none; margin-top:8px">
+          <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--text-muted); margin-bottom:4px">
+            <span id="bkStage">…</span><span id="bkPct">0%</span>
+          </div>
+          <div class="scard-bar" style="height:8px"><div class="scard-bar-fill" id="bkBar" style="width:0%"></div></div>
+        </div>
+      </div>
+      <div class="system-details-card" style="margin-bottom:12px">
+        <h3 style="margin-bottom:10px; font-size:14px">Copias de seguridad</h3>
+        <div class="file-list" id="bkList" style="background:transparent; border:0">
+          <div class="file-row"><span>Cargando backups...</span></div>
+        </div>
+      </div>
+      <details class="system-details-card" style="margin-top:0">
+        <summary style="cursor:pointer; font-size:14px; font-weight:700">Configuración avanzada</summary>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px">
+          <label style="font-size:12px;color:var(--text-muted);display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="bkEn"> Automático diario</label>
+          <input id="bkTime" placeholder="04:00" style="width:90px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 10px; color:#fff; font-family:'JetBrains Mono',monospace; font-size:12.5px">
+          <input id="bkDir" placeholder="Carpeta destino" style="flex:2; min-width:180px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:#fff; font-size:12.5px">
+          <span class="dur" title="Días de retención"><button onclick="durStep('bkRet',-1,1,365)">−</button><input id="bkRet" value="7" readonly><button onclick="durStep('bkRet',1,1,365)">+</button></span>
+          <label style="font-size:12px;color:var(--text-muted);display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="bkMonthly"> Mensual eterno</label>
+          <button class="cmd-btn" onclick="saveBkCfg()">Guardar</button>
+        </div>
+        <div style="font-size:11.5px; color:var(--text-dim); margin-top:8px" id="bkRetNote"></div>
+      </details>
+    </div>
+
+    <!-- TAB: TAREAS PROGRAMADAS -->
+    <div id="tab-tasks" class="tab-content">
+      <div class="system-details-card" style="margin-bottom:12px">
+        <h3 style="margin-bottom:8px">Nueva tarea</h3>
+        <div style="display:flex; gap:8px; flex-wrap:wrap">
+          <input id="skName" placeholder="Nombre" style="flex:2; min-width:140px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:#fff; font-size:12.5px">
+          <select id="skKind" style="flex:1; min-width:120px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 10px; color:#e2e8f0; font-size:12.5px">
+            <option value="command">Comando</option>
+            <option value="message">Anuncio (say)</option>
+            <option value="save">Guardar mundo</option>
+            <option value="restart">Reiniciar (opt-in)</option>
+          </select>
+          <select id="skMode" onchange="document.getElementById('skWhen').placeholder = this.value === 'interval' ? 'Cada N minutos' : 'Hora HH:MM'" style="flex:1; min-width:120px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 10px; color:#e2e8f0; font-size:12.5px">
+            <option value="daily">Diaria</option>
+            <option value="interval">Intervalo</option>
+          </select>
+          <input id="skWhen" placeholder="Hora HH:MM" style="flex:1; min-width:110px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:#fff; font-family:'JetBrains Mono',monospace; font-size:12.5px">
+          <button class="cmd-btn" onclick="skCreate()">Crear</button>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px">
+          <input id="skPayload" placeholder="Comando o mensaje (vacío para save/restart)" style="flex:3; min-width:200px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:#fff; font-family:'JetBrains Mono',monospace; font-size:12.5px">
+          <span class="dur" title="Aviso previo en minutos (solo restart)"><button onclick="durStep('skWarn',-1,0,30)">−</button><input id="skWarn" value="0" readonly><button onclick="durStep('skWarn',1,0,30)">+</button></span>
+        </div>
+        <div style="font-size:11.5px; color:var(--text-dim); margin-top:6px">El reinicio automático viene desactivado: solo se ejecuta si creas y activas una tarea de ese tipo.</div>
+      </div>
+      <div class="file-list" id="skList">
+        <div class="file-row"><span>Cargando tareas...</span></div>
+      </div>
+    </div>
+
+    <!-- TAB: HISTORIAL DE JUGADORES -->
+    <div id="tab-history" class="tab-content">
+      <div class="system-details-card" style="margin-bottom:12px">
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center">
+          <h3 style="font-size:15px; flex:1">Historial de jugadores</h3>
+          <button class="term-tool-btn" onclick="loadHistory()">Recargar</button>
+        </div>
+        <div style="font-size:12px; color:var(--text-muted); margin-top:4px" id="histSub">Entradas y salidas del servidor</div>
+      </div>
+      <div class="file-list" id="connHist"><div class="file-row"><span class="file-name">Sin registros</span></div></div>
+    </div>
+
+    <!-- TAB: FLOTA DE SERVIDORES -->
+    <div id="tab-fleet" class="tab-content">
+      <div class="system-details-card" style="margin-bottom:16px">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px">
+          <div>
+            <h2 style="font-size:18px; font-weight:800; margin:0">Flota de Servidores PKHosting</h2>
+            <div style="font-size:12px; color:var(--text-muted); margin-top:2px">Vista global y conmutación rápida de todas tus instancias</div>
+          </div>
+          <button class="cmd-btn" onclick="switchTab('settings')">+ Añadir o configurar servidor</button>
+        </div>
+      </div>
+      <div id="fleetCardsContainer" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:16px">
+        <div class="scard" style="padding:16px">Cargando flota...</div>
+      </div>
+    </div>
+
+    <!-- TAB 4: CONFIGURACION -->
+    <div id="tab-settings" class="tab-content">
+      <div class="system-details-card" style="margin-bottom:12px">
+        <div class="mods-head">
+          <h3 style="margin:0; font-size:14px">Servidores gestionados</h3>
+          <span class="mods-count" id="srvCounts"></span>
+          <span style="flex:1"></span>
+          <button class="btn-ghost" onclick="srvShowForm()">+ Añadir servidor</button>
+        </div>
+        <div class="file-list" id="srvList"><div class="file-row"><span class="file-name">Cargando servidores...</span></div></div>
+        <div id="srvForm" style="display:none; margin-top:12px; background:rgba(255,255,255,0.02); border:1px solid var(--border-color); border-radius:10px; padding:14px">
+          <div style="font-size:13px; font-weight:700; margin-bottom:10px" id="srvFormTitle">Añadir servidor</div>
+          <input type="hidden" id="srvEditId" value="">
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px">
+            <label style="font-size:11.5px; color:var(--text-muted)">Nombre<input id="srvName" class="tin" maxlength="40" placeholder="MiSegundoServidor" style="width:100%; margin-top:4px"></label>
+            <label style="font-size:11.5px; color:var(--text-muted)">Carpeta del servidor
+              <div style="display:flex; gap:8px; margin-top:4px">
+                <input id="srvDir" class="tin" placeholder="~/MiServidor" style="flex:1; min-width:0">
+                <button class="term-tool-btn" type="button" onclick="openSrvBrowser()" title="Explorar carpetas">Examinar…</button>
+              </div>
+            </label>
+            <label style="font-size:11.5px; color:var(--text-muted)">Puerto MC<input id="srvMc" class="tin" type="number" min="1" max="65535" style="width:100%; margin-top:4px"></label>
+            <label style="font-size:11.5px; color:var(--text-muted)">Puerto RCON<input id="srvRcon" class="tin" type="number" min="1" max="65535" style="width:100%; margin-top:4px"></label>
+            <label style="font-size:11.5px; color:var(--text-muted)">RAM (GB)<input id="srvMem" class="tin" type="number" min="0.5" max="64" step="0.5" style="width:100%; margin-top:4px"></label>
+          </div>
+          <div style="font-size:11.5px; color:var(--text-dim); margin-top:8px">Se usa <span style="font-family:'JetBrains Mono',monospace">start.sh</span> dentro de la carpeta. Eliminar un servidor no borra sus archivos.</div>
+          <div style="display:flex; gap:8px; margin-top:12px">
+            <button class="cmd-btn" onclick="srvSubmit()">Guardar</button>
+            <button class="term-tool-btn" onclick="srvHideForm()">Cancelar</button>
+          </div>
+        </div>
+      </div>
+      <div class="system-details-card" style="margin-bottom:12px">
+        <h3 style="margin-bottom:8px">IP pública (playit.gg)</h3>
+        <div style="font-size:12.5px; color:var(--text-muted); margin-bottom:8px" id="playitStatus">Detectando túnel playit...</div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap">
+          <input id="publicIpInput" placeholder="ej: tu-servidor.playit.gg:12345" style="flex:1; min-width:220px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; color:#e2e8f0; font-family:'JetBrains Mono',monospace; font-size:12.5px">
+          <button class="cmd-btn" onclick="savePublicIp()">Guardar IP</button>
+        </div>
+      </div>
+      <div class="system-details-card">
+        <h3 style="margin-bottom:12px">Configuración del Servidor (server.properties)</h3>
+        <textarea id="propsText" style="width:100%; height:320px; background:var(--bg-terminal); color:#cbd5e1; border:1px solid var(--border-color); border-radius:8px; padding:12px; font-family:'JetBrains Mono', monospace; font-size:12px"></textarea>
+        <div style="margin-top:10px; display:flex; gap:10px">
+          <button class="cmd-btn" onclick="saveProps()">Guardar server.properties</button>
+          <button class="term-tool-btn" onclick="loadProps()">Recargar</button>
+        </div>
+      </div>
+      <div class="system-details-card" style="margin-top:12px">
+        <h3 style="margin-bottom:8px">Contraseña del panel</h3>
+        <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px" id="pwState">Comprobando...</div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap">
+          <input type="password" id="pwCur" placeholder="Actual" style="flex:1; min-width:140px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; color:#fff">
+          <input type="password" id="pwNew" placeholder="Nueva (mín. 8)" style="flex:1; min-width:140px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; color:#fff">
+          <button class="cmd-btn" onclick="changePw()">Cambiar</button>
+        </div>
+      </div>
+      <div class="system-details-card" style="margin-top:12px">
+        <h3 style="margin-bottom:8px">Botones rápidos de consola</h3>
+        <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px">Separados por comas (máx. 12)</div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap">
+          <input id="quickInput" placeholder="say Hola, list, save-all" style="flex:1; min-width:220px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; color:#fff; font-size:12.5px">
+          <button class="cmd-btn" onclick="saveQuick()">Guardar</button>
+        </div>
+      </div>
+      <div class="system-details-card" style="margin-top:12px">
+        <h3 style="margin-bottom:8px">Notificaciones Discord</h3>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px">
+          <input id="dcHook" placeholder="Webhook URL de Discord" style="flex:1; min-width:220px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; color:#e2e8f0; font-size:12.5px">
+          <button class="cmd-btn" onclick="saveDiscord()">Guardar</button>
+          <button class="term-tool-btn" onclick="testDiscord()">Probar</button>
+        </div>
+        <div id="dcEvents" style="display:flex; gap:12px; flex-wrap:wrap; font-size:12.5px; color:var(--text-muted)"></div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<div id="srvBrowseModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:200; align-items:center; justify-content:center; padding:20px">
+  <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:12px; width:min(560px,100%); max-height:80vh; display:flex; flex-direction:column; overflow:hidden">
+    <div style="display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--border-color)">
+      <span class="fs-crumb" style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap" id="srvBrowsePath">—</span>
+      <button class="term-tool-btn" onclick="srvBrowseUp()" title="Subir un nivel">↑ Subir</button>
+      <button class="term-tool-btn" onclick="srvBrowseClose()">Cerrar ✕</button>
+    </div>
+    <div class="file-list" id="srvBrowseList" style="overflow-y:auto; border:0; border-radius:0"><div class="file-row"><span class="file-name">Cargando...</span></div></div>
+    <div style="display:flex; gap:10px; padding:12px 16px; border-top:1px solid var(--border-color)">
+      <button class="cmd-btn" style="flex:1" onclick="srvBrowsePick()">Elegir esta carpeta</button>
+    </div>
+  </div>
+</div>
+
+<!-- PLAYER INSPECTOR MODAL -->
+<div id="playerModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.72); backdrop-filter:blur(10px); z-index:450; align-items:center; justify-content:center; padding:20px">
+  <div style="background:var(--bg-card); border:1px solid rgba(168,85,247,0.4); border-radius:18px; width:min(520px, 100%); max-height:90vh; overflow-y:auto; padding:24px; box-shadow:0 16px 50px rgba(0,0,0,0.8), 0 0 30px rgba(168,85,247,0.25)">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start">
+      <div style="display:flex; gap:16px; align-items:center">
+        <img id="pmAvatar" src="" class="p-avatar" style="width:52px; height:52px; border-radius:12px" alt="">
+        <div>
+          <div style="font-size:20px; font-weight:800; color:#fff" id="pmName">Jugador</div>
+          <div style="font-size:11px; font-family:'JetBrains Mono',monospace; color:var(--text-dim)" id="pmUuid">—</div>
+        </div>
+      </div>
+      <button class="icon-btn" onclick="closePlayerModal()">✕</button>
+    </div>
+
+    <div class="p-stats-grid">
+      <div class="p-stat-card"><div class="p-stat-val" id="pmHours">—</div><div class="p-stat-lbl">Horas jugadas</div></div>
+      <div class="p-stat-card"><div class="p-stat-val" id="pmDeaths">—</div><div class="p-stat-lbl">Muertes</div></div>
+      <div class="p-stat-card"><div class="p-stat-val" id="pmMobKills">—</div><div class="p-stat-lbl">Mobs abatidos</div></div>
+      <div class="p-stat-card"><div class="p-stat-val" id="pmDist">—</div><div class="p-stat-lbl">Km recorridos</div></div>
+    </div>
+
+    <div id="pmLiveSection" style="background:rgba(255,255,255,0.03); border:1px solid var(--border-color); border-radius:12px; padding:12px; margin-bottom:14px">
+      <div style="font-size:12px; font-weight:700; color:#38bdf8; margin-bottom:6px">Estado en Vivo (RCON):</div>
+      <div style="display:flex; justify-content:space-between; font-size:12.5px; flex-wrap:wrap; gap:8px">
+        <span>Coordenadas: <b id="pmCoords" style="color:#fff; font-family:'JetBrains Mono',monospace">—</b></span>
+        <span>Nivel Exp: <b id="pmLevel" style="color:#22c55e">—</b></span>
+      </div>
+    </div>
+
+    <div style="font-size:12px; font-weight:700; color:var(--text-muted); margin-bottom:8px">Acciones rápidas sobre el jugador:</div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px">
+      <button class="term-tool-btn" onclick="pmQuickCmd('heal')">❤️ Curar vida</button>
+      <button class="term-tool-btn" onclick="pmQuickCmd('feed')">🍗 Alimentar</button>
+      <button class="term-tool-btn" onclick="pmQuickCmd('creative')">🎨 Modo Creativo</button>
+      <button class="term-tool-btn" onclick="pmQuickCmd('survival')">⚔️ Supervivencia</button>
+      <button class="term-tool-btn" onclick="pmQuickCmd('spawn')">📍 Spawnpoint</button>
+      <button class="term-tool-btn" onclick="pmQuickCmd('clearlag')">🧹 Vaciar inventario</button>
+    </div>
+  </div>
+</div>
+
+<!-- COMMAND PALETTE (CTRL+K) -->
+<div id="cmdPalette" onclick="if(event.target===this)closeCmdPalette()">
+  <div class="cp-box">
+    <div class="cp-input-wrap">
+      <svg class="ico" viewBox="0 0 24 24" style="color:var(--text-muted); width:18px; height:18px"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input id="cpInput" class="cp-input" placeholder="Buscar sección o comando (ej: reiniciar, archivos, mca, spark, backups...)" autocomplete="off" oninput="renderCmdPalette()" onkeydown="handlePaletteKey(event)">
+      <span style="font-size:11px; background:rgba(255,255,255,0.06); padding:2px 6px; border-radius:4px; color:var(--text-dim)">ESC</span>
+    </div>
+    <div class="cp-list" id="cpList"></div>
+    <div class="cp-footer">
+      <span>↑ ↓ para navegar · ENTER para ejecutar</span>
+      <span>PKHosting Spotlight</span>
+    </div>
+  </div>
+</div>
+
+<div class="toaster" id="toaster" data-pos="top-right" data-theme="dark" aria-live="polite"></div>
+
+<script src="/static/app.js?server=__SRV__&v=__V__"></script>
+</body>
+</html>

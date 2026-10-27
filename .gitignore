@@ -1,3 +1,4 @@
 panel.log
 __pycache__/
 *.pyc
+docs/architecture/*.visual-check.*
