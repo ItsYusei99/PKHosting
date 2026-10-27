@@ -1304,6 +1304,62 @@ def restart_server_action(auto=False):
     return True, "Reiniciando servidor..."
 
 
+_countdown = {"running": False, "cancel": None}
+_countdown_lock = threading.Lock()
+
+
+def countdown_restart_action(minutes):
+    """Reinicio con avisos en el chat (N min, luego 30, 10 y 5…1 s), save-all flush y apagado."""
+    s = S()
+    if find_running_mc_pid() is None:
+        return restart_server_action()
+    with _countdown_lock:
+        if _countdown["running"]:
+            return False, "Ya hay un reinicio programado"
+        cancel = threading.Event()
+        _countdown.update(running=True, cancel=cancel)
+    total = max(1, min(60, int(minutes))) * 60
+    marks = sorted({m for m in [60 * k for k in range(1, total // 60 + 1)] + [30, 10, 5, 4, 3, 2, 1]
+                    if m <= total}, reverse=True)
+
+    def _label(sec):
+        return f"{sec // 60} min" if sec >= 60 else f"{sec} s"
+
+    def _run():
+        _ctx.srv = s
+        try:
+            t0 = time.time()
+            for rem in marks:
+                if cancel.wait(max(0.0, t0 + total - rem - time.time())):
+                    send_command_action("say Reinicio cancelado")
+                    return
+                send_command_action(f"say Reinicio del servidor en {_label(rem)}")
+            send_command_action("save-all flush")
+            time.sleep(3)
+            stop_server_action(force=False)
+            for _ in range(180):
+                if find_running_mc_pid() is None:
+                    break
+                time.sleep(1)
+            start_server_action()
+        finally:
+            with _countdown_lock:
+                _countdown.update(running=False, cancel=None)
+            _ctx.srv = None
+
+    threading.Thread(target=_run, daemon=True).start()
+    return True, f"Reinicio con aviso de {minutes} min en marcha (cancelable)"
+
+
+def cancel_countdown_action():
+    with _countdown_lock:
+        ev = _countdown.get("cancel")
+        if not _countdown["running"] or ev is None:
+            return False, "No hay ningún reinicio programado"
+        ev.set()
+    return True, "Reinicio cancelado"
+
+
 def send_command_action(cmd):
     s = S()
     cmd = (cmd or "").strip()
@@ -2954,6 +3010,39 @@ async function login(){
 document.getElementById('pw').addEventListener('keydown',e=>{if(e.key==='Enter')login()});
 </script></body></html>"""
 
+# ── Límite de intentos de login (por IP, en memoria) ──
+_login_fails = {}
+_login_guard = threading.Lock()
+LOGIN_MAX_FAILS = 5
+LOGIN_WINDOW_S = 600
+LOGIN_LOCK_S = 300
+
+
+def _login_wait(ip):
+    with _login_guard:
+        rec = _login_fails.get(ip)
+    if rec and rec["until"] > time.time():
+        return int(rec["until"] - time.time()) + 1
+    return 0
+
+
+def _login_fail_hit(ip):
+    now = time.time()
+    with _login_guard:
+        rec = _login_fails.get(ip)
+        if not rec or now - rec["first"] > LOGIN_WINDOW_S:
+            rec = {"first": now, "count": 0, "until": 0}
+        rec["count"] += 1
+        if rec["count"] >= LOGIN_MAX_FAILS:
+            rec = {"first": now, "count": 0, "until": now + LOGIN_LOCK_S}
+        _login_fails[ip] = rec
+
+
+def _login_ok(ip):
+    with _login_guard:
+        _login_fails.pop(ip, None)
+
+
 PUBLIC_PATHS = ("/login", "/api/login", "/manifest.webmanifest", "/sw.js", "/icon.svg")
 
 
@@ -2966,7 +3055,19 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "same-origin")
         self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        self.send_header("Content-Security-Policy",
+                         "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+                         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                         "font-src 'self' https://fonts.gstatic.com data:; "
+                         "img-src 'self' data: https://mc-heads.net; "
+                         "connect-src 'self' https://spark.lucko.me; "
+                         "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'")
         super().end_headers()
+
+    def _secure_flag(self):
+        if CFG.get("ssl_cert") or self.headers.get("X-Forwarded-Proto", "").lower() == "https":
+            return "; Secure"
+        return ""
 
     def _cookie_token(self):
         try:
@@ -3396,6 +3497,9 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         u = urlparse(self.path)
+        origin = self.headers.get("Origin")
+        if origin and urlparse(origin).netloc != (self.headers.get("Host") or ""):
+            return self.send_json({"ok": False, "msg": "Origen no permitido"}, code=403)
         if u.path == "/api/upload":
             # binario: no pre-leer el cuerpo como texto
             if u.path not in PUBLIC_PATHS and self._need_auth():
@@ -3411,20 +3515,27 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
         except Exception:
             payload = {}
         if u.path == "/api/login":
+            ip = self.client_address[0]
+            wait = _login_wait(ip)
+            if wait:
+                return self.send_json({"ok": False, "msg": f"Demasiados intentos. Espera {wait} s"}, code=429)
             pw = payload.get("password", "")
             if auth_enabled() and verify_password(pw, CFG.get("panel_password_hash", "")):
                 tok = new_session()
+                _login_ok(ip)
                 body = json.dumps({"ok": True}).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
-                self.send_header("Set-Cookie", f"pksess={tok}; HttpOnly; Path=/; SameSite=Lax")
+                self.send_header("Set-Cookie", f"pksess={tok}; HttpOnly; Path=/; SameSite=Lax{self._secure_flag()}")
                 self.end_headers()
                 try:
                     self.wfile.write(body)
                 except (BrokenPipeError, ConnectionResetError):
                     pass
                 return
+            if auth_enabled():
+                _login_fail_hit(ip)
             time.sleep(1)
             return self.send_json({"ok": False, "msg": "Contraseña incorrecta"}, code=401)
 
@@ -3461,7 +3572,18 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
             return self.send_json({"ok": ok, "msg": msg})
 
         if u.path == "/api/restart":
-            ok, msg = restart_server_action()
+            try:
+                minutes = max(0, min(60, int(payload.get("minutes", 0) or 0)))
+            except (TypeError, ValueError):
+                minutes = 0
+            if minutes:
+                ok, msg = countdown_restart_action(minutes)
+            else:
+                ok, msg = restart_server_action()
+            return self.send_json({"ok": ok, "msg": msg, "cancellable": bool(_countdown["running"])})
+
+        if u.path == "/api/restart/cancel":
+            ok, msg = cancel_countdown_action()
             return self.send_json({"ok": ok, "msg": msg})
 
         if u.path == "/api/reload":

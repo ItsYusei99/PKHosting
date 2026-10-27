@@ -209,6 +209,25 @@ async function serverAction(act) {
   }
 }
 
+async function serverRestartPrompt() {
+  const v = prompt('Minutos de aviso antes de reiniciar (0 = inmediato)', '5');
+  if (v === null) return;
+  const minutes = Math.max(0, Math.min(60, parseInt(v, 10) || 0));
+  showToast(minutes ? 'Reinicio con aviso de ' + minutes + ' min...' : 'Reiniciando servidor...');
+  try {
+    const data = await (await fetch(U('/api/restart'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ minutes }) })).json();
+    if (!data.ok && data.cancellable && confirm(data.msg + '. ¿Cancelarlo?')) {
+      const c = await (await fetch(U('/api/restart/cancel'), { method: 'POST' })).json();
+      showToast(c.msg || 'OK');
+      return;
+    }
+    showToast(data.msg || 'OK');
+    setTimeout(refreshStats, 1200);
+  } catch (e) {
+    showToast('Error de conexión: ' + e);
+  }
+}
+
 async function submitCmd() {
   const input = document.getElementById('cmdInput');
   const val = input.value.trim();
