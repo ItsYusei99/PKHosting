@@ -39,7 +39,7 @@
     </div>
   </div>
 
-  <nav>
+  <nav role="tablist" aria-label="Secciones del panel">
     <a class="nav-item active" onclick="switchTab('console')">
       <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></span> Consola
     </a>
@@ -82,18 +82,27 @@
 </aside>
 
 <!-- MAIN -->
-<main>
+<main id="main">
   <div id="perfBanner">
     <div style="display:flex; align-items:center; gap:8px">
       <span>⚠️ Rendimiento comprometido: <span id="perfBannerMsg">TPS bajo</span></span>
     </div>
     <div style="display:flex; align-items:center; gap:8px">
-      <button class="term-tool-btn" style="background:rgba(0,0,0,0.35);color:#fff" onclick="switchTab('metrics')">Ver métricas</button>
-      <button class="term-tool-btn" style="background:rgba(0,0,0,0.35);color:#fff" onclick="sparkQuickAction('health')">Diagnóstico Spark</button>
+      <button class="term-tool-btn" style="background:rgba(0,0,0,0.35);color:var(--text-bright)" onclick="switchTab('metrics')">Ver métricas</button>
+      <button class="term-tool-btn" style="background:rgba(0,0,0,0.35);color:var(--text-bright)" onclick="sparkQuickAction('health')">Diagnóstico Spark</button>
       <button class="icon-btn" onclick="document.getElementById('perfBanner').style.display='none'">✕</button>
     </div>
   </div>
 
+  <div id="crashBanner">
+    <div style="display:flex; align-items:center; gap:8px">
+      <span id="crashBannerMsg">Bucle de crash: inicios automáticos bloqueados</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:8px">
+      <button class="term-tool-btn" onclick="switchTab('diag')">Ver diagnóstico</button>
+      <button class="icon-btn" onclick="document.getElementById('crashBanner').style.display='none'">✕</button>
+    </div>
+  </div>
   <header>
     <div class="header-info">
       <h1>
@@ -107,7 +116,11 @@
     </div>
 
     <div style="display:flex; align-items:center; gap:10px; position:relative">
+      <a class="skip-link" href="#main" style="position:fixed">Saltar al contenido</a>
       <div class="hdr-tools" role="toolbar" aria-label="Herramientas del panel">
+        <button class="tool-btn icon-only" id="themeBtn" onclick="toggleTheme()" title="Tema claro / oscuro" aria-label="Cambiar tema">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
         <button class="tool-btn" onclick="openCmdPalette()" title="Paleta de comandos (Ctrl+K)">
           <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <kbd>Ctrl K</kbd>
@@ -221,6 +234,9 @@
             <input type="text" class="cmd-input" id="cmdInput" list="cmdList" placeholder="Comandos MC (/say, /op, /list...) + panel: start · stop · restart · reload · kill" onkeydown="handleCmdKey(event)" autocomplete="off">
             <datalist id="cmdList"></datalist>
           </div>
+          <select id="cmdTpl" class="tin" style="max-width:190px" onchange="cmdTplPick()" title="Plantillas de comandos" aria-label="Plantillas de comandos">
+            <option value="">Plantilla…</option>
+          </select>
           <button class="cmd-btn" onclick="submitCmd()">Enviar</button>
         </div>
         <div id="quickCmds" style="display:flex; gap:6px; flex-wrap:wrap; padding:8px 14px; border-top:1px solid var(--border-color)"></div>
@@ -305,7 +321,7 @@
         </div>
         <div class="heat" id="heatMap" style="height:74px"></div>
         <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--text-dim); margin-top:6px">
-          <span>menos</span><span><span style="color:#c084fc">■</span> joins · <span style="color:#34d399">■</span> día con backup</span><span>más</span>
+          <span>menos</span><span><span style="color:var(--acsoft)">■</span> joins · <span style="color:#34d399">■</span> día con backup</span><span>más</span>
         </div>
       </div>
 
@@ -425,7 +441,7 @@
             <button class="term-tool-btn" onclick="fsDownloadCurrent()">Descargar</button>
             <button class="term-tool-btn" onclick="fsCloseEdit()">Cerrar ✕</button>
           </div>
-          <textarea id="fsEditor" style="flex:1; min-height:360px; background:var(--bg-terminal); color:#cbd5e1; border:0; padding:14px; font-family:'JetBrains Mono',monospace; font-size:12.5px; resize:vertical; tab-size:2; line-height:1.45" placeholder="Cargando..." oninput="fsUpdateEditorStats()" onkeydown="fsHandleEditorTab(event)"></textarea>
+          <textarea id="fsEditor" style="flex:1; min-height:360px; background:var(--bg-terminal); color:var(--text-muted); border:0; padding:14px; font-family:'JetBrains Mono',monospace; font-size:12.5px; resize:vertical; tab-size:2; line-height:1.45" placeholder="Cargando..." oninput="fsUpdateEditorStats()" onkeydown="fsHandleEditorTab(event)"></textarea>
           <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-top:1px solid var(--border-color)">
             <span style="font-size:11px; color:var(--text-dim)">Presiona TAB para indentar código sin perder el foco</span>
             <button class="cmd-btn" onclick="fsSaveEdit()">Guardar cambios</button>
@@ -446,7 +462,7 @@
             <span class="mchip ld" id="dimOwRegions">0 regiones</span>
           </div>
           <div style="margin-top:14px; display:flex; justify-content:space-between; align-items:center">
-            <span style="font-size:18px; font-weight:800; color:#fff" id="dimOwSize">—</span>
+            <span style="font-size:18px; font-weight:800; color:var(--text-bright)" id="dimOwSize">—</span>
             <button class="cmd-btn" style="padding:4px 12px; font-size:11.5px" onclick="selectMcaDim('overworld')">Explorar MCA</button>
           </div>
         </div>
@@ -461,7 +477,7 @@
             <span class="mchip ld" id="dimNetherRegions">0 regiones</span>
           </div>
           <div style="margin-top:14px; display:flex; justify-content:space-between; align-items:center">
-            <span style="font-size:18px; font-weight:800; color:#fff" id="dimNetherSize">—</span>
+            <span style="font-size:18px; font-weight:800; color:var(--text-bright)" id="dimNetherSize">—</span>
             <div style="display:flex; gap:6px">
               <button class="term-tool-btn" style="color:#f87171; border-color:#7f1d1d; font-size:11px" onclick="mcaResetDim('nether')">Reiniciar</button>
               <button class="cmd-btn" style="padding:4px 12px; font-size:11.5px" onclick="selectMcaDim('nether')">Explorar</button>
@@ -473,13 +489,13 @@
           <div style="display:flex; justify-content:space-between; align-items:flex-start">
             <div>
               <div style="font-size:11px; color:var(--text-muted); font-weight:700">DIMENSIÓN 1</div>
-              <div style="font-size:18px; font-weight:800; color:#c084fc; margin:4px 0">The End</div>
+              <div style="font-size:18px; font-weight:800; color:var(--acsoft); margin:4px 0">The End</div>
               <div style="font-size:11.5px; color:var(--text-dim)">El Fin (DIM1)</div>
             </div>
             <span class="mchip ld" id="dimEndRegions">0 regiones</span>
           </div>
           <div style="margin-top:14px; display:flex; justify-content:space-between; align-items:center">
-            <span style="font-size:18px; font-weight:800; color:#fff" id="dimEndSize">—</span>
+            <span style="font-size:18px; font-weight:800; color:var(--text-bright)" id="dimEndSize">—</span>
             <div style="display:flex; gap:6px">
               <button class="term-tool-btn" style="color:#f87171; border-color:#7f1d1d; font-size:11px" onclick="mcaResetDim('end')">Reiniciar</button>
               <button class="cmd-btn" style="padding:4px 12px; font-size:11.5px" onclick="selectMcaDim('end')">Explorar</button>
@@ -527,7 +543,7 @@
         </div>
         <div id="regionDetail">
           <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px">
-            <div style="font-size:12.5px; font-weight:700; color:#fff; font-family:'JetBrains Mono',monospace" id="regionDetailTitle">r.0.0.mca</div>
+            <div style="font-size:12.5px; font-weight:700; color:var(--text-bright); font-family:'JetBrains Mono',monospace" id="regionDetailTitle">r.0.0.mca</div>
             <div style="display:flex; gap:8px; align-items:center">
               <span style="font-size:11.5px; color:var(--text-dim)" id="regionDetailMeta"></span>
               <button class="term-tool-btn" style="font-size:11px" onclick="closeRegionDetail()">Cerrar</button>
@@ -550,9 +566,9 @@
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px">
           <div style="display:flex; gap:12px; align-items:center">
             <label style="font-size:12px; color:var(--text-muted); cursor:pointer; display:inline-flex; align-items:center; gap:6px"><input type="checkbox" id="mcaSelectAll" onchange="toggleSelectAllMca(this.checked)"> Seleccionar todos</label>
-            <span id="mcaSelectedCount" style="font-size:12px; color:#c084fc; font-weight:700">0 regiones seleccionadas</span>
+            <span id="mcaSelectedCount" style="font-size:12px; color:var(--acsoft); font-weight:700">0 regiones seleccionadas</span>
           </div>
-          <button class="cmd-btn danger" id="mcaDeleteBtn" style="background:#dc2626; color:#fff" onclick="deleteSelectedMca()">Borrar regiones seleccionadas</button>
+          <button class="cmd-btn danger" id="mcaDeleteBtn" style="background:#dc2626; color:var(--text-bright)" onclick="deleteSelectedMca()">Borrar regiones seleccionadas</button>
           <button class="term-tool-btn" id="mcaRestoreBtn" onclick="restoreSelectedChunks()" title="Restaura los chunks sueltos seleccionados desde sus .bak (servidor detenido)">Restaurar chunks (.bak)</button>
         </div>
 
@@ -606,7 +622,7 @@
           <button class="term-tool-btn" onclick="loadBackups()">Recargar</button>
           <span id="bkStatus" style="font-size:12px; color:var(--text-muted)">Cargando estado...</span>
         </div>
-        <div id="bkJob" style="font-size:12.5px; color:#c084fc; margin-top:8px; min-height:18px"></div>
+        <div id="bkJob" style="font-size:12.5px; color:var(--acsoft); margin-top:8px; min-height:18px"></div>
         <div id="bkProgWrap" style="display:none; margin-top:8px">
           <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--text-muted); margin-bottom:4px">
             <span id="bkStage">…</span><span id="bkPct">0%</span>
@@ -624,8 +640,8 @@
         <summary style="cursor:pointer; font-size:14px; font-weight:700">Configuración avanzada</summary>
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px">
           <label style="font-size:12px;color:var(--text-muted);display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="bkEn"> Automático diario</label>
-          <input id="bkTime" placeholder="04:00" style="width:90px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 10px; color:#fff; font-family:'JetBrains Mono',monospace; font-size:12.5px">
-          <input id="bkDir" placeholder="Carpeta destino" style="flex:2; min-width:180px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:#fff; font-size:12.5px">
+          <input id="bkTime" placeholder="04:00" style="width:90px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 10px; color:var(--text-bright); font-family:'JetBrains Mono',monospace; font-size:12.5px">
+          <input id="bkDir" placeholder="Carpeta destino" style="flex:2; min-width:180px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:var(--text-bright); font-size:12.5px">
           <span class="dur" title="Días de retención"><button onclick="durStep('bkRet',-1,1,365)">−</button><input id="bkRet" value="7" readonly><button onclick="durStep('bkRet',1,1,365)">+</button></span>
           <label style="font-size:12px;color:var(--text-muted);display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="bkMonthly"> Mensual eterno</label>
           <button class="cmd-btn" onclick="saveBkCfg()">Guardar</button>
@@ -639,22 +655,22 @@
       <div class="system-details-card" style="margin-bottom:12px">
         <h3 style="margin-bottom:8px">Nueva tarea</h3>
         <div style="display:flex; gap:8px; flex-wrap:wrap">
-          <input id="skName" placeholder="Nombre" style="flex:2; min-width:140px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:#fff; font-size:12.5px">
-          <select id="skKind" style="flex:1; min-width:120px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 10px; color:#e2e8f0; font-size:12.5px">
+          <input id="skName" placeholder="Nombre" style="flex:2; min-width:140px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:var(--text-bright); font-size:12.5px">
+          <select id="skKind" style="flex:1; min-width:120px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 10px; color:var(--text-main); font-size:12.5px">
             <option value="command">Comando</option>
             <option value="message">Anuncio (say)</option>
             <option value="save">Guardar mundo</option>
             <option value="restart">Reiniciar (opt-in)</option>
           </select>
-          <select id="skMode" onchange="document.getElementById('skWhen').placeholder = this.value === 'interval' ? 'Cada N minutos' : 'Hora HH:MM'" style="flex:1; min-width:120px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 10px; color:#e2e8f0; font-size:12.5px">
+          <select id="skMode" onchange="document.getElementById('skWhen').placeholder = this.value === 'interval' ? 'Cada N minutos' : 'Hora HH:MM'" style="flex:1; min-width:120px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 10px; color:var(--text-main); font-size:12.5px">
             <option value="daily">Diaria</option>
             <option value="interval">Intervalo</option>
           </select>
-          <input id="skWhen" placeholder="Hora HH:MM" style="flex:1; min-width:110px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:#fff; font-family:'JetBrains Mono',monospace; font-size:12.5px">
+          <input id="skWhen" placeholder="Hora HH:MM" style="flex:1; min-width:110px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:var(--text-bright); font-family:'JetBrains Mono',monospace; font-size:12.5px">
           <button class="cmd-btn" onclick="skCreate()">Crear</button>
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px">
-          <input id="skPayload" placeholder="Comando o mensaje (vacío para save/restart)" style="flex:3; min-width:200px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:#fff; font-family:'JetBrains Mono',monospace; font-size:12.5px">
+          <input id="skPayload" placeholder="Comando o mensaje (vacío para save/restart)" style="flex:3; min-width:200px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:9px 12px; color:var(--text-bright); font-family:'JetBrains Mono',monospace; font-size:12.5px">
           <span class="dur" title="Aviso previo en minutos (solo restart)"><button onclick="durStep('skWarn',-1,0,30)">−</button><input id="skWarn" value="0" readonly><button onclick="durStep('skWarn',1,0,30)">+</button></span>
         </div>
         <div style="font-size:11.5px; color:var(--text-dim); margin-top:6px">El reinicio automático viene desactivado: solo se ejecuta si creas y activas una tarea de ese tipo.</div>
@@ -706,7 +722,7 @@
         </div>
       </div>
       <!-- Crash detail modal -->
-      <div id="crashModal" class="modal-overlay" style="display:none">
+      <div id="crashModal" class="modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-label="Detalle del crash-report">
         <div class="system-details-card" style="max-width:780px; width:95vw; max-height:88vh; overflow-y:auto; position:relative">
           <button class="icon-btn" style="position:absolute;right:12px;top:12px" onclick="document.getElementById('crashModal').style.display='none'">✕</button>
           <div id="crashDetail"></div>
@@ -736,7 +752,7 @@
         <div id="propsMsg" style="font-size:12px; margin-top:6px"></div>
         <details style="margin-top:12px" ontoggle="if(this.open)loadProps()">
           <summary style="cursor:pointer; font-size:12.5px; color:var(--text-muted)">Editar como texto (conserva comentarios)</summary>
-          <textarea id="propsText" style="width:100%; height:320px; margin-top:8px; background:var(--bg-terminal); color:#cbd5e1; border:1px solid var(--border-color); border-radius:8px; padding:12px; font-family:'JetBrains Mono', monospace; font-size:12px"></textarea>
+          <textarea id="propsText" style="width:100%; height:320px; margin-top:8px; background:var(--bg-terminal); color:var(--text-muted); border:1px solid var(--border-color); border-radius:8px; padding:12px; font-family:'JetBrains Mono', monospace; font-size:12px"></textarea>
           <div style="margin-top:8px; display:flex; gap:10px">
             <button class="cmd-btn" onclick="saveProps()">Guardar texto</button>
             <button class="term-tool-btn" onclick="loadProps()">Recargar</button>
@@ -800,7 +816,7 @@
         <h3 style="margin-bottom:8px">IP pública (playit.gg)</h3>
         <div style="font-size:12.5px; color:var(--text-muted); margin-bottom:8px" id="playitStatus">Detectando túnel playit...</div>
         <div style="display:flex; gap:8px; flex-wrap:wrap">
-          <input id="publicIpInput" placeholder="ej: tu-servidor.playit.gg:12345" style="flex:1; min-width:220px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; color:#e2e8f0; font-family:'JetBrains Mono',monospace; font-size:12.5px">
+          <input id="publicIpInput" placeholder="ej: tu-servidor.playit.gg:12345" style="flex:1; min-width:220px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; color:var(--text-main); font-family:'JetBrains Mono',monospace; font-size:12.5px">
           <button class="cmd-btn" onclick="savePublicIp()">Guardar IP</button>
         </div>
       </div>
@@ -808,8 +824,8 @@
         <h3 style="margin-bottom:8px">Contraseña del panel</h3>
         <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px" id="pwState">Comprobando...</div>
         <div style="display:flex; gap:8px; flex-wrap:wrap">
-          <input type="password" id="pwCur" placeholder="Actual" style="flex:1; min-width:140px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; color:#fff">
-          <input type="password" id="pwNew" placeholder="Nueva (mín. 8)" style="flex:1; min-width:140px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; color:#fff">
+          <input type="password" id="pwCur" placeholder="Actual" style="flex:1; min-width:140px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; color:var(--text-bright)">
+          <input type="password" id="pwNew" placeholder="Nueva (mín. 8)" style="flex:1; min-width:140px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; color:var(--text-bright)">
           <button class="cmd-btn" onclick="changePw()">Cambiar</button>
         </div>
       </div>
@@ -834,17 +850,22 @@
         </div>
       </div>
       <div class="system-details-card" style="margin-top:12px">
+        <h3 style="margin-bottom:8px">Apariencia</h3>
+        <div style="font-size:12px; color:var(--text-muted); margin-bottom:4px">Color de acento (se guarda en este navegador)</div>
+        <div class="accent-row" id="accentRow" role="radiogroup" aria-label="Color de acento"></div>
+      </div>
+      <div class="system-details-card" style="margin-top:12px">
         <h3 style="margin-bottom:8px">Botones rápidos de consola</h3>
         <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px">Separados por comas (máx. 12)</div>
         <div style="display:flex; gap:8px; flex-wrap:wrap">
-          <input id="quickInput" placeholder="say Hola, list, save-all" style="flex:1; min-width:220px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; color:#fff; font-size:12.5px">
+          <input id="quickInput" placeholder="say Hola, list, save-all" style="flex:1; min-width:220px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; color:var(--text-bright); font-size:12.5px">
           <button class="cmd-btn" onclick="saveQuick()">Guardar</button>
         </div>
       </div>
       <div class="system-details-card" style="margin-top:12px">
         <h3 style="margin-bottom:8px">Notificaciones Discord</h3>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px">
-          <input id="dcHook" placeholder="Webhook URL de Discord" style="flex:1; min-width:220px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; color:#e2e8f0; font-size:12.5px">
+          <input id="dcHook" placeholder="Webhook URL de Discord" style="flex:1; min-width:220px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; color:var(--text-main); font-size:12.5px">
           <button class="cmd-btn" onclick="saveDiscord()">Guardar</button>
           <button class="term-tool-btn" onclick="testDiscord()">Probar</button>
         </div>
@@ -876,7 +897,7 @@
       <div style="display:flex; gap:16px; align-items:center">
         <img id="pmAvatar" src="" class="p-avatar" style="width:52px; height:52px; border-radius:12px" alt="">
         <div>
-          <div style="font-size:20px; font-weight:800; color:#fff" id="pmName">Jugador</div>
+          <div style="font-size:20px; font-weight:800; color:var(--text-bright)" id="pmName">Jugador</div>
           <div style="font-size:11px; font-family:'JetBrains Mono',monospace; color:var(--text-dim)" id="pmUuid">—</div>
         </div>
       </div>
@@ -893,7 +914,7 @@
     <div id="pmLiveSection" style="background:rgba(255,255,255,0.03); border:1px solid var(--border-color); border-radius:12px; padding:12px; margin-bottom:14px">
       <div style="font-size:12px; font-weight:700; color:#38bdf8; margin-bottom:6px">Estado en Vivo (RCON):</div>
       <div style="display:flex; justify-content:space-between; font-size:12.5px; flex-wrap:wrap; gap:8px">
-        <span>Coordenadas: <b id="pmCoords" style="color:#fff; font-family:'JetBrains Mono',monospace">—</b></span>
+        <span>Coordenadas: <b id="pmCoords" style="color:var(--text-bright); font-family:'JetBrains Mono',monospace">—</b></span>
         <span>Nivel Exp: <b id="pmLevel" style="color:#22c55e">—</b></span>
       </div>
     </div>

@@ -166,6 +166,7 @@ function rememberTab(name) {
 function switchTab(name, fromHash) {
   if (!fromHash) syncHash(name);
   rememberTab(name);
+  try { navA11y(); } catch (e) {}
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
   
@@ -264,6 +265,94 @@ async function totpDisable() {
     if (d.ok) totpStatus();
   } catch (e) { showToast('Error'); }
 }
+
+/* ═══ TEMAS + A11Y + PLANTILLAS ═══ */
+const ACCENTS = {
+  morado: { ac: '#a855f7', ac2: '#7c3aed', rgb: '168,85,247', soft: '#c084fc', label: 'Morado' },
+  cian: { ac: '#0891b2', ac2: '#0e7490', rgb: '8,145,178', soft: '#67e8f9', label: 'Cian' },
+  verde: { ac: '#16a34a', ac2: '#15803d', rgb: '22,163,74', soft: '#86efac', label: 'Verde' },
+  ambar: { ac: '#d97706', ac2: '#b45309', rgb: '217,119,6', soft: '#fcd34d', label: '\u00c1mbar' },
+  rosa: { ac: '#db2777', ac2: '#be185d', rgb: '219,39,119', soft: '#f9a8d4', label: 'Rosa' }
+};
+function applyTheme() {
+  let th = 'dark', ac = 'morado';
+  try { th = localStorage.getItem('pkTheme') || 'dark'; ac = localStorage.getItem('pkAccent') || 'morado'; } catch (e) {}
+  document.body.dataset.theme = th;
+  const a = ACCENTS[ac] || ACCENTS.morado;
+  const r = document.documentElement.style;
+  r.setProperty('--ac', a.ac); r.setProperty('--ac2', a.ac2);
+  r.setProperty('--ac-rgb', a.rgb); r.setProperty('--acsoft', a.soft);
+  renderAccentRow(ac);
+}
+function toggleTheme() {
+  const next = (document.body.dataset.theme === 'light') ? 'dark' : 'light';
+  try { localStorage.setItem('pkTheme', next); } catch (e) {}
+  document.body.dataset.theme = next;
+  showToast(next === 'light' ? 'Tema claro' : 'Tema oscuro');
+}
+function setAccent(name) {
+  try { localStorage.setItem('pkAccent', name); } catch (e) {}
+  applyTheme();
+}
+function renderAccentRow(cur) {
+  const box = document.getElementById('accentRow');
+  if (!box) return;
+  box.innerHTML = Object.entries(ACCENTS).map(([k, a]) =>
+    '<button class="accent-sw' + (k === cur ? ' on' : '') + '" role="radio" aria-checked="' + (k === cur) + '"' +
+    ' aria-label="Acento ' + a.label + '" title="' + a.label + '" style="background:' + a.ac + ';color:' + a.ac + '" onclick="setAccent(\'' + k + '\')"></button>'
+  ).join('');
+}
+const CMD_TEMPLATES = [
+  'say ¡Hola a todos!', 'list', 'save-all', 'time set day', 'weather clear',
+  'difficulty normal', 'gamemode survival @a', 'whitelist on', 'whitelist list'
+];
+function cmdTplInit() {
+  const sel = document.getElementById('cmdTpl');
+  if (!sel || sel.options.length > 1) return;
+  CMD_TEMPLATES.forEach(c => {
+    const o = document.createElement('option');
+    o.value = c; o.textContent = c;
+    sel.appendChild(o);
+  });
+}
+function cmdTplPick() {
+  const sel = document.getElementById('cmdTpl');
+  if (sel && sel.value) {
+    document.getElementById('cmdInput').value = sel.value;
+    document.getElementById('cmdInput').focus();
+    sel.value = '';
+  }
+}
+function navKeys(e) {
+  const items = Array.from(document.querySelectorAll('.nav-item'));
+  const i = items.indexOf(document.activeElement);
+  if (i < 0) return;
+  let n = null;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowRight') n = (i + 1) % items.length;
+  else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') n = (i - 1 + items.length) % items.length;
+  else if (e.key === 'Home') n = 0;
+  else if (e.key === 'End') n = items.length - 1;
+  if (n !== null) { e.preventDefault(); items[n].focus(); items[n].click(); }
+}
+function navA11y() {
+  document.querySelectorAll('.nav-item').forEach(el => {
+    el.setAttribute('role', 'tab');
+    el.setAttribute('tabindex', el.classList.contains('active') ? '0' : '-1');
+    if (!el.hasAttribute('data-navkeys')) { el.setAttribute('data-navkeys', '1'); el.addEventListener('keydown', navKeys); }
+  });
+  const nav = document.querySelector('nav[role="tablist"]');
+  if (nav) {
+    document.querySelectorAll('.tab-content').forEach(t => t.setAttribute('role', 'tabpanel'));
+  }
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    const m = document.getElementById('crashModal');
+    if (m && m.style.display !== 'none') m.style.display = 'none';
+    const nd = document.getElementById('notifDropdown');
+    if (nd && nd.style.display === 'block') { nd.style.display = 'none'; }
+  }
+});
 
 async function submitCmd() {
   const input = document.getElementById('cmdInput');
@@ -611,6 +700,17 @@ async function refreshStats() {
           : `Uso de memoria RAM elevado (${memPct.toFixed(1)}%).`;
       } else {
         perfBanner.style.display = 'none';
+      }
+    }
+
+    const crashBanner = document.getElementById('crashBanner');
+    if (crashBanner) {
+      if (d.crash_blocked) {
+        crashBanner.style.display = 'flex';
+        document.getElementById('crashBannerMsg').textContent =
+          `Bucle de crash: inicios automáticos bloqueados (${d.crash_recent || 0} caídas recientes)`;
+      } else {
+        crashBanner.style.display = 'none';
       }
     }
 
@@ -3123,6 +3223,7 @@ function logsDownload() {
   window.open(U('/api/logs/download?name=' + encodeURIComponent(name)));
 }
 
+try { applyTheme(); cmdTplInit(); navA11y(); } catch (e) {}
 (function initTab() {
   try {
     let t = tabFromHash();

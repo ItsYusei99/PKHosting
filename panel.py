@@ -1510,6 +1510,8 @@ def get_server_stats_data():
         "server_name": srv.name,
         "disk_gb": server_disk_gb(srv),
         "net": net_rates(),
+        "crash_blocked": srv.crash_blocked,
+        "crash_recent": len(srv.crash_guard.recent()),
     }
 
 
