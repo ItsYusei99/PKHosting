@@ -2283,6 +2283,47 @@ class _NBTReader:
             return [self._i64() for _ in range(max(0, n))]
         raise ValueError(f"TAG desconocido: {tid}")
 
+    def _skip(self, tid):
+        """Avanza el cursor sin construir objetos (para escaneos rápidos)."""
+        if tid == 1:
+            self.o += 1
+        elif tid == 2:
+            self.o += 2
+        elif tid in (3, 5):
+            self.o += 4
+        elif tid in (4, 6):
+            self.o += 8
+        elif tid == 7:
+            self.o += 4 + max(0, struct.unpack(">i", self.d[self.o:self.o + 4])[0])
+        elif tid == 8:
+            n = struct.unpack(">H", self.d[self.o:self.o + 2])[0]
+            self.o += 2 + n
+        elif tid == 9:
+            et = self.d[self.o]
+            n = max(0, struct.unpack(">i", self.d[self.o + 1:self.o + 5])[0])
+            self.o += 5
+            for _ in range(n):
+                self._skip(et)
+        elif tid == 10:
+            while True:
+                st = self.d[self.o]
+                self.o += 1
+                if st == 0:
+                    return
+                n = struct.unpack(">H", self.d[self.o:self.o + 2])[0]
+                self.o += 2 + n
+                self._skip(st)
+        elif tid == 11:
+            n = max(0, struct.unpack(">i", self.d[self.o:self.o + 4])[0])
+            self.o += 4 + 4 * n
+        elif tid == 12:
+            n = max(0, struct.unpack(">i", self.d[self.o:self.o + 4])[0])
+            self.o += 4 + 8 * n
+        else:
+            raise ValueError(f"TAG desconocido: {tid}")
+        if self.o > len(self.d):
+            raise ValueError("NBT truncado")
+
 
 def _nbt_load(data):
     r = _NBTReader(data)
@@ -2596,6 +2637,279 @@ def mca_delete_chunks(dim_id, chunks):
     return True, (f"Se borraron {cleared} chunks en {touched} regiones de "
                   f"{dim_id.upper()} (copia .bak guardada junto a cada .mca). "
                   f"Se regenerarán al explorar la zona.")
+
+
+def _nbt_root_scan(data, wanted):
+    """Lee solo las claves top-level pedidas (rápido, sin parsear secciones)."""
+    r = _NBTReader(data)
+    if r._u8() != 10:
+        raise ValueError("Raíz NBT no es Compound")
+    r._str()
+    out = {}
+    while True:
+        tid = r._u8()
+        if tid == 0:
+            return out
+        nm = r._str()
+        if nm in wanted:
+            if nm in out:
+                r._skip(tid)
+            else:
+                out[nm] = r._payload(tid)
+        else:
+            r._skip(tid)
+
+
+def _mca_chunk_root(fp, cx, cz):
+    """Root parcial del chunk: InhabitedTime, xPos, zPos (None si ausente)."""
+    try:
+        with open(fp, "rb") as f:
+            f.seek(4 * ((cz & 31) * 32 + (cx & 31)))
+            entry = struct.unpack(">I", f.read(4))[0]
+            loc = entry >> 8
+            if not loc:
+                return None
+            f.seek(loc * 4096)
+            length = struct.unpack(">I", f.read(4))[0]
+            if length <= 1 or length > 64 * 1024 * 1024:
+                return None
+            ctype = f.read(1)[0]
+            payload = f.read(length - 1)
+        raw = (zlib.decompress(payload) if ctype == 2 else
+               gzip.decompress(payload) if ctype == 1 else payload)
+        return _nbt_root_scan(raw, {"InhabitedTime", "xPos", "zPos"})
+    except Exception:
+        return None
+
+
+def level_spawn(server_dir, world_name):
+    """Spawn del overworld desde level.dat (None si no se puede leer)."""
+    try:
+        with open(os.path.join(server_dir, world_name, "level.dat"), "rb") as f:
+            data = _nbt_load(gzip.decompress(f.read()))
+        d = data.get("Data", {}) if isinstance(data, dict) else {}
+        return (int(d.get("SpawnX", 0)), int(d.get("SpawnZ", 0)))
+    except Exception:
+        return None
+
+
+_PRUNE = {}
+_prune_lock = threading.Lock()
+
+
+def _prune_state(sid):
+    with _prune_lock:
+        st = _PRUNE.get(sid)
+        if st is None:
+            st = _PRUNE[sid] = {"running": False, "progress": "", "result": None, "error": None}
+        return st
+
+
+def _prune_run(sid, dim_id, max_min, radius_blocks):
+    st = _prune_state(sid)
+    try:
+        data, err = mca_scan_prune(dim_id, max_min, radius_blocks,
+                                   progress=lambda p: st.update(progress=p))
+        with _prune_lock:
+            st.update(result=data, error=err)
+    except Exception as e:
+        with _prune_lock:
+            st.update(error=str(e)[:200])
+    finally:
+        with _prune_lock:
+            st.update(running=False)
+
+
+def mca_scan_prune(dim_id, max_min=30, radius_blocks=512, cap=20000, progress=None):
+    """Candidatos a poda: InhabitedTime < max_min y fuera del radio de spawn."""
+    srv = S()
+    wdir, dim_paths = mca_world_dirs(srv)
+    target_dir = dim_paths.get(dim_id)
+    if not target_dir or not os.path.isdir(target_dir):
+        return None, "Dimensión no encontrada"
+    spawn = level_spawn(srv.server_dir, srv.world_name or "world") or (0, 0)
+    ref = (spawn[0] // 16, spawn[1] // 16) if dim_id == "overworld" else (0, 0)
+    keep = max(0, int(radius_blocks)) // 16
+    limit_ticks = max(0, float(max_min)) * 1200
+    cands, per_file = [], {}
+    scanned = present = 0
+    try:
+        files = sorted(f for f in os.listdir(target_dir) if re.match(r"^r\.-?\d+\.-?\d+\.mca$", f))
+    except OSError as e:
+        return None, str(e)
+    nfiles = len(files)
+    for fn in files:
+        m = re.match(r"^r\.(-?\d+)\.(-?\d+)\.mca$", fn)
+        rx, rz = int(m.group(1)), int(m.group(2))
+        fp = os.path.join(target_dir, fn)
+        try:
+            with open(fp, "rb") as f:
+                head = f.read(4096)
+            if len(head) < 4096:
+                continue
+        except OSError:
+            continue
+        scanned += 1
+        if progress and scanned % 25 == 0:
+            progress(f"{scanned}/{nfiles} archivos")
+        for i in range(1024):
+            if not (struct.unpack(">I", head[4 * i:4 * i + 4])[0] >> 8):
+                continue
+            present += 1
+            lx, lz = i % 32, i // 32
+            gx, gz = rx * 32 + lx, rz * 32 + lz
+            if max(abs(gx - ref[0]), abs(gz - ref[1])) * 16 <= keep:
+                continue
+            root = _mca_chunk_root(fp, lx, lz)
+            ticks = root.get("InhabitedTime", 0) if root else 0
+            try:
+                ticks = int(ticks)
+            except (TypeError, ValueError):
+                ticks = 0
+            if ticks < limit_ticks and len(cands) < cap:
+                cands.append({"file": fn, "cx": lx, "cz": lz,
+                              "inhabited_min": round(ticks / 1200.0, 1)})
+                per_file[fn] = per_file.get(fn, 0) + 1
+    return {"candidates": cands, "truncated": len(cands) >= cap,
+            "scanned_files": scanned, "present_chunks": present,
+            "spawn": list(spawn), "radius_blocks": keep * 16,
+            "per_file": per_file}, None
+
+
+def _mca_copy_chunk(dst_fp, src_fp, idx):
+    """Copia la entrada idx de src a dst (anexa sectores al final). False si ausente."""
+    with open(src_fp, "rb") as f:
+        f.seek(4 * idx)
+        entry = struct.unpack(">I", f.read(4))[0]
+        if not (entry >> 8):
+            return False
+        f.seek((entry >> 8) * 4096)
+        length = struct.unpack(">I", f.read(4))[0]
+        if length <= 1 or length > 64 * 1024 * 1024:
+            return False
+        blob = f.read(1 + length - 1)
+    need = (4 + len(blob) + 4095) // 4096
+    with open(dst_fp, "r+b") as f:
+        f.seek(0, os.SEEK_END)
+        sector = (f.tell() + 4095) // 4096
+        f.seek(sector * 4096)
+        f.write(struct.pack(">I", len(blob)))
+        f.write(blob)
+        pad = sector * 4096 + need * 4096 - f.tell()
+        if pad:
+            f.write(b"\x00" * pad)
+        f.seek(4 * idx)
+        f.write(struct.pack(">I", (sector << 8) | need))
+        f.seek(4096 + 4 * idx)
+        f.write(struct.pack(">I", int(time.time())))
+    return True
+
+
+def mca_restore_chunks(dim_id, chunks):
+    """Restaura chunks sueltos desde los .bak (requiere servidor detenido)."""
+    srv = S()
+    if _srv_running(srv) or find_running_mc_pid() is not None:
+        return False, "Detén el servidor antes de restaurar chunks"
+    wdir, dim_paths = mca_world_dirs(srv)
+    target_dir = dim_paths.get(dim_id)
+    if not target_dir or not os.path.isdir(target_dir):
+        return False, "Dimensión no encontrada"
+    by_file = {}
+    for c in chunks or []:
+        try:
+            fn = os.path.basename(str(c.get("file", "")))
+            cx, cz = int(c.get("cx", -1)), int(c.get("cz", -1))
+        except (TypeError, ValueError):
+            continue
+        if not re.match(r"^r\.-?\d+\.-?\d+\.mca$", fn):
+            continue
+        if not (0 <= cx < 32 and 0 <= cz < 32):
+            continue
+        by_file.setdefault(fn, set()).add(cz * 32 + cx)
+    if not by_file:
+        return False, "Sin chunks válidos para restaurar"
+    restored, missing = 0, []
+    tile_dd = os.path.join(srv.data_dir, "tiles", dim_id)
+    for fn, idxs in sorted(by_file.items()):
+        fp = os.path.join(target_dir, fn)
+        bak = fp + ".bak"
+        if not os.path.isfile(bak):
+            missing.append(fn)
+            continue
+        if not os.path.isfile(fp):
+            try:
+                shutil.copyfile(bak, fp)
+            except Exception as e:
+                return False, f"Error recreando {fn}: {e}"
+        ok = True
+        for i in sorted(idxs):
+            try:
+                if _mca_copy_chunk(fp, bak, i):
+                    restored += 1
+            except Exception:
+                ok = False
+        if ok:
+            m = re.match(r"^r\.(-?\d+)\.(-?\d+)\.mca$", fn)
+            if m:
+                for tp in (os.path.join(tile_dd, f"r.{m.group(1)}.{m.group(2)}.png"),
+                           os.path.join(tile_dd, f"r.{m.group(1)}.{m.group(2)}.{TILE_PX}.png")):
+                    try:
+                        if os.path.isfile(tp):
+                            os.remove(tp)
+                    except Exception:
+                        pass
+    msg = f"Se restauraron {restored} chunks desde .bak en {dim_id.upper()}."
+    if missing:
+        msg += f" Sin .bak: {', '.join(missing)}."
+    return (restored > 0), msg
+
+
+def player_positions():
+    """Posiciones desde playerdata/*.dat + usercache.json + online por query."""
+    srv = S()
+    try:
+        with open(os.path.join(srv.server_dir, "usercache.json"), encoding="utf-8") as f:
+            names = {e.get("uuid", "").replace("-", ""): e.get("name", "?")
+                     for e in json.load(f) if isinstance(e, dict)}
+    except Exception:
+        names = {}
+    online = set()
+    try:
+        if find_running_mc_pid() is not None:
+            _, _, online = query_mc_players()[:3]
+    except Exception:
+        pass
+    out = []
+    pd = os.path.join(srv.server_dir, srv.world_name or "world", "playerdata")
+    try:
+        files = [f for f in os.listdir(pd) if f.endswith(".dat")]
+    except OSError:
+        files = []
+    for fn in files:
+        uuid = fn[:-4].replace("-", "")
+        try:
+            with open(os.path.join(pd, fn), "rb") as f:
+                data = _nbt_load(gzip.decompress(f.read()))
+            pos = data.get("Pos") if isinstance(data, dict) else None
+            dim = data.get("Dimension") if isinstance(data, dict) else None
+        except Exception:
+            pos, dim = None, None
+        known = uuid in names
+        name = names.get(uuid, uuid[:8])
+        entry = {"name": name, "known": known, "online": name in online, "seen": None,
+                 "dim": dim if isinstance(dim, str) else "", "x": None, "y": None, "z": None}
+        try:
+            entry["seen"] = os.path.getmtime(os.path.join(pd, fn))
+        except OSError:
+            pass
+        if isinstance(pos, list) and len(pos) == 3:
+            try:
+                entry.update(x=round(float(pos[0]), 1), y=round(float(pos[1]), 1), z=round(float(pos[2]), 1))
+            except (TypeError, ValueError):
+                pass
+        out.append(entry)
+    out.sort(key=lambda e: (not e["online"], not e["known"], e["name"].lower()))
+    return out
 
 
 def render_region_tile(srv, dim_id, rx, rz, size=TILE_PX):
@@ -3684,6 +3998,37 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
                 return self.send_json({"ok": False, "msg": err}, code=404)
             return self.send_json({"ok": True, **data})
 
+        if u.path == "/api/world/export":
+            qs = parse_qs(u.query)
+            dim = (qs.get("dimension", ["overworld"])[0] or "overworld").strip()
+            fn = (qs.get("file", [""])[0] or "").strip()
+            if not re.match(r"^r\.-?\d+\.-?\d+\.mca$", fn):
+                return self.send_json({"ok": False, "msg": "Archivo inválido"}, code=400)
+            _, dim_paths = mca_world_dirs(S())
+            target_dir = dim_paths.get(dim)
+            fp = os.path.join(target_dir, fn) if target_dir else None
+            if not fp or not os.path.isfile(fp):
+                return self.send_json({"ok": False, "msg": "No existe"}, code=404)
+            try:
+                with open(fp, "rb") as f:
+                    body = f.read()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Content-Disposition", f'attachment; filename="{dim}-{fn}"')
+                self.end_headers()
+                try:
+                    self.wfile.write(body)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+            except Exception:
+                self.send_response(500)
+                self.end_headers()
+            return
+
+        if u.path == "/api/world/players":
+            return self.send_json({"ok": True, "players": player_positions()})
+
         if u.path == "/api/world/tile":
             qs = parse_qs(u.query)
             dim = (qs.get("dimension", ["overworld"])[0] or "overworld").strip()
@@ -4055,6 +4400,32 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
                 return self.send_json({"ok": ok, "msg": msg})
             elif action == "delete_chunks":
                 ok, msg = mca_delete_chunks(dim, payload.get("chunks", []))
+                return self.send_json({"ok": ok, "msg": msg})
+            elif action == "prune_preview":
+                st = _prune_state(S().id)
+                if st["running"]:
+                    return self.send_json({"ok": True, "running": True,
+                                             "progress": st.get("progress", "")})
+                try:
+                    mm = max(0, min(100000, float(payload.get("max_min", 30))))
+                    rr = max(0, min(100000, int(payload.get("radius", 512))))
+                except (TypeError, ValueError):
+                    return self.send_json({"ok": False, "msg": "Valores inválidos"}, code=400)
+                with _prune_lock:
+                    st.update(running=True, progress="iniciando", result=None, error=None)
+                threading.Thread(target=_prune_run, args=(S().id, dim, mm, rr),
+                                   daemon=True).start()
+                return self.send_json({"ok": True, "running": True, "progress": "iniciando"})
+            elif action == "prune_status":
+                st = _prune_state(S().id)
+                out = {"ok": True, "running": st["running"], "progress": st.get("progress", "")}
+                if st.get("error"):
+                    out.update(done=True, error=st["error"])
+                elif st.get("result") is not None:
+                    out.update(done=True, **st["result"])
+                return self.send_json(out)
+            elif action == "restore_chunks":
+                ok, msg = mca_restore_chunks(dim, payload.get("chunks", []))
                 return self.send_json({"ok": ok, "msg": msg})
             return self.send_json({"ok": False, "msg": "Acción desconocida"}, code=400)
 

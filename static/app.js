@@ -187,7 +187,7 @@ function switchTab(name, fromHash) {
 
   if (name === 'metrics') { renderCharts(); loadHeat(); refreshPingMetrics(); }
   if (name === 'files') { loadFiles(); loadMods(); }
-  if (name === 'worlds') { loadWorldManager(); }
+  if (name === 'worlds') { loadWorldManager(); loadWorldPlayers(); }
   if (name === 'backups') loadBackups();
   if (name === 'tasks') loadSchedules();
   if (name === 'history') loadHistory();
@@ -1826,6 +1826,7 @@ function renderMcaList() {
       <span style="color:#e2e8f0; font-weight:700; width:130px">${r.file}</span>
       <span style="color:var(--text-dim); flex:1">Bloques: [X ${x0}..${x1}, Z ${z0}..${z1}] · ${r.present || 0}/1024 chunks (${pct}%)</span>
       <span style="color:#93c5fd">${mb(r.size)}</span>
+      <button class="icon-btn" title="Descargar ${escHtml(r.file)}" onclick="event.stopPropagation();mcaExport('${escHtml(r.file)}')">\u2B07</button>
     </div>`;
   }).join('');
   updateMcaSelectionCount();
@@ -2422,6 +2423,92 @@ function selectCalculatedMca() {
   } else {
     showToast(`El archivo ${targetFn} no existe en ${MCA_ACTIVE_DIM} (chunks no generados aún)`, 'info');
   }
+}
+function mcaExport(file) {
+  window.open(U('/api/world/export?dimension=' + encodeURIComponent(MCA_ACTIVE_DIM) + '&file=' + encodeURIComponent(file)));
+}
+let PRUNE_CANDS = [];
+async function prunePreview() {
+  const btn = document.getElementById('prunePrevBtn');
+  const st = document.getElementById('pruneStatus');
+  const box = document.getElementById('pruneResult');
+  btn.disabled = true; PRUNE_CANDS = []; box.innerHTML = '';
+  st.textContent = 'Escaneando...';
+  try {
+    await fetch(U('/api/world/mca'), { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'prune_preview', dimension: MCA_ACTIVE_DIM,
+        max_min: parseFloat(document.getElementById('pruneMin').value) || 0,
+        radius: parseInt(document.getElementById('pruneRadius').value) || 0 }) });
+    for (let i = 0; i < 120; i++) {
+      await new Promise(r => setTimeout(r, 3000));
+      const d = await (await fetch(U('/api/world/mca'), { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'prune_status', dimension: MCA_ACTIVE_DIM }) })).json();
+      if (d.error) { st.textContent = 'Error: ' + d.error; btn.disabled = false; return; }
+      if (d.done) {
+        PRUNE_CANDS = d.candidates || [];
+        const files = Object.keys(d.per_file || {}).length;
+        st.textContent = d.scanned_files + ' regiones, ' + d.present_chunks + ' chunks (' + (d.truncated ? 'lista truncada a ' + PRUNE_CANDS.length : PRUNE_CANDS.length + ' candidatos') + ')';
+        box.innerHTML = '<div>' + PRUNE_CANDS.length + ' chunks con menos de lo indicado en ' + files + ' regiones. Spawn: (' + d.spawn[0] + ', ' + d.spawn[1] + '), radio protegido ' + d.radius_blocks + ' bloques.</div>' +
+          (PRUNE_CANDS.length ? '<button class="cmd-btn danger" style="background:#dc2626;color:#fff;margin-top:8px" onclick="pruneApply()">Aplicar poda (' + PRUNE_CANDS.length + ' chunks, servidor detenido, .bak)</button>' : '<div style="color:#4ade80">Nada que podar.</div>');
+        btn.disabled = false;
+        return;
+      }
+      st.textContent = 'Escaneando ' + (d.progress || '...') + ' (servidor detenido requerido para aplicar)';
+    }
+    st.textContent = 'Tiempo agotado esperando el escaneo';
+  } catch (e) { st.textContent = 'Error de conexión'; }
+  btn.disabled = false;
+}
+async function pruneApply() {
+  if (!PRUNE_CANDS.length) return;
+  const NL = String.fromCharCode(10);
+  if (!confirm('¿Podar ' + PRUNE_CANDS.length + ' chunks inactivos de ' + MCA_ACTIVE_DIM.toUpperCase() + '?' + NL + 'Requiere el servidor DETENIDO. Se guarda .bak por región.')) return;
+  try {
+    const r = await (await fetch(U('/api/world/mca'), { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete_chunks', dimension: MCA_ACTIVE_DIM, chunks: PRUNE_CANDS }) })).json();
+    showToast(r.msg || 'OK', r.ok ? 'success' : 'error');
+    if (r.ok) { PRUNE_CANDS = []; document.getElementById('pruneResult').innerHTML = ''; mapInvalidateFiles([]); loadWorldManager(); }
+  } catch (e) { showToast('Error', 'error'); }
+}
+async function restoreSelectedChunks() {
+  const csel = MCA_CHUNK_SEL[MCA_ACTIVE_DIM] || new Set();
+  const chunks = Array.from(csel).map(k => {
+    const p = k.split(':');
+    return { file: p[0], cx: parseInt(p[1], 10), cz: parseInt(p[2], 10) };
+  });
+  if (!chunks.length) { showToast('Selecciona chunks sueltos en el mapa (zoom + clic)', 'info'); return; }
+  if (!confirm('¿Restaurar ' + chunks.length + ' chunks desde sus .bak? Requiere el servidor DETENIDO.')) return;
+  try {
+    const r = await (await fetch(U('/api/world/mca'), { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'restore_chunks', dimension: MCA_ACTIVE_DIM, chunks }) })).json();
+    showToast(r.msg || 'OK', r.ok ? 'success' : 'error');
+    if (r.ok) { mapInvalidateFiles(chunks.map(c => c.file)); loadWorldManager(); }
+  } catch (e) { showToast('Error', 'error'); }
+}
+async function loadWorldPlayers() {
+  const box = document.getElementById('worldPlayers');
+  if (!box) return;
+  try {
+    const d = await (await fetch(U('/api/world/players'))).json();
+    if (!d.ok || !d.players.length) { box.innerHTML = '<div class="file-row"><span style="color:var(--text-dim)">Sin datos de jugadores</span></div>'; return; }
+    box.innerHTML = d.players.map(p => {
+      const pos = (p.x === null || p.x === undefined) ? 'sin posición' : '(' + p.x + ', ' + p.y + ', ' + p.z + ') ' + escHtml(p.dim.replace('minecraft:', ''));
+      return '<div class="file-row"><span class="file-name">' + escHtml(p.name) + '</span>' +
+        '<span style="color:var(--text-dim); flex:1">' + pos + '</span>' +
+        '<span class="mod-state ' + (p.online ? 's-on' : 's-off') + '">' + (p.online ? 'ON' : 'OFF') + '</span>' +
+        ((p.x !== null && p.x !== undefined) ? '<button class="term-tool-btn" onclick="centerPlayer(' + p.x + ',' + p.z + ',\'' + escHtml(p.dim) + '\')">Centrar</button>' : '') +
+        '</div>';
+    }).join('');
+  } catch (e) { box.innerHTML = '<div class="file-row">Error al cargar</div>'; }
+}
+function centerPlayer(x, z, dim) {
+  const id = String(dim || '').replace('minecraft:', '');
+  if (id && id !== MCA_ACTIVE_DIM && ['overworld', 'nether', 'the_end'].includes(id)) selectMcaDim(id);
+  MCA_VIEW.cx = x / 512; MCA_VIEW.cz = z / 512;
+  try { if (typeof CHUNK_ZOOM !== 'undefined' && MCA_VIEW.scale < CHUNK_ZOOM) MCA_VIEW.scale = CHUNK_ZOOM; } catch (e) {}
+  drawWorldMap();
+  document.getElementById('worldMapCanvas').scrollIntoView({ block: 'nearest' });
+  showToast('Mapa centrado en el jugador');
 }
 async function deleteSelectedMca() {
   const sel = MCA_SEL[MCA_ACTIVE_DIM] || new Set();

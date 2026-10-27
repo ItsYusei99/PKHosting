@@ -553,6 +553,26 @@
             <span id="mcaSelectedCount" style="font-size:12px; color:#c084fc; font-weight:700">0 regiones seleccionadas</span>
           </div>
           <button class="cmd-btn danger" id="mcaDeleteBtn" style="background:#dc2626; color:#fff" onclick="deleteSelectedMca()">Borrar regiones seleccionadas</button>
+          <button class="term-tool-btn" id="mcaRestoreBtn" onclick="restoreSelectedChunks()" title="Restaura los chunks sueltos seleccionados desde sus .bak (servidor detenido)">Restaurar chunks (.bak)</button>
+        </div>
+
+        <details class="system-details-card" style="margin-bottom:12px">
+          <summary style="cursor:pointer; font-size:13px; font-weight:700">Poda de chunks inactivos (por InhabitedTime)</summary>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; align-items:center">
+            <label style="font-size:12px">Inactividad menor de <input type="number" id="pruneMin" class="tin" value="30" min="0" max="100000" style="width:80px"> min</label>
+            <label style="font-size:12px">fuera de <input type="number" id="pruneRadius" class="tin" value="512" min="0" max="100000" style="width:80px"> bloques del spawn</label>
+            <button class="term-tool-btn" id="prunePrevBtn" onclick="prunePreview()">Previsualizar</button>
+            <span id="pruneStatus" style="font-size:12px; color:var(--text-dim)"></span>
+          </div>
+          <div id="pruneResult" style="margin-top:8px; font-size:12.5px"></div>
+        </details>
+
+        <div class="system-details-card" style="margin-bottom:12px" id="playersCard">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
+            <h3 style="margin:0; font-size:14px">Jugadores (última posición conocida)</h3>
+            <button class="term-tool-btn" onclick="loadWorldPlayers()">Recargar</button>
+          </div>
+          <div class="file-list" id="worldPlayers"><div class="file-row"><span style="color:var(--text-dim)">Abre la pestaña para cargar</span></div></div>
         </div>
 
         <div class="mca-grid" id="mcaListContainer">
