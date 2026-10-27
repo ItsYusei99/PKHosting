@@ -143,6 +143,9 @@ def drop_session(tok):
         _sessions.pop(tok, None)
 
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import diagnostics as dg
+
 CFG = load_config()
 
 SERVER_DIR = CFG["server_dir"]
@@ -204,6 +207,13 @@ class Server:
         except Exception:
             self.conn_off = 0
         self.conn_open = {}
+        self.crash_guard = dg.CrashLoopGuard(
+            int(cfg.get("crash_max", 3)), int(cfg.get("crash_window_min", 10)) * 60)
+        self.crash_guard_on = bool(cfg.get("crash_guard", True))
+        self.crash_restart = bool(cfg.get("crash_restart", False))
+        self.crash_blocked = False
+        self.crash_last = None
+        self.started_at = 0.0
         self._apply_file_overrides()
 
     def _apply_file_overrides(self):
@@ -1145,6 +1155,8 @@ def metrics_worker():
                             discord_notify("up", f"🟢 **{srv.name}** en línea")
                         elif prev == "RUNNING":
                             discord_notify("down", f"🔴 **{srv.name}** se detuvo")
+                        if status == "OFFLINE" and prev in ("RUNNING", "STARTING"):
+                            handle_unexpected_exit(srv)
                 finally:
                     _ctx.srv = None
         except Exception:
@@ -1153,13 +1165,76 @@ def metrics_worker():
 
 threading.Thread(target=metrics_worker, daemon=True).start()
 
-def start_server_action():
+
+def _persist_servers_guard(srv, mx, wn, enabled, restart):
+    """Guarda la config de la guarda de bucle en el servidor correspondiente de config.json."""
+    raw = _raw_config()
+    items = raw.get("servers")
+    if isinstance(items, list):
+        for it in items:
+            if str(it.get("id", "main")) == srv.id:
+                it.update(crash_max=mx, crash_window_min=wn, crash_guard=enabled, crash_restart=restart)
+        save_panel_setting("servers", items)
+    else:
+        save_panel_setting("crash_max", mx)
+        save_panel_setting("crash_window_min", wn)
+        save_panel_setting("crash_guard", enabled)
+        save_panel_setting("crash_restart", restart)
+
+
+def _autostart_after_crash(srv, delay=20):
+    time.sleep(delay)
+    _ctx.srv = srv
+    try:
+        if find_running_mc_pid() is None:
+            start_server_action(auto=True)
+    finally:
+        _ctx.srv = None
+
+
+def handle_unexpected_exit(srv):
+    """Distingue parada pedida de caída. Si cae, registra, avisa y aplica el límite de bucle."""
+    if getattr(srv, "stop_pending", False):
+        srv.stop_pending = False
+        return
+    started = srv.started_at or 0.0
+    crash = dg.newest_crash(srv.server_dir, since=started - 5) if started else None
+    clean = dg.clean_stop_in_log(srv.log_file)
+    if clean and not crash:
+        return
+    srv.crash_guard.record()
+    info = None
+    if crash:
+        try:
+            info = dg.crash_detail(srv.server_dir, crash)
+        except Exception:
+            info = None
+    srv.crash_last = {"t": time.time(), "crash": crash,
+                      "summary": (info or {}).get("summary", "Caída sin crash-report"),
+                      "suspect": (info or {}).get("suspect", "")}
+    n = len(srv.crash_guard.recent())
+    msg = f"💥 **{srv.name}** cayó inesperadamente ({n}/{srv.crash_guard.max_crashes} en la ventana)"
+    if srv.crash_last["summary"]:
+        msg += f"\n`{srv.crash_last['summary'][:300]}`"
+    if srv.crash_guard_on and srv.crash_guard.looping():
+        srv.crash_blocked = True
+        msg += "\n🛑 **Bucle de crash detectado**: se bloquean los reinicios automáticos hasta que lo desbloquees."
+    discord_notify("down", msg)
+    if srv.crash_restart and not srv.crash_blocked:
+        threading.Thread(target=_autostart_after_crash, args=(srv,), daemon=True).start()
+
+
+def start_server_action(auto=False):
     s = S()
     with s.lock:
         current_pid = find_running_mc_pid()
         if current_pid is not None:
             return False, f"El servidor ya está en ejecución (PID {current_pid})"
+        if auto and s.crash_blocked:
+            return False, "Inicio automático bloqueado: bucle de crash detectado (desbloquéalo en Diagnóstico)"
         try:
+            s.started_at = time.time()
+            s.stop_pending = False
             logf = open(s.child_log, "ab", buffering=0)
             s.proc = subprocess.Popen(
                 s.start_cmd, cwd=s.server_dir,
@@ -1180,6 +1255,7 @@ def stop_server_action(force=False):
             s.stop_requested = False
             return False, "El servidor ya está apagado"
         s.stop_requested = True
+        s.stop_pending = True
         try:
             if force:
                 # Intentar stop elegante por RCON primero, luego SIGKILL
@@ -1214,13 +1290,16 @@ def stop_server_action(force=False):
         except Exception as e:
             return False, f"Error al detener: {e}"
 
-def restart_server_action():
+def restart_server_action(auto=False):
     ok, msg = stop_server_action(force=False)
     if not ok and "apagado" not in msg.lower():
         return ok, msg
+    srv0 = S()
+
     def _delayed():
         time.sleep(5)
-        start_server_action()
+        _ctx.srv = srv0
+        start_server_action(auto=auto)
     threading.Thread(target=_delayed, daemon=True).start()
     return True, "Reiniciando servidor..."
 
@@ -1315,7 +1394,6 @@ def get_server_stats_data():
     }
 
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     import backup as bk
     HAVE_BACKUP = True
@@ -1526,7 +1604,7 @@ def _exec_task(srv, t):
         if warn > 0 and find_running_mc_pid() is not None:
             send_command_action(f"say Reinicio del servidor en {warn} min")
             time.sleep(warn * 60)
-        restart_server_action()
+        restart_server_action(auto=True)
     elif kind == "save":
         send_command_action("save-all")
     elif kind == "message":
@@ -3164,6 +3242,62 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
                              "backups": bks.get(k, 0)})
             return self.send_json({"ok": True, "days": days})
 
+        if u.path == "/api/crashes":
+            qs = parse_qs(u.query)
+            name = qs.get("name", [""])[0]
+            srv = S()
+            if name:
+                d = dg.crash_detail(srv.server_dir, name)
+                if d is None:
+                    return self.send_json({"ok": False, "msg": "no existe"}, code=404)
+                return self.send_json({"ok": True, "crash": d})
+            g = srv.crash_guard
+            return self.send_json({"ok": True, "items": dg.crash_list(srv.server_dir),
+                                   "guard": {"enabled": srv.crash_guard_on, "blocked": srv.crash_blocked,
+                                             "max": g.max_crashes, "window_min": g.window_s // 60, "restart": srv.crash_restart,
+                                             "recent": len(g.recent()), "last": srv.crash_last}})
+
+        if u.path == "/api/jvm":
+            return self.send_json({"ok": True, **dg.jvm_read(S().server_dir)})
+
+        if u.path == "/api/props":
+            return self.send_json({"ok": True, **dg.props_read(S().server_dir)})
+
+        if u.path == "/api/logs":
+            qs = parse_qs(u.query)
+            try:
+                limit = max(50, min(3000, int(qs.get("limit", ["600"])[0])))
+            except ValueError:
+                limit = 600
+            if qs.get("list"):
+                return self.send_json({"ok": True, "files": dg.logs_list(S().server_dir)})
+            r = dg.logs_read(S().server_dir, qs.get("name", ["latest.log"])[0],
+                             qs.get("level", ["ALL"])[0], qs.get("q", [""])[0], limit,
+                             regex=qs.get("regex", ["0"])[0] == "1")
+            if r is None:
+                return self.send_json({"ok": False, "msg": "log no encontrado"}, code=404)
+            return self.send_json({"ok": True, **r})
+
+        if u.path == "/api/logs/download":
+            qs = parse_qs(u.query)
+            name = qs.get("name", ["latest.log"])[0]
+            if name not in {x["name"] for x in dg.logs_list(S().server_dir)}:
+                return self.send_json({"ok": False, "msg": "log no encontrado"}, code=404)
+            try:
+                with open(os.path.join(dg.logs_dir(S().server_dir), name), "rb") as f:
+                    body = f.read()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Content-Disposition", f'attachment; filename="{name}"')
+                self.end_headers()
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            except OSError:
+                return self.send_json({"ok": False, "msg": "no se pudo leer"}, code=500)
+            return
+
         if u.path == "/api/mods":
             return self.send_json({"ok": True, "mods": list_mods()})
 
@@ -3572,6 +3706,43 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
                 return self.send_json({"ok": False, "msg": "Acción inválida"}, code=400)
             except Exception as e:
                 return self.send_json({"ok": False, "msg": str(e)}, code=500)
+
+        if u.path == "/api/crashes":
+            srv = S()
+            action = payload.get("action", "")
+            if action == "delete":
+                ok = dg.crash_delete(srv.server_dir, payload.get("name", ""))
+                return self.send_json({"ok": ok, "msg": "Crash-report eliminado" if ok else "No existe"})
+            if action == "unblock":
+                srv.crash_guard.reset()
+                srv.crash_blocked = False
+                return self.send_json({"ok": True, "msg": "Bucle de crash desbloqueado"})
+            if action == "config":
+                try:
+                    mx = max(1, min(20, int(payload.get("max", 3))))
+                    wn = max(1, min(240, int(payload.get("window_min", 10))))
+                except (TypeError, ValueError):
+                    return self.send_json({"ok": False, "msg": "Valores inválidos"}, code=400)
+                srv.crash_guard.configure(mx, wn * 60)
+                srv.crash_guard_on = bool(payload.get("enabled", True))
+                srv.crash_restart = bool(payload.get("restart", False)) and srv.crash_guard_on
+                if not srv.crash_guard_on:
+                    srv.crash_blocked = False
+                _persist_servers_guard(srv, mx, wn, srv.crash_guard_on, srv.crash_restart)
+                return self.send_json({"ok": True, "msg": "Guarda de bucle guardada"})
+            return self.send_json({"ok": False, "msg": "Acción inválida"}, code=400)
+
+        if u.path == "/api/jvm":
+            ok, msg, warns = dg.jvm_write(S().server_dir, str(payload.get("text", "")))
+            return self.send_json({"ok": ok, "msg": msg, "warnings": warns}, code=200 if ok else 400)
+
+        if u.path == "/api/jvm/validate":
+            ok, errs, warns = dg.jvm_validate(str(payload.get("text", "")))
+            return self.send_json({"ok": ok, "errors": errs, "warnings": warns})
+
+        if u.path == "/api/props":
+            ok, msg, needs = dg.props_write(S().server_dir, payload.get("changes") or {})
+            return self.send_json({"ok": ok, "msg": msg, "restart": needs}, code=200 if ok else 400)
 
         if u.path == "/api/backup-cfg":
             ok, msg = backup_cfg_set(S(), payload)
