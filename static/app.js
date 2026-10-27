@@ -194,7 +194,7 @@ function switchTab(name, fromHash) {
   if (name === 'fleet') loadFleetView();
   if (name === 'diag') { loadCrashes(); jvmLoad(); propsLoad(); logsInit(); }
   if (name === 'console') { loadQuick(); loadModeration(); refreshCmdList(); }
-  if (name === 'settings') { refreshPublicIp(); loadDiscord(); loadQuickCfg(); loadServers(); }
+  if (name === 'settings') { refreshPublicIp(); totpStatus(); loadDiscord(); loadQuickCfg(); loadServers(); }
 }
 
 async function serverAction(act) {
@@ -226,6 +226,43 @@ async function serverRestartPrompt() {
   } catch (e) {
     showToast('Error de conexión: ' + e);
   }
+}
+
+// ── TOTP ──
+let _totpUri = '';
+async function totpStatus() {
+  try {
+    const d = await (await fetch(U('/api/totp'), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'status'})})).json();
+    document.getElementById('totpState').textContent = d.enabled ? 'Activado: el login pedirá contraseña + código.' : 'Desactivado.';
+  } catch (e) {}
+}
+async function totpSetup() {
+  try {
+    const d = await (await fetch(U('/api/totp'), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'setup'})})).json();
+    if (!d.ok) { showToast(d.msg || 'Error'); return; }
+    _totpUri = d.uri;
+    document.getElementById('totpSecret').textContent = d.secret;
+    document.getElementById('totpSetup').style.display = 'block';
+  } catch (e) { showToast('Error'); }
+}
+function totpCopyUri() {
+  try { navigator.clipboard.writeText(_totpUri); showToast('Enlace copiado'); } catch (e) { showToast(_totpUri); }
+}
+async function totpEnable() {
+  try {
+    const d = await (await fetch(U('/api/totp'), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'enable', code:document.getElementById('totpCode').value})})).json();
+    showToast(d.msg || 'OK', d.ok ? 'success' : 'error');
+    if (d.ok) { document.getElementById('totpSetup').style.display = 'none'; totpStatus(); }
+  } catch (e) { showToast('Error'); }
+}
+async function totpDisable() {
+  try {
+    const v = document.getElementById('totpOff').value;
+    const body = /^\d{6}$/.test(v.trim()) ? {action:'disable', code:v.trim()} : {action:'disable', code:'', current:v};
+    const d = await (await fetch(U('/api/totp'), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})).json();
+    showToast(d.msg || 'OK', d.ok ? 'success' : 'error');
+    if (d.ok) totpStatus();
+  } catch (e) { showToast('Error'); }
 }
 
 async function submitCmd() {
@@ -686,11 +723,21 @@ function paintBadge(el, text, color) {
   el.style.borderColor = color + '66';
 }
 let h24At = 0;
+let histLimit = 1440;
+function histRange(lim) {
+  histLimit = lim; h24At = 0;
+  document.getElementById('rng24').classList.toggle('active', lim === 1440);
+  document.getElementById('rng7d').classList.toggle('active', lim === 10080);
+  const lbl = lim === 1440 ? 'últimas 24 h' : 'últimos 7 días';
+  document.getElementById('hTitleCpu').textContent = 'CPU — ' + lbl;
+  document.getElementById('hTitleMem').textContent = 'RAM — ' + lbl;
+  renderCharts();
+}
 async function renderCharts() {
   if (Date.now() - h24At > 60000) {
     h24At = Date.now();
     try {
-      const h = await (await fetch(U('/api/history'))).json();
+      const h = await (await fetch(U('/api/history?limit=' + histLimit))).json();
       if (h.cpu && h.cpu.length > 1) {
         drawSmoothChart('canvasH24Cpu', h.cpu, 100.0, '#a855f7', 'rgba(168,85,247,0.25)', '%');
         drawSmoothChart('canvasH24Mem', h.mem, 8.0, '#7c3aed', 'rgba(124,58,237,0.30)', 'GB');

@@ -277,17 +277,21 @@
         </div>
       </div>
 
+      <div style="display:flex; gap:6px; margin-bottom:8px" role="group" aria-label="Rango de gráficas">
+        <button class="term-tool-btn" id="rng24" onclick="histRange(1440)">24 h</button>
+        <button class="term-tool-btn" id="rng7d" onclick="histRange(10080)">7 días</button>
+      </div>
       <div class="charts-grid">
         <div class="chart-card">
           <div class="chart-header">
-            <div class="chart-title">CPU — últimas 24 h</div>
+            <div class="chart-title" id="hTitleCpu">CPU — últimas 24 h</div>
             <div class="chart-badge" id="h24CpuBadge">—</div>
           </div>
           <canvas id="canvasH24Cpu"></canvas>
         </div>
         <div class="chart-card">
           <div class="chart-header">
-            <div class="chart-title">RAM — últimas 24 h</div>
+            <div class="chart-title" id="hTitleMem">RAM — últimas 24 h</div>
             <div class="chart-badge" id="h24MemBadge">—</div>
           </div>
           <canvas id="canvasH24Mem"></canvas>
@@ -784,6 +788,26 @@
           <input type="password" id="pwCur" placeholder="Actual" style="flex:1; min-width:140px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; color:#fff">
           <input type="password" id="pwNew" placeholder="Nueva (mín. 8)" style="flex:1; min-width:140px; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; color:#fff">
           <button class="cmd-btn" onclick="changePw()">Cambiar</button>
+        </div>
+      </div>
+      <div class="system-details-card" style="margin-top:12px">
+        <h3 style="margin-bottom:8px">Segundo factor (TOTP)</h3>
+        <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px" id="totpState">Comprobando...</div>
+        <div id="totpSetup" style="display:none; margin-bottom:8px">
+          <div style="font-size:12px; margin-bottom:4px">Añade este secreto en tu app de autenticación (o el enlace <span style="font-family:'JetBrains Mono',monospace">otpauth://</span>):</div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center">
+            <code id="totpSecret" style="font-size:13px; user-select:all; word-break:break-all"></code>
+            <button class="term-tool-btn" onclick="totpCopyUri()">Copiar enlace</button>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px">
+            <input id="totpCode" class="tin" placeholder="Código 6 dígitos" inputmode="numeric" maxlength="6" style="max-width:160px">
+            <button class="cmd-btn" onclick="totpEnable()">Activar</button>
+          </div>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap">
+          <button class="term-tool-btn" onclick="totpSetup()">Generar secreto</button>
+          <input id="totpOff" class="tin" placeholder="Código o contraseña actual" style="max-width:200px">
+          <button class="term-tool-btn" onclick="totpDisable()">Desactivar</button>
         </div>
       </div>
       <div class="system-details-card" style="margin-top:12px">

@@ -111,6 +111,57 @@ def auth_enabled():
     return bool(CFG.get("panel_password_hash"))
 
 
+def totp_enabled():
+    return bool(CFG.get("totp_enabled")) and bool(CFG.get("totp_secret"))
+
+
+def _b32(secret):
+    import base64 as _b64
+    return _b64.b32decode((secret or "").strip().upper().replace(" ", ""))
+
+
+def totp_code(secret, counter):
+    import base64 as _b64
+    try:
+        key = _b32(secret)
+        msg = struct.pack(">Q", counter)
+        digest = hmac.new(key, msg, hashlib.sha1).digest()
+        off = digest[-1] & 0x0F
+        num = struct.unpack(">I", digest[off:off + 4])[0] & 0x7FFFFFFF
+        return f"{num % 1000000:06d}"
+    except Exception:
+        return None
+
+
+def totp_verify(secret, code, window=1):
+    code = re.sub(r"\D", "", str(code or ""))
+    if len(code) != 6:
+        return False
+    now = int(time.time() // 30)
+    for delta in range(-window, window + 1):
+        if hmac.compare_digest(totp_code(secret, now + delta) or "", code):
+            return True
+    return False
+
+
+_totp_pending = None
+_totp_lock = threading.Lock()
+_pre_tokens = {}
+
+
+def _pre_issue():
+    tok = secrets.token_urlsafe(24)
+    with _totp_lock:
+        _pre_tokens[tok] = time.time() + 300
+    return tok
+
+
+def _pre_consume(tok):
+    with _totp_lock:
+        exp = _pre_tokens.pop(tok, 0)
+        return bool(exp and exp > time.time())
+
+
 _sessions = {}
 _sessions_lock = threading.Lock()
 SESSION_TTL = 24 * 3600
@@ -1045,18 +1096,29 @@ def history_append(srv, cpu, mem, tps, players):
                                 "players": players}) + "\n")
         with open(_hist_file(srv)) as f:
             lines = f.readlines()
-        if len(lines) > 1600:
+        if len(lines) > 10100:
             with open(_hist_file(srv), "w") as f:
-                f.writelines(lines[-1440:])
+                f.writelines(lines[-10080:])
     except Exception:
         pass
 
 
-def history_read(srv, limit=1440):
+HIST_MAX_POINTS = 1500
+
+
+def _downsample(items):
+    n = len(items)
+    if n <= HIST_MAX_POINTS:
+        return items
+    step = (n + HIST_MAX_POINTS - 1) // HIST_MAX_POINTS
+    return items[::step]
+
+
+def history_read(srv, limit=10080):
     try:
         with open(_hist_file(srv)) as f:
             lines = f.readlines()[-limit:]
-        items = [json.loads(l) for l in lines if l.strip()]
+        items = _downsample([json.loads(l) for l in lines if l.strip()])
         return {"times": [i["t"] for i in items],
                 "cpu": [i.get("cpu", 0) for i in items],
                 "mem": [round(i.get("mem", 0) / 1024.0, 2) for i in items],
@@ -2999,15 +3061,25 @@ button{width:100%;border:0;border-radius:12px;padding:11px;font-size:14px;font-w
 <div class="card">
 <div class="login-logo"><img src="/icon.svg" alt="PKHosting"></div>
 <h1 class="brand-grav"><span class="g-letter">P</span><span class="g-letter">K</span><span><span class="g-letter">H</span><span class="g-letter">o</span><span class="g-letter">s</span><span class="g-letter">t</span><span class="g-letter">i</span><span class="g-letter">n</span><span class="g-letter">g</span></span></h1><p>Introduce la contraseña del panel</p>
-<input type="password" id="pw" placeholder="Contraseña" autofocus>
-<button onclick="login()">Entrar</button><div id="err"></div></div>
+<div id="step1"><input type="password" id="pw" placeholder="Contraseña" autofocus>
+<button onclick="login()">Entrar</button></div>
+<div id="step2" style="display:none"><input type="text" id="code" placeholder="Código 6 dígitos" inputmode="numeric" autocomplete="one-time-code" maxlength="6">
+<button onclick="login2()">Verificar</button></div><div id="err"></div></div>
 <script>
+let preTok = '';
 async function login(){
   const r = await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:document.getElementById('pw').value})});
+  const d = await r.json();
+  if(d.ok && d.totp){ preTok = d.pre; document.getElementById('step1').style.display='none'; document.getElementById('step2').style.display='block'; document.getElementById('code').focus(); return; }
+  if(d.ok) location.reload(); else document.getElementById('err').textContent = d.msg || 'Error';
+}
+async function login2(){
+  const r = await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pre:preTok,code:document.getElementById('code').value})});
   const d = await r.json();
   if(d.ok) location.reload(); else document.getElementById('err').textContent = d.msg || 'Error';
 }
 document.getElementById('pw').addEventListener('keydown',e=>{if(e.key==='Enter')login()});
+document.getElementById('code').addEventListener('keydown',e=>{if(e.key==='Enter')login2()});
 </script></body></html>"""
 
 # ── Límite de intentos de login (por IP, en memoria) ──
@@ -3440,7 +3512,11 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
                 CFG.get("quick_commands") or ["say ¡Hola!", "list", "save-all"]})
 
         if u.path == "/api/history":
-            return self.send_json({"ok": True, **history_read(S())})
+            try:
+                lim = max(60, min(10080, int(parse_qs(u.query).get("limit", ["10080"])[0])))
+            except (TypeError, ValueError):
+                lim = 10080
+            return self.send_json({"ok": True, **history_read(S(), lim)})
 
         if u.path == "/api/world":
             return self.send_json(get_world_summary())
@@ -3519,8 +3595,29 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
             wait = _login_wait(ip)
             if wait:
                 return self.send_json({"ok": False, "msg": f"Demasiados intentos. Espera {wait} s"}, code=429)
+            pre, code = payload.get("pre", ""), payload.get("code", "")
+            if pre and totp_enabled():
+                if _pre_consume(pre) and totp_verify(CFG.get("totp_secret"), code):
+                    tok = new_session()
+                    _login_ok(ip)
+                    body = json.dumps({"ok": True}).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.send_header("Set-Cookie", f"pksess={tok}; HttpOnly; Path=/; SameSite=Lax{self._secure_flag()}")
+                    self.end_headers()
+                    try:
+                        self.wfile.write(body)
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
+                    return
+                _login_fail_hit(ip)
+                time.sleep(1)
+                return self.send_json({"ok": False, "msg": "Código incorrecto"}, code=401)
             pw = payload.get("password", "")
             if auth_enabled() and verify_password(pw, CFG.get("panel_password_hash", "")):
+                if totp_enabled():
+                    return self.send_json({"ok": True, "totp": True, "pre": _pre_issue()})
                 tok = new_session()
                 _login_ok(ip)
                 body = json.dumps({"ok": True}).encode()
@@ -3562,6 +3659,40 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
             CFG["panel_password_hash"] = hash_password(new)
             save_panel_setting("panel_password_hash", CFG["panel_password_hash"])
             return self.send_json({"ok": True, "msg": "Contraseña actualizada"})
+
+        if u.path == "/api/totp":
+            action = payload.get("action", "")
+            if action == "status":
+                return self.send_json({"ok": True, "enabled": totp_enabled()})
+            if action == "setup":
+                sec = __import__("base64").b32encode(secrets.token_bytes(20)).decode().rstrip("=")
+                with _totp_lock:
+                    globals()["_totp_pending"] = sec
+                uri = (f"otpauth://totp/PKHosting:admin?secret={sec}"
+                       f"&issuer=PKHosting&algorithm=SHA1&digits=6&period=30")
+                return self.send_json({"ok": True, "secret": sec, "uri": uri})
+            if action == "enable":
+                with _totp_lock:
+                    pend = globals()["_totp_pending"]
+                if not pend:
+                    return self.send_json({"ok": False, "msg": "Genera primero el secreto"}, code=400)
+                if not totp_verify(pend, payload.get("code", "")):
+                    return self.send_json({"ok": False, "msg": "Código incorrecto, revisa la hora"}, code=400)
+                CFG["totp_secret"] = pend
+                CFG["totp_enabled"] = True
+                save_panel_setting("totp_secret", pend)
+                save_panel_setting("totp_enabled", True)
+                with _totp_lock:
+                    globals()["_totp_pending"] = None
+                return self.send_json({"ok": True, "msg": "Segundo factor activado"})
+            if action == "disable":
+                if not totp_verify(CFG.get("totp_secret"), payload.get("code", "")):
+                    if not verify_password(payload.get("current", ""), CFG.get("panel_password_hash", "")):
+                        return self.send_json({"ok": False, "msg": "Código o contraseña incorrectos"}, code=400)
+                CFG["totp_enabled"] = False
+                save_panel_setting("totp_enabled", False)
+                return self.send_json({"ok": True, "msg": "Segundo factor desactivado"})
+            return self.send_json({"ok": False, "msg": "Acción inválida"}, code=400)
 
         if u.path == "/api/start":
             ok, msg = start_server_action()
