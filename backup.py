@@ -173,6 +173,16 @@ def rcon_send(host, port, password, cmd, timeout=5):
         return False, str(e)
 
 
+def verify_archive(path):
+    """Lee el tar.gz completo (valida CRC de gzip y estructura). Lanza si está corrupto."""
+    with _tarfile.open(path, "r:gz") as tf:
+        for m in tf:
+            if m.isfile():
+                f = tf.extractfile(m)
+                while f.read(1 << 20):
+                    pass
+
+
 def run_backup(server_dir, world_name, backup_dir, send_fn=None,
                tag=None, retention_days=7, keep_monthly=True, log=None,
                progress=None):
@@ -236,6 +246,7 @@ def run_backup(server_dir, world_name, backup_dir, send_fn=None,
             say(f"omitidos {skipped} temporales que el server borró a mitad del backup")
         size = _os.path.getsize(dest) / 1e9
         prog(90, f"verificando ({size:.2f} GB)")
+        verify_archive(dest)
         say(f"OK {name} ({size:.2f} GB)")
     except Exception as e:
         try:

@@ -63,9 +63,7 @@ def load_config():
     try:
         with open(CONFIG_FILE) as f:
             user = json.load(f)
-        for k in cfg:
-            if k in user:
-                cfg[k] = user[k]
+        cfg.update(user)
     except FileNotFoundError:
         pass
     except Exception as e:
@@ -3415,6 +3413,29 @@ def get_fleet_status():
     return {"ok": True, "servers": fleet}
 
 
+MAX_UNZIP_BYTES = 2 * 1024 * 1024 * 1024
+MAX_UNZIP_FILES = 20000
+
+
+def safe_extract_zip(zp, dest_dir):
+    """Extrae un zip rechazando Zip-Slip, symlinks y zip bombs."""
+    import zipfile as _zf
+    root = os.path.realpath(dest_dir)
+    with _zf.ZipFile(zp) as z:
+        infos = z.infolist()
+        if len(infos) > MAX_UNZIP_FILES:
+            raise ValueError("zip con demasiados archivos")
+        if sum(i.file_size for i in infos) > MAX_UNZIP_BYTES:
+            raise ValueError("zip descomprimido excede el límite de 2 GB")
+        for m in infos:
+            if (m.external_attr >> 16) & 0o170000 == 0o120000:
+                continue  # symlink
+            target = os.path.realpath(os.path.join(root, m.filename))
+            if target != root and not target.startswith(root + os.sep):
+                continue
+            z.extract(m, root)
+
+
 def handle_upload(handler, dest_rel):
     dest_dir = safe_fs_path(dest_rel or "")
     if dest_dir is None:
@@ -3467,20 +3488,13 @@ def handle_upload(handler, dest_rel):
     except Exception:
         want_unzip = False
     if want_unzip:
-        import zipfile as _zf
         done = []
         for fname in saved:
             if not fname.lower().endswith(".zip"):
                 continue
             zp = os.path.join(dest_dir, fname)
             try:
-                with _zf.ZipFile(zp) as z:
-                    for m in z.infolist():
-                        # anti Zip-Slip
-                        rel = os.path.normpath(m.filename).lstrip("/")
-                        if rel.startswith("..") or os.path.isabs(m.filename):
-                            continue
-                        z.extract(m, dest_dir)
+                safe_extract_zip(zp, dest_dir)
                 os.remove(zp)
                 done.append(fname)
             except Exception as e:
