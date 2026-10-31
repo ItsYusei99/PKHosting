@@ -3611,29 +3611,59 @@ input{width:100%;background:#06060b;border:1px solid #2b2440;border-radius:12px;
 input:focus{border-color:rgba(168,85,247,.6);box-shadow:0 0 0 3px rgba(168,85,247,.22)}
 button{width:100%;border:0;border-radius:12px;padding:11px;font-size:14px;font-weight:700;color:#fff;cursor:pointer;background:linear-gradient(135deg,#a855f7,#7c3aed);box-shadow:0 4px 16px rgba(168,85,247,.4)}
 #err{color:#f87171;font-size:12.5px;min-height:18px;margin-top:8px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+button:disabled{opacity:.6;cursor:wait}
+:focus-visible{outline:2px solid #c084fc;outline-offset:2px}
 </style></head><body>
-<div class="card">
-<div class="login-logo"><img src="/icon.svg" alt="PKHosting"></div>
-<h1 class="brand-grav"><span class="g-letter">P</span><span class="g-letter">K</span><span><span class="g-letter">H</span><span class="g-letter">o</span><span class="g-letter">s</span><span class="g-letter">t</span><span class="g-letter">i</span><span class="g-letter">n</span><span class="g-letter">g</span></span></h1><p>Introduce la contraseña del panel</p>
-<div id="step1"><input type="password" id="pw" placeholder="Contraseña" autofocus>
-<button onclick="login()">Entrar</button></div>
-<div id="step2" style="display:none"><input type="text" id="code" placeholder="Código 6 dígitos" inputmode="numeric" autocomplete="one-time-code" maxlength="6">
-<button onclick="login2()">Verificar</button></div><div id="err"></div></div>
+<main class="card">
+<div class="login-logo"><img src="/icon.svg" alt=""></div>
+<h1 class="brand-grav" aria-label="PKHosting"><span class="g-letter">P</span><span class="g-letter">K</span><span><span class="g-letter">H</span><span class="g-letter">o</span><span class="g-letter">s</span><span class="g-letter">t</span><span class="g-letter">i</span><span class="g-letter">n</span><span class="g-letter">g</span></span></h1><p id="hint">Introduce la contraseña del panel</p>
+<form id="step1" autocomplete="on">
+<label for="pw" class="sr">Contraseña</label>
+<input type="password" id="pw" name="password" placeholder="Contraseña" autocomplete="current-password" required autofocus>
+<button type="submit" id="go1">Entrar</button></form>
+<form id="step2" autocomplete="off" style="display:none">
+<label for="code" class="sr">Código de verificación de 6 dígitos</label>
+<input type="text" id="code" name="code" placeholder="Código 6 dígitos" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required>
+<button type="submit" id="go2">Verificar</button></form>
+<div id="err" role="alert" aria-live="assertive"></div></main>
 <script>
 let preTok = '';
-async function login(){
-  const r = await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:document.getElementById('pw').value})});
-  const d = await r.json();
-  if(d.ok && d.totp){ preTok = d.pre; document.getElementById('step1').style.display='none'; document.getElementById('step2').style.display='block'; document.getElementById('code').focus(); return; }
-  if(d.ok) location.reload(); else document.getElementById('err').textContent = d.msg || 'Error';
+const err = document.getElementById('err');
+async function send(body, btn){
+  btn.disabled = true; err.textContent = '';
+  try {
+    const r = await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    let d = {};
+    try { d = await r.json(); } catch (e) {}
+    if (r.status === 429) { err.textContent = d.msg || 'Demasiados intentos. Espera unos minutos.'; return null; }
+    if (!r.ok && !d.msg) { err.textContent = 'Error del servidor (' + r.status + ')'; return null; }
+    if (!d.ok) { err.textContent = d.msg || 'Error'; return null; }
+    return d;
+  } catch (e) {
+    err.textContent = 'No se pudo conectar con el panel';
+    return null;
+  } finally { btn.disabled = false; }
 }
-async function login2(){
-  const r = await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pre:preTok,code:document.getElementById('code').value})});
-  const d = await r.json();
-  if(d.ok) location.reload(); else document.getElementById('err').textContent = d.msg || 'Error';
-}
-document.getElementById('pw').addEventListener('keydown',e=>{if(e.key==='Enter')login()});
-document.getElementById('code').addEventListener('keydown',e=>{if(e.key==='Enter')login2()});
+document.getElementById('step1').addEventListener('submit', async e => {
+  e.preventDefault();
+  const d = await send({password: document.getElementById('pw').value}, document.getElementById('go1'));
+  if (!d) return;
+  if (d.totp) {
+    preTok = d.pre;
+    document.getElementById('step1').style.display = 'none';
+    document.getElementById('step2').style.display = 'block';
+    document.getElementById('hint').textContent = 'Introduce el código de tu app de autenticación';
+    document.getElementById('code').focus();
+    return;
+  }
+  location.reload();
+});
+document.getElementById('step2').addEventListener('submit', async e => {
+  e.preventDefault();
+  const d = await send({pre: preTok, code: document.getElementById('code').value}, document.getElementById('go2'));
+  if (d) location.reload();
+});
 </script></body></html>"""
 
 # ── Límite de intentos de login (por IP, en memoria) ──
@@ -3690,9 +3720,9 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
         self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
         self.send_header("Content-Security-Policy",
                          "default-src 'self'; script-src 'self' 'unsafe-inline'; "
-                         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-                         "font-src 'self' https://fonts.gstatic.com data:; "
-                         "img-src 'self' data: https://mc-heads.net; "
+                         "style-src 'self' 'unsafe-inline'; "
+                         "font-src 'self' data:; "
+                         "img-src 'self' data: https://mc-heads.net https://cdn.modrinth.com; "
                          "connect-src 'self' https://spark.lucko.me; "
                          "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'")
         super().end_headers()

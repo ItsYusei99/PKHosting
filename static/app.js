@@ -9,9 +9,19 @@ function U(p) {
   return p + (p.includes('?') ? '&' : '?') + 'server=' + encodeURIComponent(SRV);
 }
 const _fetch = window.fetch.bind(window);
+let _lastNetToast = 0;
+function _netErrToast(msg, every) {
+  const n = Date.now();
+  if (n - _lastNetToast < every) return;
+  _lastNetToast = n;
+  try { showToast(msg, 'error'); } catch (e) {}
+}
 window.fetch = async (...a) => {
-  const r = await _fetch(...a);
+  let r;
+  try { r = await _fetch(...a); }
+  catch (e) { _netErrToast('Sin conexión con el panel', 30000); throw e; }
   if (r.status === 401) location.reload();
+  else if (r.status >= 500) _netErrToast('Error del servidor (' + r.status + ')', 8000);
   return r;
 };
 async function logout() {
@@ -156,7 +166,72 @@ async function savePublicIp() {
   } catch (e) { showToast('Error al guardar IP'); }
 }
 
-const KNOWN_TABS = ['console', 'metrics', 'files', 'worlds', 'backups', 'tasks', 'history', 'fleet', 'diag', 'settings'];
+const KNOWN_TABS = ['home', 'console', 'players', 'metrics', 'files', 'mods', 'worlds', 'backups', 'tasks', 'history', 'fleet', 'diag', 'settings'];
+// ── Diálogos propios (reemplazan confirm/prompt nativos): foco atrapado, Esc cancela ──
+function _pkDialog(build) {
+  return new Promise(resolve => {
+    const dlg = document.createElement('dialog');
+    dlg.className = 'pk-dialog';
+    const done = v => { try { dlg.close(); } catch (e) {} dlg.remove(); resolve(v); };
+    dlg.addEventListener('cancel', e => { e.preventDefault(); done(null); });
+    build(dlg, done);
+    document.body.appendChild(dlg);
+    dlg.showModal();
+    const first = dlg.querySelector('[data-autofocus]');
+    if (first) first.focus();
+  });
+}
+function _pkButtons(done, opts, getValue, canOk) {
+  const row = document.createElement('div');
+  row.className = 'pk-dialog-actions';
+  const cancel = document.createElement('button');
+  cancel.type = 'button'; cancel.className = 'btn-ghost'; cancel.textContent = opts.cancelText || 'Cancelar';
+  cancel.onclick = () => done(null);
+  const ok = document.createElement('button');
+  ok.type = 'submit'; ok.className = opts.danger ? 'cmd-btn danger' : 'cmd-btn'; ok.textContent = opts.okText || 'Aceptar';
+  row.append(cancel, ok);
+  return { row, ok, cancel };
+}
+// confirm: devuelve true/false. opts: { danger, typed (texto a escribir para habilitar), okText }
+function pkConfirm(msg, opts = {}) {
+  return _pkDialog((dlg, done) => {
+    const form = document.createElement('form');
+    form.method = 'dialog';
+    const p = document.createElement('p');
+    p.className = 'pk-dialog-msg'; p.textContent = msg;
+    form.appendChild(p);
+    let input = null;
+    if (opts.typed) {
+      const lbl = document.createElement('label');
+      lbl.className = 'pk-dialog-lbl'; lbl.textContent = 'Escribe ' + opts.typed + ' para confirmar';
+      input = document.createElement('input');
+      input.className = 'tin'; input.autocomplete = 'off'; input.setAttribute('data-autofocus', '');
+      lbl.appendChild(input); form.appendChild(lbl);
+    }
+    const { row, ok, cancel } = _pkButtons(done, opts);
+    if (input) { ok.disabled = true; input.oninput = () => { ok.disabled = input.value.trim().toUpperCase() !== String(opts.typed).toUpperCase(); }; }
+    else (opts.danger ? cancel : ok).setAttribute('data-autofocus', '');
+    form.appendChild(row);
+    form.onsubmit = e => { e.preventDefault(); if (!ok.disabled) done(true); };
+    dlg.appendChild(form);
+  }).then(v => v === true);
+}
+// prompt: devuelve el texto o null si se cancela
+function pkPrompt(msg, def = '') {
+  return _pkDialog((dlg, done) => {
+    const form = document.createElement('form');
+    const lbl = document.createElement('label');
+    lbl.className = 'pk-dialog-msg'; lbl.textContent = msg;
+    const input = document.createElement('input');
+    input.className = 'tin'; input.value = def; input.autocomplete = 'off'; input.setAttribute('data-autofocus', '');
+    lbl.appendChild(input);
+    const { row } = _pkButtons(done, {});
+    form.append(lbl, row);
+    form.onsubmit = e => { e.preventDefault(); done(input.value); };
+    dlg.appendChild(form);
+  });
+}
+
 function rememberTab(name) {
   try {
     localStorage.setItem('pkTab', name);
@@ -167,41 +242,35 @@ function switchTab(name, fromHash) {
   if (!fromHash) syncHash(name);
   rememberTab(name);
   try { navA11y(); } catch (e) {}
-  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(el => {
+    const on = el.dataset.tab === name;
+    el.classList.toggle('active', on);
+    el.setAttribute('aria-selected', on ? 'true' : 'false');
+    el.setAttribute('tabindex', on ? '0' : '-1');
+  });
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-  
-  const targetNav = Array.from(document.querySelectorAll('.nav-item')).find(el => el.textContent.toLowerCase().includes(
-    name === 'console' ? 'consola' :
-    name === 'metrics' ? 'métrica' :
-    name === 'files' ? 'archivo' :
-    name === 'worlds' ? 'mundo' :
-    name === 'backups' ? 'backup' :
-    name === 'tasks' ? 'tarea' :
-    name === 'history' ? 'historial' :
-    name === 'fleet' ? 'flota' :
-    name === 'diag' ? 'diagnós' : 'config'
-  ));
-  if (targetNav) targetNav.classList.add('active');
 
   const tab = document.getElementById('tab-' + name);
   if (tab) tab.classList.add('active');
 
   if (name === 'metrics') { renderCharts(); loadHeat(); refreshPingMetrics(); }
-  if (name === 'files') { loadFiles(); loadMods(); }
+  if (name === 'files') loadFiles();
+  if (name === 'mods') loadMods();
+  if (name === 'players') { loadModeration(); }
   if (name === 'worlds') { loadWorldManager(); loadWorldPlayers(); }
   if (name === 'backups') loadBackups();
   if (name === 'tasks') loadSchedules();
   if (name === 'history') loadHistory();
   if (name === 'fleet') loadFleetView();
   if (name === 'diag') { loadCrashes(); jvmLoad(); propsLoad(); logsInit(); }
-  if (name === 'console') { loadQuick(); loadModeration(); refreshCmdList(); }
+  if (name === 'console') { loadQuick(); refreshCmdList(); }
   if (name === 'settings') { refreshPublicIp(); totpStatus(); loadDiscord(); loadQuickCfg(); loadServers(); }
 }
 
 async function serverAction(act) {
-  if (act === 'stop' && !confirm('¿Detener el servidor? Se guardará el mundo y los jugadores serán expulsados.')) return;
-  if (act === 'restart' && !confirm('¿Reiniciar el servidor ahora? Los jugadores serán expulsados.')) return;
-  if (act === 'kill' && !confirm('¿Matar el proceso del servidor? Puede perder los últimos cambios del mundo.')) return;
+  if (act === 'stop' && !await pkConfirm('¿Detener el servidor? Se guardará el mundo y los jugadores serán expulsados.')) return;
+  if (act === 'restart' && !await pkConfirm('¿Reiniciar el servidor ahora? Los jugadores serán expulsados.')) return;
+  if (act === 'kill' && !await pkConfirm('¿Matar el proceso del servidor? Puede perder los últimos cambios del mundo.', { danger: true, typed: 'MATAR', okText: 'Matar proceso' })) return;
   showToast('Enviando acción: ' + act.toUpperCase() + '...');
   try {
     const res = await fetch(U('/api/' + act), { method: 'POST' });
@@ -226,13 +295,13 @@ async function fleetAction(id, act) {
 }
 
 async function serverRestartPrompt() {
-  const v = prompt('Minutos de aviso antes de reiniciar (0 = inmediato)', '5');
+  const v = await pkPrompt('Minutos de aviso antes de reiniciar (0 = inmediato)', '5');
   if (v === null) return;
   const minutes = Math.max(0, Math.min(60, parseInt(v, 10) || 0));
   showToast(minutes ? 'Reinicio con aviso de ' + minutes + ' min...' : 'Reiniciando servidor...');
   try {
     const data = await (await fetch(U('/api/restart'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ minutes }) })).json();
-    if (!data.ok && data.cancellable && confirm(data.msg + '. ¿Cancelarlo?')) {
+    if (!data.ok && data.cancellable && await pkConfirm(data.msg + '. ¿Cancelarlo?')) {
       const c = await (await fetch(U('/api/restart/cancel'), { method: 'POST' })).json();
       showToast(c.msg || 'OK');
       return;
@@ -364,6 +433,13 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     const m = document.getElementById('crashModal');
     if (m && m.style.display !== 'none') m.style.display = 'none';
+    if (document.querySelector('dialog.pk-dialog[open]')) return;   // lo gestiona el propio <dialog>
+    const fe = document.getElementById('fsEditModal');
+    if (fe && fe.style.display === 'flex') fsCloseEdit();
+    const sb = document.getElementById('srvBrowseModal');
+    if (sb && sb.style.display === 'flex') srvBrowseClose();
+    const pm = document.getElementById('playerModal');
+    if (pm && pm.style.display === 'flex') closePlayerModal();
     const nd = document.getElementById('notifDropdown');
     if (nd && nd.style.display === 'block') { nd.style.display = 'none'; }
   }
@@ -413,7 +489,7 @@ function handleCmdKey(e) {
 async function playerAction(act, name) {
   name = (name || '').trim();
   if (!name) { showToast('Jugador no válido'); return; }
-  if ((act === 'kick' || act === 'ban') && !confirm(`¿${act === 'ban' ? 'BANEAR' : 'Expulsar'} a "${name}"?`)) return;
+  if ((act === 'kick' || act === 'ban') && !await pkConfirm(`¿${act === 'ban' ? 'BANEAR' : 'Expulsar'} a "${name}"?`)) return;
   try {
     const res = await fetch(U('/api/player'), {
       method: 'POST',
@@ -465,7 +541,7 @@ async function loadHistory() {
   } catch (e) {}
 }
 async function modAct(act, name) {
-  if ((act === 'wlremove') && !confirm(`¿Quitar a "${name}" de la whitelist?`)) return;
+  if ((act === 'wlremove') && !await pkConfirm(`¿Quitar a "${name}" de la whitelist?`)) return;
   try {
     const r = await (await fetch(U('/api/player'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: act, name }) })).json();
     showToast(r.msg || 'OK');
@@ -645,6 +721,7 @@ async function refreshStats() {
     
     // Color por nivel de uso: verde < umbral1, ámbar < umbral2, rojo arriba
     const cpuPct = Math.max(0, d.cpu || 0);
+    if (d.max_mem_gb) MEM_MAX_GB = d.max_mem_gb;
     const memPct = d.max_mem_gb ? (d.mem_gb / d.max_mem_gb) * 100 : 0;
     const cpuColor = usageColor(cpuPct, 50, 80);
     const memColor = usageColor(memPct, 60, 85);
@@ -663,7 +740,15 @@ async function refreshStats() {
     const mgmt = document.getElementById('playerMgmt');
     const rows = document.getElementById('playerRows');
     const hasPlayers = d.online_players > 0 && d.player_names && d.player_names.length;
-    if (mgmt) mgmt.style.display = hasPlayers ? 'block' : 'none';
+    const homeBox = document.getElementById('homePlayers');
+    const homeCnt = document.getElementById('homePlayersCount');
+    if (homeCnt) homeCnt.textContent = hasPlayers ? String(d.player_names.length) : '';
+    if (homeBox) {
+      homeBox.innerHTML = hasPlayers
+        ? d.player_names.map(n => `<span class="p-chip" style="cursor:pointer" onclick="openPlayerModal(${jsArg(n)})"><img src="https://mc-heads.net/avatar/${encodeURIComponent(n)}/18" class="p-avatar" style="width:16px;height:16px" alt="" onerror="this.style.display='none'">${escHtml(n)}</span>`).join(' ')
+        : '<div class="empty-state">Nadie conectado</div>';
+    }
+    if (rows && !hasPlayers) rows.innerHTML = '<div class="empty-state">Nadie conectado</div>';
     if (rows && hasPlayers) {
       const sess = d.sessions || {};
       rows.innerHTML = d.player_names.map(n => {
@@ -816,6 +901,8 @@ function chartPeakAvg(vals, digits) {
 }
 
 let cpuStrokeColor = '#a855f7', memStrokeColor = '#7c3aed';
+let MEM_MAX_GB = 8;   // se actualiza con max_mem_gb del servidor activo
+function cssVar(n, fb) { try { return getComputedStyle(document.documentElement).getPropertyValue(n).trim() || fb; } catch (e) { return fb; } }
 function usageColor(pct, warnAt, critAt) {
   if (pct >= critAt) return '#f87171';
   if (pct >= warnAt) return '#fbbf24';
@@ -854,8 +941,9 @@ async function renderCharts() {
     try {
       const h = await (await fetch(U('/api/history?limit=' + histLimit))).json();
       if (h.cpu && h.cpu.length > 1) {
-        drawSmoothChart('canvasH24Cpu', h.cpu, 100.0, '#a855f7', 'rgba(168,85,247,0.25)', '%');
-        drawSmoothChart('canvasH24Mem', h.mem, 8.0, '#7c3aed', 'rgba(124,58,237,0.30)', 'GB');
+        const c1 = cssVar('--ac', '#a855f7'), c2 = cssVar('--ac2', '#7c3aed');
+        drawSmoothChart('canvasH24Cpu', h.cpu, 100.0, c1, c1 + '40', '%');
+        drawSmoothChart('canvasH24Mem', h.mem, MEM_MAX_GB, c2, c2 + '4D', 'GB');
         document.getElementById('h24CpuBadge').textContent = h.cpu[h.cpu.length - 1].toFixed(1) + '%';
         const mm = h.mem[h.mem.length - 1];
         document.getElementById('h24MemBadge').textContent = mm + ' GB';
@@ -866,7 +954,7 @@ async function renderCharts() {
   const cpuVals = historyBuffer.map(h => h.cpu || 0);
   const memVals = historyBuffer.map(h => (h.mem || 0) / 1024.0);
   drawSmoothChart('canvasCpu', cpuVals, 100.0, cpuStrokeColor, cpuStrokeColor + '40', '%');
-  drawSmoothChart('canvasMem', memVals, 8.0, memStrokeColor, memStrokeColor + '4D', 'GB');
+  drawSmoothChart('canvasMem', memVals, MEM_MAX_GB, memStrokeColor, memStrokeColor + '4D', 'GB');
   const cp = document.getElementById('chartCpuPeak');
   if (cp) cp.textContent = chartPeakAvg(cpuVals, 1) + '%';
   const mp = document.getElementById('chartMemPeak');
@@ -988,18 +1076,35 @@ window.addEventListener('popstate', (e) => {
   loadFiles(false);
 });
 try { history.replaceState({ fsPath: '' }, '', location.pathname + location.hash); } catch (err) {}
+let fsEditOrig = null;   // contenido al abrir/guardar: detecta cambios sin guardar
 async function fsEdit(p) {
   document.getElementById('fsEditPath').textContent = p;
   document.getElementById('fsEditor').value = 'Cargando...';
+  fsEditOrig = null;
   document.getElementById('fsEditModal').style.display = 'flex';
   const r = await fsPost('read', { path: p });
-  document.getElementById('fsEditor').value = r.ok ? (r.content || '') : ('Error: ' + (r.msg || 'no se pudo leer'));
+  const ed = document.getElementById('fsEditor');
+  ed.value = r.ok ? (r.content || '') : ('Error: ' + (r.msg || 'no se pudo leer'));
+  fsEditOrig = r.ok ? ed.value : null;
+  fsUpdateEditorStats();
 }
-function fsCloseEdit() { document.getElementById('fsEditModal').style.display = 'none'; }
+async function fsCloseEdit(force) {
+  const ed = document.getElementById('fsEditor');
+  if (!force && fsEditOrig !== null && ed.value !== fsEditOrig &&
+      !await pkConfirm('Hay cambios sin guardar. ¿Descartarlos?', { danger: true, okText: 'Descartar' })) return;
+  document.getElementById('fsEditModal').style.display = 'none';
+  fsEditOrig = null;
+}
 async function fsSaveEdit() {
   const p = document.getElementById('fsEditPath').textContent;
-  const r = await fsPost('write', { path: p, content: document.getElementById('fsEditor').value });
-  showToast(r.msg || 'OK'); if (r.ok) { fsCloseEdit(); loadFiles(false); }
+  const btn = document.getElementById('fsSaveBtn');
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fsPost('write', { path: p, content: document.getElementById('fsEditor').value });
+    showToast(r.msg || 'OK', r.ok === false ? 'error' : undefined);
+    if (r.ok) { fsCloseEdit(true); loadFiles(false); }
+  } catch (e) { showToast('No se pudo guardar', 'error'); }
+  finally { if (btn) btn.disabled = false; }
 }
 function fsDownloadCurrent() {
   const p = document.getElementById('fsEditPath').textContent;
@@ -1010,7 +1115,7 @@ async function fsPost(action, extra) {
   return res.json();
 }
 async function fsCreate(kind) {
-  const v = (prompt(kind === 'dir' ? 'Nombre de la nueva carpeta:' : 'Nombre del nuevo archivo:') || '').trim();
+  const v = (await pkPrompt(kind === 'dir' ? 'Nombre de la nueva carpeta:' : 'Nombre del nuevo archivo:') || '').trim();
   if (!v) return;
   const clean = v.replace(new RegExp('^/+'), '');
   const r = await fsPost(kind === 'dir' ? 'mkdir' : 'touch', { path: fsJoin(fsPath, clean) });
@@ -1021,25 +1126,36 @@ async function fsUpload() {
   if (!inp.files.length) return;
   const fd = new FormData();
   for (const f of inp.files) fd.append('files', f, f.name);
-  showToast('Subiendo ' + inp.files.length + ' archivo(s)...');
   const uz = document.getElementById('fsUnzip') && document.getElementById('fsUnzip').checked ? '&unzip=1' : '';
+  const bar = document.getElementById('fsUpProg');
+  if (bar) { bar.value = 0; bar.hidden = false; }
   try {
-    const res = await fetch(U('/api/upload?path=' + encodeURIComponent(fsPath) + uz), { method: 'POST', body: fd });
-    const r = await res.json();
-    showToast(r.msg || 'OK');
-  } catch (e) { showToast('Error al subir'); }
+    const r = await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', U('/api/upload?path=' + encodeURIComponent(fsPath) + uz));
+      xhr.upload.onprogress = ev => { if (bar && ev.lengthComputable) bar.value = Math.round(ev.loaded * 100 / ev.total); };
+      xhr.onload = () => {
+        if (xhr.status === 401) { location.reload(); return; }
+        try { resolve(JSON.parse(xhr.responseText)); } catch (e) { reject(new Error('respuesta inválida (' + xhr.status + ')')); }
+      };
+      xhr.onerror = () => reject(new Error('sin conexión'));
+      xhr.send(fd);
+    });
+    showToast(r.msg || 'OK', r.ok === false ? 'error' : undefined);
+  } catch (e) { showToast('Error al subir: ' + e.message, 'error'); }
+  if (bar) bar.hidden = true;
   inp.value = '';
   loadFiles();
 }
 function fsDownload(p) { window.open(U('/api/download?path=' + encodeURIComponent(p)), '_blank'); }
 async function fsRename(p) {
-  const dest = (prompt('Renombrar / mover a (ruta relativa):', p) || '').trim();
+  const dest = (await pkPrompt('Renombrar / mover a (ruta relativa):', p) || '').trim();
   if (!dest || dest === p) return;
   const r = await fsPost('rename', { path: p, dest });
   showToast(r.msg || 'OK'); loadFiles();
 }
 async function fsDelete(p) {
-  if (!confirm('¿Eliminar "' + p + '"?')) return;
+  if (!await pkConfirm('¿Eliminar "' + p + '"?')) return;
   const r = await fsPost('delete', { path: p });
   showToast(r.msg || 'OK'); loadFiles();
 }
@@ -1084,10 +1200,11 @@ async function loadBackups() {
       document.getElementById('bkNextSub').textContent = 'actívalo en Configuración avanzada';
     }
     document.getElementById('bkSpace').textContent = fmtBytes(d.total_b || 0);
-    document.getElementById('bkSpaceSub').textContent = `libre en disco: ${d.free_gb} GB`;
+    const noDir = d.writable_msg === 'carpeta inexistente';
+    document.getElementById('bkSpaceSub').textContent = noDir ? 'la carpeta aún no existe (se crea al activar los backups)' : `libre en disco: ${d.free_gb} GB`;
     document.getElementById('bkCount').textContent = items.length;
     document.getElementById('bkCountSub').textContent = `${d.monthly || 0} mensuales eternos`;
-    const w = d.writable ? '✔ destino escribible' : '✘ destino NO escribible' + (d.writable_msg ? ': ' + d.writable_msg : '');
+    const w = d.writable ? '✔ destino escribible' : (noDir ? '⚠ la carpeta de destino no existe todavía' : '✘ destino NO escribible' + (d.writable_msg ? ': ' + d.writable_msg : ''));
     document.getElementById('bkStatus').textContent =
       `${d.dir} · ret ${d.retention_days}d${d.keep_monthly ? ' + mensual' : ''} · ${w}`;
     const job = document.getElementById('bkJob');
@@ -1146,7 +1263,7 @@ async function backupNow() {
   setTimeout(loadBackups, 1500);
 }
 async function restoreBackup(name) {
-  if (!confirm(`¿RESTAURAR "${name}"?
+  if (!await pkConfirm(`¿RESTAURAR "${name}"?
 
 Detiene el servidor, guarda un pre-backup de seguridad y sobrescribe el mundo actual.`)) return;
   try {
@@ -1174,7 +1291,7 @@ async function saveBkCfg() {
   loadBackups();
 }
 async function deleteBackup(name) {
-  if (!confirm(`¿Eliminar el backup "${name}"?`)) return;
+  if (!await pkConfirm(`¿Eliminar el backup "${name}"?`)) return;
   try {
     const r = await (await fetch(U('/api/backup-delete'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) })).json();
     showToast(r.msg || 'OK');
@@ -1265,7 +1382,7 @@ async function skCreate() {
     kind: document.getElementById('skKind').value, mode: document.getElementById('skMode').value,
     payload: document.getElementById('skPayload').value.trim(),
     warn_min: parseInt(document.getElementById('skWarn').value) || 0, ...skWhen() };
-  if (body.kind === 'restart' && !confirm('¿Crear tarea de REINICIO automático? (vendrá activada; puedes pausarla cuando quieras)')) return;
+  if (body.kind === 'restart' && !await pkConfirm('¿Crear tarea de REINICIO automático? (vendrá activada; puedes pausarla cuando quieras)')) return;
   try {
     const r = await (await fetch(U('/api/schedule'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'create', ...body }) })).json();
     showToast(r.msg || 'OK');
@@ -1273,7 +1390,7 @@ async function skCreate() {
   loadSchedules();
 }
 async function skAct(action, id) {
-  if (action === 'delete' && !confirm('¿Eliminar tarea?')) return;
+  if (action === 'delete' && !await pkConfirm('¿Eliminar tarea?')) return;
   try {
     const r = await (await fetch(U('/api/schedule'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, id }) })).json();
     showToast(r.msg || 'OK');
@@ -1392,7 +1509,7 @@ async function modToggleIdx(i) {
 async function modDelIdx(i) {
   const m = MODS_VIEW[i];
   if (!m) return;
-  if (!confirm(`¿Eliminar el mod "${m.name}"?`)) return;
+  if (!await pkConfirm(`¿Eliminar el mod "${m.name}"?`)) return;
   try {
     const r = await (await fetch(U('/api/mod'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', name: m.name }) })).json();
     showToast(r.msg || 'OK', r.ok === false ? 'error' : 'success');
@@ -1430,7 +1547,7 @@ async function modUpdateIdx(i) {
   if (!m) return;
   const u = MOD_UPDATES[m.name];
   if (!u) return;
-  if (!confirm('¿Actualizar "' + m.name + '" a ' + u.latest + ' (' + u.date + ')?\nEl servidor debe estar detenido. Se guarda copia anterior.')) return;
+  if (!await pkConfirm('¿Actualizar "' + m.name + '" a ' + u.latest + ' (' + u.date + ')?\nEl servidor debe estar detenido. Se guarda copia anterior.')) return;
   try {
     const r = await (await fetch(U('/api/mod'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'update', name: m.name }) })).json();
     showToast(r.msg || 'OK', r.ok === false ? 'error' : 'success');
@@ -1440,7 +1557,7 @@ async function modUpdateIdx(i) {
 async function modRollbackIdx(i) {
   const m = MODS_VIEW[i];
   if (!m) return;
-  if (!confirm('¿Revertir "' + m.name + '" a la copia anterior? El servidor debe estar detenido.')) return;
+  if (!await pkConfirm('¿Revertir "' + m.name + '" a la copia anterior? El servidor debe estar detenido.')) return;
   try {
     const r = await (await fetch(U('/api/mod'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'rollback', name: m.name }) })).json();
     showToast(r.msg || 'OK', r.ok === false ? 'error' : 'success');
@@ -1448,7 +1565,7 @@ async function modRollbackIdx(i) {
   loadMods();
 }
 async function modDel(name) { // compatibilidad
-  if (!confirm(`¿Eliminar el mod "${name}"?`)) return;
+  if (!await pkConfirm(`¿Eliminar el mod "${name}"?`)) return;
   try {
     const r = await (await fetch(U('/api/mod'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', name }) })).json();
     showToast(r.msg || 'OK', r.ok === false ? 'error' : 'success');
@@ -1458,7 +1575,7 @@ async function modDel(name) { // compatibilidad
 async function modBulk(enable) {
   const n = MODS_CACHE.filter(m => m.enabled !== enable).length;
   if (!n) { showToast('Nada que cambiar', 'info'); return; }
-  if (!confirm(`${enable ? 'Activar' : 'Desactivar'} ${n} mod(s)? Requiere reinicio del servidor.`)) return;
+  if (!await pkConfirm(`${enable ? 'Activar' : 'Desactivar'} ${n} mod(s)? Requiere reinicio del servidor.`)) return;
   try {
     const r = await (await fetch(U('/api/mod'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: enable ? 'enable_all' : 'disable_all' }) })).json();
     showToast(r.msg || 'OK', r.ok === false ? 'error' : 'success');
@@ -1545,7 +1662,7 @@ async function srvSubmit() {
 async function srvDelete(id) {
   const s = SRV_CACHE.find(x => x.id === id);
   if (!s) return;
-  if (!confirm(`¿Quitar '${s.name}' del panel? No se borran sus archivos.`)) return;
+  if (!await pkConfirm(`¿Quitar '${s.name}' del panel? No se borran sus archivos.`)) return;
   try {
     const r = await (await fetch(U('/api/servers'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', id }) })).json();
     showToast(r.msg || 'OK', r.ok === false ? 'error' : 'success');
@@ -1648,7 +1765,7 @@ async function loadHeat() {
       if (x.backups) bks++;
       const a = 0.1 + 0.9 * (x.joins / mx);
       const h = 22 + 52 * (x.joins / mx);
-      return `<div class="heat-cell${x.backups ? ' has-bk' : ''}" style="height:${h}px; background:rgba(168,85,247,${a.toFixed(2)})" title="${x.date}: ${x.joins} joins${x.backups ? ` · ${x.backups} backup(s)` : ''}"></div>`;
+      return `<div class="heat-cell${x.backups ? ' has-bk' : ''}" style="height:${h}px; background:rgba(var(--ac-rgb),${a.toFixed(2)})" title="${x.date}: ${x.joins} joins${x.backups ? ` · ${x.backups} backup(s)` : ''}"></div>`;
     }).join('');
     document.getElementById('heatBadge').textContent = `${joins} joins · ${bks} días con backup`;
   } catch (e) {}
@@ -1723,7 +1840,7 @@ async function pmQuickCmd(act) {
   else if (act === 'survival') cmd = `gamemode survival ${p}`;
   else if (act === 'spawn') cmd = `spawnpoint ${p}`;
   else if (act === 'clearlag') {
-    if (!confirm(`¿Vaciar todo el inventario de "${p}"?`)) return;
+    if (!await pkConfirm(`¿Vaciar todo el inventario de "${p}"?`)) return;
     cmd = `clear ${p}`;
   }
   if (!cmd) return;
@@ -2327,7 +2444,7 @@ function drawWorldMap() {
   const ox = (0 - MCA_VIEW.cx) * s + w / 2, oy = (0 - MCA_VIEW.cz) * s + h / 2;
   ctx.beginPath(); ctx.moveTo(ox, 0); ctx.lineTo(ox, h); ctx.moveTo(0, oy); ctx.lineTo(w, oy); ctx.stroke();
   ctx.fillStyle = 'rgba(192,132,252,0.9)';
-  ctx.font = '10px JetBrains Mono, monospace';
+  ctx.font = '10px ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace';
   ctx.fillText('0,0 spawn', ox + 5, oy - 5);
   const terrain = MCA_MAP_MODE === 'terrain';
   const pendingTiles = [];
@@ -2475,7 +2592,7 @@ function updateRegionPreview() {
     ctx.stroke();
     if (!anySel) {
       ctx.fillStyle = 'rgba(233,213,255,0.75)';
-      ctx.font = '12px JetBrains Mono, monospace';
+      ctx.font = '12px ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace';
       ctx.fillText('Sin chunks en selección: haz zoom y clic en el mapa', 12, size - 12);
     }
   };
@@ -2501,7 +2618,7 @@ function updateRegionPreview() {
     return;
   }
   ctx.fillStyle = 'rgba(148,163,184,0.5)';
-  ctx.font = '13px JetBrains Mono, monospace';
+  ctx.font = '13px ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace';
   ctx.fillText('Cargando vista previa…', 12, 24);
   if (!t) mapQueueTile(tkey, rx, rz);
   if (!det) mapQueueDetail(key, MCA_DETAIL_FILE);
@@ -2585,7 +2702,7 @@ async function prunePreview() {
 async function pruneApply() {
   if (!PRUNE_CANDS.length) return;
   const NL = String.fromCharCode(10);
-  if (!confirm('¿Podar ' + PRUNE_CANDS.length + ' chunks inactivos de ' + MCA_ACTIVE_DIM.toUpperCase() + '?' + NL + 'Requiere el servidor DETENIDO. Se guarda .bak por región.')) return;
+  if (!await pkConfirm('¿Podar ' + PRUNE_CANDS.length + ' chunks inactivos de ' + MCA_ACTIVE_DIM.toUpperCase() + '?' + NL + 'Requiere el servidor DETENIDO. Se guarda .bak por región.')) return;
   try {
     const r = await (await fetch(U('/api/world/mca'), { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'delete_chunks', dimension: MCA_ACTIVE_DIM, chunks: PRUNE_CANDS }) })).json();
@@ -2600,7 +2717,7 @@ async function restoreSelectedChunks() {
     return { file: p[0], cx: parseInt(p[1], 10), cz: parseInt(p[2], 10) };
   });
   if (!chunks.length) { showToast('Selecciona chunks sueltos en el mapa (zoom + clic)', 'info'); return; }
-  if (!confirm('¿Restaurar ' + chunks.length + ' chunks desde sus .bak? Requiere el servidor DETENIDO.')) return;
+  if (!await pkConfirm('¿Restaurar ' + chunks.length + ' chunks desde sus .bak? Requiere el servidor DETENIDO.')) return;
   try {
     const r = await (await fetch(U('/api/world/mca'), { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'restore_chunks', dimension: MCA_ACTIVE_DIM, chunks }) })).json();
@@ -2651,7 +2768,7 @@ async function deleteSelectedMca() {
   const NL = String.fromCharCode(10);
   let warnMsg = `⚠️ ATENCIÓN: ¿Seguro que deseas eliminar ${parts.join(' + ')} de ${MCA_ACTIVE_DIM.toUpperCase()}?` + NL + NL + `Los terrenos se borrarán y se regenerarán limpios la próxima vez que alguien entre.`;
   if (chunks.length) warnMsg += NL + NL + 'NOTA: borrar chunks requiere el servidor DETENIDO.';
-  if (!confirm(warnMsg)) return;
+  if (!await pkConfirm(warnMsg)) return;
   try {
     if (chunks.length) {
       const rc = await (await fetch(U('/api/world/mca'), {
@@ -2689,9 +2806,9 @@ async function deleteSelectedMca() {
   }
 }
 async function mcaResetDim(dim) {
-  if (!confirm(`⚠️ ALERTA: ¿Deseas reiniciar por completo la dimensión ${dim.toUpperCase()}?
+  if (!await pkConfirm(`⚠️ ALERTA: ¿Deseas reiniciar por completo la dimensión ${dim.toUpperCase()}?
 
-Toda construcción, portal o progreso en esa dimensión desaparecerá.`)) return;
+Toda construcción, portal o progreso en esa dimensión desaparecerá.`, { danger: true, typed: dim.toUpperCase(), okText: 'Reiniciar dimensión' })) return;
   try {
     const r = await (await fetch(U('/api/world/mca'), {
       method: 'POST',
@@ -2756,14 +2873,18 @@ async function loadFleetView() {
    GLOBAL COMMAND PALETTE (Ctrl + K)
 ══════════════════════════════════════════════════ */
 const PALETTE_ACTIONS = [
+  { title: 'Inicio', cat: 'Navegar', action: () => switchTab('home') },
   { title: 'Consola del servidor', cat: 'Navegar', action: () => switchTab('console') },
+  { title: 'Jugadores y moderación', cat: 'Navegar', action: () => switchTab('players') },
   { title: 'Métricas del sistema & TPS', cat: 'Navegar', action: () => switchTab('metrics') },
-  { title: 'Archivos y Mods', cat: 'Navegar', action: () => switchTab('files') },
+  { title: 'Archivos del servidor', cat: 'Navegar', action: () => switchTab('files') },
+  { title: 'Mods', cat: 'Navegar', action: () => switchTab('mods') },
   { title: 'Mundos y MCA Region Cleaner', cat: 'Navegar', action: () => switchTab('worlds') },
   { title: 'Copias de seguridad (Backups)', cat: 'Navegar', action: () => switchTab('backups') },
   { title: 'Tareas programadas', cat: 'Navegar', action: () => switchTab('tasks') },
   { title: 'Historial de conexiones', cat: 'Navegar', action: () => switchTab('history') },
   { title: 'Flota de servidores', cat: 'Navegar', action: () => switchTab('fleet') },
+  { title: 'Diagnóstico (crashes, JVM, logs)', cat: 'Navegar', action: () => switchTab('diag') },
   { title: 'Configuración y Ajustes', cat: 'Navegar', action: () => switchTab('settings') },
   { title: 'Iniciar Servidor', cat: 'Control', action: () => serverAction('start') },
   { title: 'Reiniciar Servidor', cat: 'Control', action: () => serverAction('restart') },
@@ -2771,7 +2892,7 @@ const PALETTE_ACTIONS = [
   { title: 'Reload Servidor (Datapacks/Mods)', cat: 'Control', action: () => serverAction('reload') },
   { title: 'Hacer Backup ahora', cat: 'Backups', action: () => { switchTab('backups'); setTimeout(backupNow, 300); } },
   { title: 'Diagnóstico de Salud Spark', cat: 'Rendimiento', action: () => sparkQuickAction('health') },
-  { title: 'Explorador de Mods Modrinth', cat: 'Mods', action: () => { switchTab('files'); setTimeout(toggleModrinthView, 300); } },
+  { title: 'Explorador de Mods Modrinth', cat: 'Mods', action: () => { switchTab('mods'); setTimeout(toggleModrinthView, 300); } },
   { title: 'Pantalla completa de terminal', cat: 'Herramientas', action: () => toggleTermFullscreen() },
   { title: 'Copiar IP pública', cat: 'Herramientas', action: () => copyIp() },
   { title: 'Cerrar sesión', cat: 'Sesión', action: () => logout() }
@@ -2953,8 +3074,8 @@ document.addEventListener('click', e => {
   }
 });
 
-const TAB_HASH = { consola: 'console', metricas: 'metrics', sistema: 'metrics', archivos: 'files', mundos: 'worlds', mca: 'worlds', backups: 'backups', tareas: 'tasks', historial: 'history', jugadores: 'history', flota: 'fleet', servidores: 'fleet', diagnostico: 'diag', configuracion: 'settings', ajustes: 'settings' };
-const TAB_SLUG = { console: 'consola', metrics: 'metricas', files: 'archivos', worlds: 'mundos', backups: 'backups', tasks: 'tareas', history: 'historial', fleet: 'flota', diag: 'diagnostico', settings: 'configuracion' };
+const TAB_HASH = { consola: 'console', metricas: 'metrics', sistema: 'metrics', archivos: 'files', mundos: 'worlds', mca: 'worlds', backups: 'backups', tareas: 'tasks', historial: 'history', jugadores: 'players', inicio: 'home', mods: 'mods', flota: 'fleet', servidores: 'fleet', diagnostico: 'diag', configuracion: 'settings', ajustes: 'settings' };
+const TAB_SLUG = { home: 'inicio', players: 'jugadores', mods: 'mods', console: 'consola', metrics: 'metricas', files: 'archivos', worlds: 'mundos', backups: 'backups', tasks: 'tareas', history: 'historial', fleet: 'flota', diag: 'diagnostico', settings: 'configuracion' };
 function tabFromHash() {
   const h = (location.hash || '').replace(/^#/, '');
   const m = /^[a-z]+/.exec(h);
@@ -3061,7 +3182,7 @@ async function openCrash(name) {
   } catch (e) {}
 }
 async function crashDel(name) {
-  if (!confirm('\u00bfEliminar ' + name + '?')) return;
+  if (!await pkConfirm('\u00bfEliminar ' + name + '?')) return;
   try {
     await fetch(U('/api/crashes'), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'delete',name})});
     loadCrashes();
