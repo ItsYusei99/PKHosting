@@ -65,7 +65,6 @@ ask RCON_PORT    "Puerto RCON"                               "${PK_RCON_PORT:-25
 ask MAX_MEM      "RAM máxima del servidor (GB, solo visual)" "${PK_MAX_MEM:-4.0}"
 
 # ── Backups diarios ──────────────────────────────────────────────
-BK_DEF=y
 if [ "$NON_INT" = 1 ]; then
   BK_ANS="${PK_BACKUP:-y}"
 else
