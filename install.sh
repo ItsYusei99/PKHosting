@@ -40,12 +40,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -f "$SCRIPT_DIR/panel.py" ]; then
   say "usando código local: $SCRIPT_DIR"
   mkdir -p "$APP_DIR"
-  cp "$SCRIPT_DIR/panel.py" "$SCRIPT_DIR/backup.py" "$SCRIPT_DIR/pkhosting.service" \
-     "$SCRIPT_DIR/pkhosting-backup.service" "$SCRIPT_DIR/pkhosting-backup.timer" "$APP_DIR/"
+  # Si se ejecuta desde dentro de APP_DIR no hay nada que copiar (cp fallaría con "same file")
+  if [ "$(realpath "$SCRIPT_DIR")" != "$(realpath "$APP_DIR")" ]; then
+    cp "$SCRIPT_DIR/panel.py" "$SCRIPT_DIR/backup.py" "$SCRIPT_DIR/diagnostics.py" \
+       "$SCRIPT_DIR/pkhosting.service" "$SCRIPT_DIR/pkhosting-backup.service" \
+       "$SCRIPT_DIR/pkhosting-backup.timer" "$APP_DIR/"
+    rm -rf "$APP_DIR/static"
+    cp -r "$SCRIPT_DIR/static" "$APP_DIR/static"
+    if [ -f "$SCRIPT_DIR/logo.svg" ]; then cp "$SCRIPT_DIR/logo.svg" "$APP_DIR/"; fi
+  fi
   chmod +x "$APP_DIR/panel.py" "$APP_DIR/backup.py"
 else
   command -v git >/dev/null || die "falta git para clonar $REPO_URL"
-  if [ -d "$APP_DIR/panel.py" ] || [ -f "$APP_DIR/panel.py" ]; then
+  if [ -f "$APP_DIR/panel.py" ]; then
     say "ya existe $APP_DIR, reutilizando"
   else
     say "clonando en $APP_DIR ..."
@@ -164,10 +171,15 @@ fi
 if [[ "$SSL_ANS" =~ ^[sSyY]$ ]]; then
   command -v openssl >/dev/null || die "falta openssl"
   mkdir -p "$CFG_DIR/ssl"
-  openssl req -x509 -newkey rsa:2048 -nodes -days 825 \
-    -keyout "$CFG_DIR/ssl/key.pem" -out "$CFG_DIR/ssl/cert.pem" \
-    -subj "/CN=pkhosting" 2>/dev/null
-  chmod 600 "$CFG_DIR/ssl/key.pem"
+  if [ ! -f "$CFG_DIR/ssl/cert.pem" ] || [ ! -f "$CFG_DIR/ssl/key.pem" ]; then
+    ( umask 077
+      openssl req -x509 -newkey rsa:2048 -nodes -days 825 \
+        -keyout "$CFG_DIR/ssl/key.pem" -out "$CFG_DIR/ssl/cert.pem" \
+        -subj "/CN=pkhosting" 2>/dev/null )
+    chmod 600 "$CFG_DIR/ssl/key.pem"
+  else
+    say "reutilizo certificado existente"
+  fi
   PK_APP_DIR="$APP_DIR" python3 - "$CFG_FILE" "$CFG_DIR" <<'EOF'
 import os, sys
 sys.path.insert(0, os.environ["PK_APP_DIR"])
@@ -186,12 +198,12 @@ fi
 # ── 4. Password RCON ─────────────────────────────────────────────
 RCON_FILE="$CFG_DIR/rcon-password"
 if [ ! -f "$RCON_FILE" ]; then
+  # umask 077: el archivo nace ya con permisos 600 (sin ventana donde sea legible)
   if command -v python3 >/dev/null; then
-    python3 -c "import secrets; print(secrets.token_urlsafe(24))" > "$RCON_FILE"
+    ( umask 077; python3 -c "import secrets; print(secrets.token_urlsafe(24))" > "$RCON_FILE" )
   else
-    tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 32 > "$RCON_FILE"
+    ( umask 077; tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 32 > "$RCON_FILE" )
   fi
-  chmod 600 "$RCON_FILE"
   say "password RCON generado en $RCON_FILE"
 else
   say "reutilizo password RCON existente"
@@ -209,16 +221,23 @@ if [ -f "$PROP" ]; then
     PATCH=yes
   fi
   if [ "$PATCH" = yes ]; then
-    cp "$PROP" "$PROP.bak"
+    # solo la primera vez: no pisar el original en re-ejecuciones
+    if [ ! -f "$PROP.bak" ]; then cp "$PROP" "$PROP.bak"; fi
     python3 - "$PROP" "$RCON_PW" "$RCON_PORT" <<'EOF'
 import sys
 prop, pw, port = sys.argv[1], sys.argv[2], sys.argv[3]
-out = []
+want = {"enable-rcon": "true", "rcon.password": pw, "rcon.port": port}
+seen, out = set(), []
 for line in open(prop).read().splitlines():
-    if line.startswith("enable-rcon="): out.append("enable-rcon=true")
-    elif line.startswith("rcon.password="): out.append(f"rcon.password={pw}")
-    elif line.startswith("rcon.port="): out.append(f"rcon.port={port}")
-    else: out.append(line)
+    key = line.split("=", 1)[0]
+    if key in want and "=" in line and not line.lstrip().startswith("#"):
+        out.append(f"{key}={want[key]}")
+        seen.add(key)
+    else:
+        out.append(line)
+for key, val in want.items():  # claves ausentes: añadirlas
+    if key not in seen:
+        out.append(f"{key}={val}")
 open(prop, "w").write("\n".join(out) + "\n")
 EOF
     say "RCON activado en server.properties (backup: server.properties.bak)"
@@ -233,6 +252,8 @@ UNIT_DIR="$HOME/.config/systemd/user"
 mkdir -p "$UNIT_DIR"
 sed "s|%h/PKHosting/panel.py|$APP_DIR/panel.py|" "$APP_DIR/pkhosting.service" > "$UNIT_DIR/pkhosting.service"
 systemctl --user daemon-reload
+# Sin linger los servicios de usuario se detienen al cerrar la sesión (servidores headless)
+loginctl enable-linger "$USER" 2>/dev/null || warn "no pude activar linger (ejecuta: loginctl enable-linger $USER)"
 systemctl --user enable --now pkhosting.service
 if [ "$BK_ON" = true ]; then
   sed -e "s|@APP_DIR@|$APP_DIR|" "$APP_DIR/pkhosting-backup.service" > "$UNIT_DIR/pkhosting-backup.service"

@@ -199,12 +199,27 @@ function switchTab(name, fromHash) {
 }
 
 async function serverAction(act) {
+  if (act === 'stop' && !confirm('¿Detener el servidor? Se guardará el mundo y los jugadores serán expulsados.')) return;
+  if (act === 'restart' && !confirm('¿Reiniciar el servidor ahora? Los jugadores serán expulsados.')) return;
+  if (act === 'kill' && !confirm('¿Matar el proceso del servidor? Puede perder los últimos cambios del mundo.')) return;
   showToast('Enviando acción: ' + act.toUpperCase() + '...');
   try {
     const res = await fetch(U('/api/' + act), { method: 'POST' });
     const data = await res.json();
     showToast(data.msg || 'OK');
     setTimeout(refreshStats, 1200);
+  } catch (e) {
+    showToast('Error de conexión: ' + e);
+  }
+}
+
+// Acción desde la tarjeta de Flota: opera sobre ESE servidor, no sobre el activo de la página
+async function fleetAction(id, act) {
+  try {
+    const res = await fetch('/api/' + act + '?server=' + encodeURIComponent(id), { method: 'POST' });
+    const data = await res.json();
+    showToast(data.msg || 'OK');
+    setTimeout(loadFleetView, 1500);
   } catch (e) {
     showToast('Error de conexión: ' + e);
   }
@@ -425,7 +440,7 @@ let _wlOn = false;
 async function loadModeration() {
   try {
     const d = await (await fetch(U('/api/lists'))).json();
-    const chip = (n, act, danger) => `<button class="p-chip"${danger ? ' style="color:#f87171;border-color:#7f1d1d"' : ''} title="${act}" onclick="modAct('${act}','${n.replace(/'/g, "")}')"><img src="https://mc-heads.net/avatar/${encodeURIComponent(n)}/18" class="p-avatar" style="width:16px;height:16px" onerror="this.style.display='none'">${n} ✕</button>`;
+    const chip = (n, act, danger) => `<button class="p-chip"${danger ? ' style="color:#f87171;border-color:#7f1d1d"' : ''} title="${act}" onclick="modAct(${jsArg(act)},${jsArg(n)})"><img src="https://mc-heads.net/avatar/${encodeURIComponent(n)}/18" class="p-avatar" style="width:16px;height:16px" onerror="this.style.display='none'">${escHtml(n)} ✕</button>`;
     document.getElementById('modOps').innerHTML = (d.ops && d.ops.length) ? d.ops.map(n => chip(n, 'deop')).join(' ') : '—';
     document.getElementById('modBans').innerHTML = (d.banned && d.banned.length) ? d.banned.map(b => chip(b.name, 'pardon', true)).join(' ') : '—';
     _wlOn = !!d.whitelist_on;
@@ -445,7 +460,7 @@ async function loadHistory() {
       const dt = new Date(e.t * 1000).toLocaleString();
       const what = e.ev === 'join' ? 'entró' : `salió (${fmtSess(e.dur || 0)})`;
       const dot = e.ev === 'join' ? '#34d399' : '#f87171';
-      return `<div class="file-row"><img src="https://mc-heads.net/avatar/${encodeURIComponent(e.name)}/22" class="p-avatar" style="width:22px;height:22px" onerror="this.style.display='none'"><span class="file-icon" style="color:${dot}" title="${e.ev === 'join' ? 'Entrada' : 'Salida'}">●</span><span class="file-name" style="cursor:pointer" onclick="openPlayerModal('${e.name}')">${e.name} ${what}</span><span class="file-size">${dt}</span></div>`;
+      return `<div class="file-row"><img src="https://mc-heads.net/avatar/${encodeURIComponent(e.name)}/22" class="p-avatar" style="width:22px;height:22px" onerror="this.style.display='none'"><span class="file-icon" style="color:${dot}" title="${e.ev === 'join' ? 'Entrada' : 'Salida'}">●</span><span class="file-name" style="cursor:pointer" onclick="openPlayerModal(${jsArg(e.name)})">${escHtml(e.name)} ${what}</span><span class="file-size">${dt}</span></div>`;
     }).join('');
   } catch (e) {}
 }
@@ -652,17 +667,17 @@ async function refreshStats() {
     if (rows && hasPlayers) {
       const sess = d.sessions || {};
       rows.innerHTML = d.player_names.map(n => {
-        const safe = n.replace(/'/g, "").replace(/"/g, '&quot;');
+        const safe = escHtml(n);
         const t = sess[n] != null ? ` · <span style="font-size:11px;color:var(--text-dim)">${fmtSess(sess[n])}</span>` : '';
         return `<div class="file-row">
           <img class="p-avatar" src="https://mc-heads.net/avatar/${encodeURIComponent(n)}/28" alt="${safe}" onerror="this.src='/icon.svg'">
-          <span class="file-name" style="cursor:pointer" onclick="openPlayerModal('${safe}')" title="Ver ficha del jugador"><b>${safe}</b>${t}</span>
+          <span class="file-name" style="cursor:pointer" onclick="openPlayerModal(${jsArg(n)})" title="Ver ficha del jugador"><b>${safe}</b>${t}</span>
           <span class="file-actions">
-            <button class="cmd-btn" title="Ficha del jugador" onclick="openPlayerModal('${safe}')">Ficha</button>
-            <button class="term-tool-btn" title="Dar OP" onclick="playerAction('op', '${safe}')">OP</button>
-            <button class="term-tool-btn" title="Quitar OP" onclick="playerAction('deop', '${safe}')">DeOP</button>
-            <button class="term-tool-btn" title="Expulsar" onclick="playerAction('kick', '${safe}')">Kick</button>
-            <button class="term-tool-btn" style="color:#f87171; border-color:#7f1d1d" title="Banear" onclick="playerAction('ban', '${safe}')">Ban</button>
+            <button class="cmd-btn" title="Ficha del jugador" onclick="openPlayerModal(${jsArg(n)})">Ficha</button>
+            <button class="term-tool-btn" title="Dar OP" onclick="playerAction('op', ${jsArg(n)})">OP</button>
+            <button class="term-tool-btn" title="Quitar OP" onclick="playerAction('deop', ${jsArg(n)})">DeOP</button>
+            <button class="term-tool-btn" title="Expulsar" onclick="playerAction('kick', ${jsArg(n)})">Kick</button>
+            <button class="term-tool-btn" style="color:#f87171; border-color:#7f1d1d" title="Banear" onclick="playerAction('ban', ${jsArg(n)})">Ban</button>
           </span>
         </div>`;
       }).join('');
@@ -861,7 +876,9 @@ async function renderCharts() {
 let fsPath = '';
 let fsSort = { key: 'name', dir: 1, group: true };
 function fsJoin(base, name) { return (base ? base + '/' : '') + name; }
-function escHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function escHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+// Argumento seguro para onclick="fn(...)": literal JS (JSON) y luego escape HTML del atributo
+function jsArg(s) { return escHtml(JSON.stringify(String(s))); }
 const SVG_FOLDER = '<svg class="ico" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
 const SVG_FILE = '<svg class="ico" viewBox="0 0 24 24"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>';
 const SVG_DL = '<svg class="ico" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
@@ -964,7 +981,7 @@ async function loadFiles(push = true) {
 }
 function fsNav(p, push = true) { fsPath = p; try { localStorage.setItem('pkFs', fsPath); } catch (e) {} loadFiles(push); }
 function fsEnter(p) { fsNav(p, true); }
-function fsNavUp() { fsNav(fsPath.split('/').slice(0, -1).join(''), true); }
+function fsNavUp() { fsNav(fsPath.split('/').slice(0, -1).join('/'), true); }
 window.addEventListener('popstate', (e) => {
   const p = (e.state && e.state.fsPath !== undefined) ? e.state.fsPath : '';
   fsPath = p;
@@ -1091,11 +1108,11 @@ async function loadBackups() {
       box.innerHTML = items.map(f => `
         <div class="file-row" style="align-items:flex-start; padding:14px 18px">
           <span class="file-icon is-file" title="Backup">${BK_SVG_DL}</span>
-          <span class="file-name" style="font-size:13.5px">${f.name}${f.monthly ? ' <span class="chart-badge sub">MENSUAL</span>' : ''}<br><span style="font-size:11.5px;color:var(--text-dim)">${f.date} · ${f.size}</span></span>
+          <span class="file-name" style="font-size:13.5px">${escHtml(f.name)}${f.monthly ? ' <span class="chart-badge sub">MENSUAL</span>' : ''}<br><span style="font-size:11.5px;color:var(--text-dim)">${escHtml(f.date)} · ${escHtml(f.size)}</span></span>
           <span class="file-actions" style="gap:8px">
-          <button class="btn-ghost" onclick="bkDownload('${f.name}')">Descargar</button>
-          <button class="btn-ghost" onclick="restoreBackup('${f.name}')">Restaurar</button>
-            <button class="icon-btn danger" title="Eliminar" onclick="deleteBackup('${f.name}')">${BK_SVG_TRASH}</button>
+          <button class="btn-ghost" onclick="bkDownload(${jsArg(f.name)})">Descargar</button>
+          <button class="btn-ghost" onclick="restoreBackup(${jsArg(f.name)})">Restaurar</button>
+            <button class="icon-btn danger" title="Eliminar" onclick="deleteBackup(${jsArg(f.name)})">${BK_SVG_TRASH}</button>
           </span>
         </div>`).join('');
     }
@@ -1231,11 +1248,11 @@ async function loadSchedules() {
     box.innerHTML = items.map(t => {
       const when = t.mode === 'interval' ? `cada ${t.every_min} min` : `diaria ${t.at}`;
       return `<div class="file-row">
-        <span class="file-name">${t.name} <span class="chart-badge sub">${t.kind}</span><br><span style="font-size:11px;color:var(--text-dim)">${when} · ${t.enabled ? 'activa' : 'pausada'}</span></span>
+        <span class="file-name">${escHtml(t.name)} <span class="chart-badge sub">${escHtml(t.kind)}</span><br><span style="font-size:11px;color:var(--text-dim)">${when} · ${t.enabled ? 'activa' : 'pausada'}</span></span>
         <span class="file-actions">
-          <button class="term-tool-btn" title="Ejecutar ahora" onclick="skAct('run','${t.id}')">Ahora</button>
-          <button class="term-tool-btn" title="Activar/pausar" onclick="skAct('toggle','${t.id}')">${t.enabled ? 'Pausar' : 'Activar'}</button>
-          <button class="icon-btn danger" title="Eliminar" onclick="skAct('delete','${t.id}')">${BK_SVG_TRASH}</button>
+          <button class="term-tool-btn" title="Ejecutar ahora" onclick="skAct('run',${jsArg(t.id)})">Ahora</button>
+          <button class="term-tool-btn" title="Activar/pausar" onclick="skAct('toggle',${jsArg(t.id)})">${t.enabled ? 'Pausar' : 'Activar'}</button>
+          <button class="icon-btn danger" title="Eliminar" onclick="skAct('delete',${jsArg(t.id)})">${BK_SVG_TRASH}</button>
         </span>
       </div>`;
     }).join('');
@@ -1480,9 +1497,9 @@ function renderServers() {
       </span>
       <span class="mod-state ${s.running ? 's-on' : 's-off'}">${s.running ? 'ON' : 'OFF'}</span>
       <span class="file-actions">
-        ${s.current ? '' : `<button class="term-tool-btn" onclick="srvOpen('${s.id}')">Abrir</button>`}
-        <button class="icon-btn" title="Editar" onclick="srvShowForm('${s.id}')">${SVG_PENCIL}</button>
-        <button class="icon-btn danger" title="Eliminar" onclick="srvDelete('${s.id}')">${SVG_TRASH}</button>
+        ${s.current ? '' : `<button class="term-tool-btn" onclick="srvOpen(${jsArg(s.id)})">Abrir</button>`}
+        <button class="icon-btn" title="Editar" onclick="srvShowForm(${jsArg(s.id)})">${SVG_PENCIL}</button>
+        <button class="icon-btn danger" title="Eliminar" onclick="srvDelete(${jsArg(s.id)})">${SVG_TRASH}</button>
       </span>
     </div>`).join('');
 }
@@ -1555,7 +1572,7 @@ function srvBrowseCrumb(p) {
   segs.forEach(sg => {
     acc += '/' + sg;
     const target = acc;
-    html += `<span style="color:var(--text-dim)"> / </span><a onclick="srvBrowseGoIdx('${target.replace(/'/g, '')}');return false">${escHtml(sg)}</a>`;
+    html += `<span style="color:var(--text-dim)"> / </span><a onclick="srvBrowseGoIdx(${jsArg(target)});return false">${escHtml(sg)}</a>`;
   });
   return html;
 }
@@ -1813,7 +1830,7 @@ async function searchModrinth() {
       const dlK = h.downloads > 1000000 ? (h.downloads / 1000000).toFixed(1) + 'M' : Math.round(h.downloads / 1000) + 'k';
       return `<div class="mr-card">
         <div style="display:flex; gap:12px; align-items:flex-start">
-          <img src="${icon}" class="mr-icon" alt="" onerror="this.src='/icon.svg'">
+          <img src="${escHtml(/^https:\/\//.test(icon) ? icon : '/icon.svg')}" class="mr-icon" alt="" onerror="this.src='/icon.svg'">
           <div style="flex:1; min-width:0">
             <div style="font-weight:700; font-size:13.5px; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${safeTitle}</div>
             <div style="font-size:11px; color:var(--text-dim)">por ${escHtml(h.author || 'Desconocido')} · ${dlK} descargas</div>
@@ -1822,7 +1839,7 @@ async function searchModrinth() {
         <p style="font-size:11.5px; color:#cbd5e1; margin:10px 0 14px; line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden">${safeDesc}</p>
         <div style="display:flex; justify-content:space-between; align-items:center">
           <span class="mchip ld">NeoForge</span>
-          <button class="cmd-btn" style="padding:4px 12px; font-size:11.5px" onclick="installModrinth('${escHtml(h.slug || h.id)}', '${safeTitle.replace(/'/g, "")}')">Instalar</button>
+          <button class="cmd-btn" style="padding:4px 12px; font-size:11.5px" onclick="installModrinth(${jsArg(h.slug || h.id)}, ${jsArg(h.title)})">Instalar</button>
         </div>
       </div>`;
     }).join('');
@@ -1922,11 +1939,11 @@ function renderMcaList() {
     const z0 = r.z * 512, z1 = (r.z + 1) * 512 - 1;
     const pct = Math.round(((r.present || 0) / 1024) * 100);
     return `<div class="mca-row">
-      <input type="checkbox" class="mca-chk" data-file="${r.file}"${sel.has(r.file) ? ' checked' : ''} onchange="mcaChkToggle(this)">
-      <span style="color:#e2e8f0; font-weight:700; width:130px">${r.file}</span>
+      <input type="checkbox" class="mca-chk" data-file="${escHtml(r.file)}"${sel.has(r.file) ? ' checked' : ''} onchange="mcaChkToggle(this)">
+      <span style="color:#e2e8f0; font-weight:700; width:130px">${escHtml(r.file)}</span>
       <span style="color:var(--text-dim); flex:1">Bloques: [X ${x0}..${x1}, Z ${z0}..${z1}] · ${r.present || 0}/1024 chunks (${pct}%)</span>
       <span style="color:#93c5fd">${mb(r.size)}</span>
-      <button class="icon-btn" title="Descargar ${escHtml(r.file)}" onclick="event.stopPropagation();mcaExport('${escHtml(r.file)}')">\u2B07</button>
+      <button class="icon-btn" title="Descargar ${escHtml(r.file)}" onclick="event.stopPropagation();mcaExport(${jsArg(r.file)})">\u2B07</button>
     </div>`;
   }).join('');
   updateMcaSelectionCount();
@@ -2194,13 +2211,19 @@ function mapTileVersion(rx, rz) {
     return (r && r.mtime) || 0;
   } catch (e) { return 0; }
 }
+const MCA_TILES_MAX = 600;   // tope de tiles en memoria
+const MCA_TILE_RETRY_MS = 15000;
 function mapQueueTile(key, rx, rz) {
-  if (MCA_TILES[key]) return;
+  const prev = MCA_TILES[key];
+  // Un tile fallido se reintenta pasado un rato (antes quedaba roto para siempre)
+  if (prev && !(prev.failedAt && Date.now() - prev.failedAt > MCA_TILE_RETRY_MS)) return;
+  const keys = Object.keys(MCA_TILES);
+  if (keys.length >= MCA_TILES_MAX) keys.slice(0, keys.length - MCA_TILES_MAX + 50).forEach(k => delete MCA_TILES[k]);
   const dim = MCA_ACTIVE_DIM;
   const img = new Image();
-  MCA_TILES[key] = { img, ok: false, loading: true };
-  img.onload = () => { MCA_TILES[key].ok = true; MCA_TILES[key].loading = false; drawWorldMap(); try { updateRegionPreview(); } catch (e) {} };
-  img.onerror = () => { MCA_TILES[key].ok = false; MCA_TILES[key].loading = false; };
+  const rec = MCA_TILES[key] = { img, ok: false, loading: true };
+  img.onload = () => { rec.ok = true; rec.loading = false; drawWorldMap(); try { updateRegionPreview(); } catch (e) {} };
+  img.onerror = () => { rec.ok = false; rec.loading = false; rec.failedAt = Date.now(); };
   const v = mapTileVersion(rx, rz);
   img.src = U('/api/world/tile?dimension=' + encodeURIComponent(dim) + '&rx=' + rx + '&rz=' + rz + (v ? '&v=' + v : ''));
 }
@@ -2603,7 +2626,7 @@ async function loadWorldPlayers() {
 }
 function centerPlayer(x, z, dim) {
   const id = String(dim || '').replace('minecraft:', '');
-  if (id && id !== MCA_ACTIVE_DIM && ['overworld', 'nether', 'the_end'].includes(id)) selectMcaDim(id);
+  if (id && id !== MCA_ACTIVE_DIM && ['overworld', 'nether', 'end'].includes(id)) selectMcaDim(id);
   MCA_VIEW.cx = x / 512; MCA_VIEW.cz = z / 512;
   try { if (typeof CHUNK_ZOOM !== 'undefined' && MCA_VIEW.scale < CHUNK_ZOOM) MCA_VIEW.scale = CHUNK_ZOOM; } catch (e) {}
   drawWorldMap();
@@ -2720,8 +2743,8 @@ async function loadFleetView() {
           </div>
         </div>
         <div style="display:flex; gap:8px; margin-top:10px">
-          ${s.current ? '<button class="term-tool-btn" style="flex:1" disabled>Servidor en uso</button>' : `<button class="cmd-btn" style="flex:1" onclick="location.search='?server='+encodeURIComponent('${s.id}')">Conmutar a este</button>`}
-          <button class="term-tool-btn" onclick="serverAction('${s.running ? 'restart' : 'start'}')">${s.running ? 'Reiniciar' : 'Iniciar'}</button>
+          ${s.current ? '<button class="term-tool-btn" style="flex:1" disabled>Servidor en uso</button>' : `<button class="cmd-btn" style="flex:1" onclick="location.search='?server='+encodeURIComponent(${jsArg(s.id)})">Conmutar a este</button>`}
+          <button class="term-tool-btn" onclick="fleetAction(${jsArg(s.id)}, '${s.running ? 'restart' : 'start'}')">${s.running ? 'Reiniciar' : 'Iniciar'}</button>
         </div>
       </div>`).join('');
   } catch (e) {

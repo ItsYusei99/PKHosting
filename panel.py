@@ -20,6 +20,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import signal
 import socket
 import struct
@@ -63,11 +64,24 @@ def load_config():
     try:
         with open(CONFIG_FILE) as f:
             user = json.load(f)
-        cfg.update(user)
     except FileNotFoundError:
-        pass
+        user = {}
     except Exception as e:
-        print(f"[pkhosting] config inválida ({e}), usando valores por defecto)", flush=True)
+        # Fallar cerrado: arrancar con valores por defecto desactivaría la contraseña.
+        raise SystemExit(f"[pkhosting] config inválida en {CONFIG_FILE}: {e}")
+    if not isinstance(user, dict):
+        raise SystemExit(f"[pkhosting] {CONFIG_FILE} debe ser un objeto JSON")
+    cfg.update(user)
+    try:  # la config guarda el hash, el secreto TOTP y el webhook: solo el dueño
+        if os.path.exists(CONFIG_FILE) and os.stat(CONFIG_FILE).st_mode & 0o077:
+            os.chmod(CONFIG_FILE, 0o600)
+    except OSError:
+        pass
+    for k, typ in (("panel_port", int), ("mc_port", int), ("rcon_port", int), ("max_mem_gb", float)):
+        try:
+            typ(cfg[k])
+        except (TypeError, ValueError):
+            raise SystemExit(f"[pkhosting] {CONFIG_FILE}: '{k}' tiene un valor inválido ({cfg[k]!r})")
     cfg["server_dir"] = os.path.expanduser(cfg["server_dir"])
     return cfg
 
@@ -84,8 +98,15 @@ def save_panel_setting(key, value):
     raw = _raw_config()
     raw[key] = value
     os.makedirs(CONFIG_DIR, exist_ok=True)
+    _write_config(raw)
+
+
+def _write_config(raw):
+    """Escritura atómica con permisos 0600 (contiene hash, TOTP y webhook)."""
+    os.makedirs(CONFIG_DIR, exist_ok=True)
     tmp = CONFIG_FILE + ".tmp"
-    with open(tmp, "w") as f:
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
         json.dump(raw, f, indent=2)
         f.write("\n")
     os.replace(tmp, CONFIG_FILE)
@@ -132,19 +153,27 @@ def totp_code(secret, counter):
         return None
 
 
-def totp_verify(secret, code, window=1):
+def totp_verify(secret, code, window=1, once=False):
+    """once=True rechaza reutilizar un código (o uno anterior) ya aceptado en login."""
     code = re.sub(r"\D", "", str(code or ""))
     if len(code) != 6:
         return False
     now = int(time.time() // 30)
     for delta in range(-window, window + 1):
-        if hmac.compare_digest(totp_code(secret, now + delta) or "", code):
+        ctr = now + delta
+        if hmac.compare_digest(totp_code(secret, ctr) or "", code):
+            if once:
+                with _totp_lock:
+                    if ctr <= _totp_last["ctr"]:
+                        return False
+                    _totp_last["ctr"] = ctr
             return True
     return False
 
 
 _totp_pending = None
 _totp_lock = threading.Lock()
+_totp_last = {"ctr": 0}
 _pre_tokens = {}
 
 
@@ -191,6 +220,13 @@ def valid_session(tok):
 def drop_session(tok):
     with _sessions_lock:
         _sessions.pop(tok, None)
+
+
+def drop_other_sessions(keep):
+    """Cierra todas las sesiones salvo la actual (al cambiar la contraseña)."""
+    with _sessions_lock:
+        for k in [k for k in _sessions if k != keep]:
+            _sessions.pop(k, None)
 
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -264,7 +300,20 @@ class Server:
         self.crash_blocked = False
         self.crash_last = None
         self.started_at = 0.0
+        self._init_runtime_state()
         self._apply_file_overrides()
+
+    def _init_runtime_state(self):
+        """Estado en memoria; se crea una sola vez (no debe resetearse al guardar config)."""
+        self.metrics = collections.deque(maxlen=40)
+        self.cpu_prev = None
+        self.tps_lock = threading.Lock()
+        self.tps_cache = {"ts": 0, "data": {"ok": False}}
+        self.tps_sampling = False
+        self.backup_lock = threading.Lock()
+        self.backup_state = {"running": False, "job": None, "msg": "",
+                             "updated": 0, "pct": 0, "stage": ""}
+        self.sessions_cache = {"ts": 0, "names": [], "data": {}}
 
     def _apply_file_overrides(self):
         """backup.json por servidor sobrescribe lo de config.json."""
@@ -285,15 +334,6 @@ class Server:
                 self.backup_enabled = bool(ov["backup_enabled"])
         except Exception:
             pass
-        self.metrics = collections.deque(maxlen=40)
-        self.cpu_prev = None
-        self.tps_lock = threading.Lock()
-        self.tps_cache = {"ts": 0, "data": {"ok": False}}
-        self.tps_sampling = False
-        self.backup_lock = threading.Lock()
-        self.backup_state = {"running": False, "job": None, "msg": "",
-                             "updated": 0, "pct": 0, "stage": ""}
-        self.sessions_cache = {"ts": 0, "names": [], "data": {}}
 
     @property
     def log_file(self):
@@ -361,8 +401,15 @@ SRV_CFG_KEYS = ("id", "server_name", "server_subtitle", "server_dir", "start_cmd
 
 
 def _srv_running(s):
+    """True si el servidor corre, aunque lo haya lanzado otro proceso (p. ej. tras
+    reiniciar el panel): hijo propio vivo o un java con cwd == server_dir."""
     try:
-        return s.proc is not None and s.proc.poll() is None
+        if s.proc is not None and s.proc.poll() is None:
+            return True
+    except Exception:
+        pass
+    try:
+        return find_running_mc_pid(s, strict=True) is not None
     except Exception:
         return False
 
@@ -383,12 +430,7 @@ def _slugify(name):
 def _persist_servers():
     raw = _raw_config()
     raw["servers"] = CFG.get("servers", [])
-    os.makedirs(CONFIG_DIR, exist_ok=True)
-    tmp = CONFIG_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(raw, f, indent=2)
-        f.write("\n")
-    os.replace(tmp, CONFIG_FILE)
+    _write_config(raw)
 
 
 def _ensure_servers_list():
@@ -589,10 +631,11 @@ def get_playit_status():
     return info
 
 
-def find_running_mc_pid():
+def find_running_mc_pid(srv=None, strict=False):
     """PID del java del servidor: coincide cwd con SERVER_DIR (genérico para
-    Vanilla/Forge/Fabric/NeoForge). Excluye lanzadores de cliente."""
-    s = S()
+    Vanilla/Forge/Fabric/NeoForge). Excluye lanzadores de cliente.
+    strict=True omite la heurística de respaldo (solo cwd exacto)."""
+    s = srv or S()
     root = os.path.realpath(s.server_dir)
     for pid_str in os.listdir("/proc"):
         if not pid_str.isdigit():
@@ -619,6 +662,8 @@ def find_running_mc_pid():
                 return int(pid_str)
         except Exception:
             continue
+    if strict:
+        return None
     # Fallback: heurística NeoForge solo si el cwd no es legible o coincide
     # (evita secuestrar OTRO servidor con distinto directorio en multi-instancia).
     for pid_str in os.listdir("/proc"):
@@ -1296,12 +1341,17 @@ def start_server_action(auto=False):
         try:
             s.started_at = time.time()
             s.stop_pending = False
-            logf = open(s.child_log, "ab", buffering=0)
-            s.proc = subprocess.Popen(
-                s.start_cmd, cwd=s.server_dir,
-                stdin=subprocess.PIPE, stdout=logf, stderr=subprocess.STDOUT,
-                close_fds=True
-            )
+            try:  # rotación simple: el log del hijo crecía sin límite
+                if os.path.getsize(s.child_log) > 5 * 1024 * 1024:
+                    os.replace(s.child_log, s.child_log + ".1")
+            except OSError:
+                pass
+            with open(s.child_log, "ab", buffering=0) as logf:
+                s.proc = subprocess.Popen(
+                    s.start_cmd, cwd=s.server_dir,
+                    stdin=subprocess.PIPE, stdout=logf, stderr=subprocess.STDOUT,
+                    close_fds=True, start_new_session=True  # sobrevive si el panel se detiene
+                )
             s.stop_requested = False
             return True, f"Servidor iniciando (PID {s.proc.pid})..."
         except Exception as e:
@@ -1358,15 +1408,25 @@ def restart_server_action(auto=False):
     srv0 = S()
 
     def _delayed():
-        time.sleep(5)
         _ctx.srv = srv0
+        for _ in range(120):  # esperar a que el mundo termine de guardarse y el proceso salga
+            if find_running_mc_pid() is None:
+                break
+            time.sleep(1)
+        else:
+            return  # no se apagó a tiempo: no lanzar una segunda instancia
+        time.sleep(1)
         start_server_action(auto=auto)
     threading.Thread(target=_delayed, daemon=True).start()
     return True, "Reiniciando servidor..."
 
 
-_countdown = {"running": False, "cancel": None}
+_countdowns = {}  # id de servidor -> {"running": bool, "cancel": Event}
 _countdown_lock = threading.Lock()
+
+
+def _countdown_of(srv):
+    return _countdowns.setdefault(srv.id, {"running": False, "cancel": None})
 
 
 def countdown_restart_action(minutes):
@@ -1375,10 +1435,11 @@ def countdown_restart_action(minutes):
     if find_running_mc_pid() is None:
         return restart_server_action()
     with _countdown_lock:
-        if _countdown["running"]:
+        cd = _countdown_of(s)
+        if cd["running"]:
             return False, "Ya hay un reinicio programado"
         cancel = threading.Event()
-        _countdown.update(running=True, cancel=cancel)
+        cd.update(running=True, cancel=cancel)
     total = max(1, min(60, int(minutes))) * 60
     marks = sorted({m for m in [60 * k for k in range(1, total // 60 + 1)] + [30, 10, 5, 4, 3, 2, 1]
                     if m <= total}, reverse=True)
@@ -1405,7 +1466,7 @@ def countdown_restart_action(minutes):
             start_server_action()
         finally:
             with _countdown_lock:
-                _countdown.update(running=False, cancel=None)
+                cd.update(running=False, cancel=None)
             _ctx.srv = None
 
     threading.Thread(target=_run, daemon=True).start()
@@ -1414,8 +1475,9 @@ def countdown_restart_action(minutes):
 
 def cancel_countdown_action():
     with _countdown_lock:
-        ev = _countdown.get("cancel")
-        if not _countdown["running"] or ev is None:
+        cd = _countdown_of(S())
+        ev = cd.get("cancel")
+        if not cd["running"] or ev is None:
             return False, "No hay ningún reinicio programado"
         ev.set()
     return True, "Reinicio cancelado"
@@ -1571,7 +1633,7 @@ def _backup_worker(srv, mode, name=None):
     try:
         if mode == "run":
             ok, msg = bk.run_backup(srv.server_dir, srv.world_name, srv.backup_dir,
-                                    send_fn=_send,
+                                    send_fn=_send, running_fn=_running,
                                     retention_days=srv.retention_days,
                                     keep_monthly=srv.keep_monthly,
                                     log=_log, progress=_prog)
@@ -1903,17 +1965,19 @@ def render_static(name, srv=None):
     srv = srv or S()
     p = _static_raw(name)
     local_ip = srv.local_ip()
+    esc = html.escape  # nombre/subtítulo/ruta/id vienen de config y van dentro de HTML
+    name, subtitle, sdir, sid = esc(srv.name), esc(srv.subtitle), esc(srv.server_dir), esc(srv.id)
     repl = {
-        "PrankLindorf": srv.name,
+        "PrankLindorf": name,
         "NeoForge 1.21.1 · Java 21 · Puerto 25566":
-            f"{srv.subtitle} · Puerto {srv.mc_port}",
+            f"{subtitle} · Puerto {srv.mc_port}",
         "localhost:25566": local_ip,
         "25566 (TCP / UDP)": f"{srv.mc_port} (TCP / UDP)",
         "(puerto 25566)": f"(puerto {srv.mc_port})",
-        "~/PrankLindorf-NeoForge": srv.server_dir,
+        "~/PrankLindorf-NeoForge": sdir,
         "16 núcleos disponibles": f"{os.cpu_count() or '?'} núcleos disponibles",
-        "PKHosting Panel — " + srv.name: f"PKHosting Panel — {srv.name}",
-        "__SRV__": srv.id,
+        "PKHosting Panel — " + srv.name: f"PKHosting Panel — {name}",
+        "__SRV__": sid,
         "__V__": static_version(),
     }
     for old, new in repl.items():
@@ -1926,7 +1990,7 @@ def build_page(srv=None):
     p = render_static("index.html", srv)
     if len(SERVERS) > 1:
         opts = "".join(
-            f'<option value="{s.id}"{" selected" if s.id == srv.id else ""}>{s.name}</option>'
+            f'<option value="{html.escape(s.id)}"{" selected" if s.id == srv.id else ""}>{html.escape(s.name)}</option>'
             for s in SERVERS.values())
         switcher = (
             '<div class="server-switcher">'
@@ -2093,8 +2157,20 @@ def mod_update_check(srv, mod_id, current, loader="neoforge", game_ver="1.21.1",
             "same": _same_version(current, lv, cur_file, jar.get("filename"))}
 
 
+_updates_lock = threading.Lock()
+
+
 def refresh_mod_updates(srv):
     """Recorre los mods con modId conocido (caché 6 h). Pensado para hilo de fondo."""
+    try:
+        _refresh_mod_updates(srv)
+    finally:  # un error no debe dejar "running" atascado en True
+        with _updates_lock:
+            _updates_state(srv).update(running=False, updated=time.time())
+        _ctx.srv = None
+
+
+def _refresh_mod_updates(srv):
     _ctx.srv = srv
     mods_dir = os.path.join(srv.server_dir, "mods")
     cache = _updates_load(srv)
@@ -2124,9 +2200,6 @@ def refresh_mod_updates(srv):
             cache[mid] = res
             time.sleep(0.2)
     _updates_save(srv, cache)
-    with srv.backup_lock:
-        srv.updates_state.update(running=False, updated=now)
-    _ctx.srv = None
 
 
 def search_modrinth(query, loader="neoforge", game_ver="1.21.1", limit=12):
@@ -2170,13 +2243,9 @@ def install_modrinth_project(slug_or_id, loader="neoforge", game_ver="1.21.1"):
         with urllib.request.urlopen(req, timeout=10) as resp:
             versions = json.loads(resp.read().decode())
         if not versions:
-            url_fallback = f"https://api.modrinth.com/v2/project/{slug}/version"
-            req_fb = urllib.request.Request(url_fallback, headers={"User-Agent": "PKHosting-Panel/2.0"})
-            with urllib.request.urlopen(req_fb, timeout=10) as resp:
-                versions = json.loads(resp.read().decode())
-        if not versions:
-            return False, "No se encontraron versiones disponibles para este mod"
-        
+            # Sin respaldo "cualquier versión": instalaría un jar de otro loader/versión de MC.
+            return False, f"No hay versiones de este mod para {loader} {game_ver}"
+
         target_file = None
         for v in versions:
             for f in v.get("files", []):
@@ -2190,16 +2259,26 @@ def install_modrinth_project(slug_or_id, loader="neoforge", game_ver="1.21.1"):
         if not target_file:
             return False, "No se encontró ningún archivo .jar en la versión de Modrinth"
         
-        dl_url = target_file.get("url")
-        dl_fn = target_file.get("filename")
+        dl_url = target_file.get("url") or ""
+        dl_fn = os.path.basename(str(target_file.get("filename") or ""))  # nombre remoto: nunca como ruta
+        if not dl_fn.endswith(".jar") or dl_fn.startswith("."):
+            return False, "Nombre de archivo inválido en Modrinth"
+        if not dl_url.startswith("https://cdn.modrinth.com/"):
+            return False, "URL de descarga no permitida"
         dest_path = os.path.join(mods_dir, dl_fn)
+        tmp_path = dest_path + ".part"
         req_dl = urllib.request.Request(dl_url, headers={"User-Agent": "PKHosting-Panel/2.0"})
-        with urllib.request.urlopen(req_dl, timeout=30) as resp, open(dest_path, "wb") as out_f:
-            while True:
-                chunk = resp.read(65536)
-                if not chunk:
-                    break
-                out_f.write(chunk)
+        try:
+            with urllib.request.urlopen(req_dl, timeout=30) as resp, open(tmp_path, "wb") as out_f:
+                while True:
+                    chunk = resp.read(65536)
+                    if not chunk:
+                        break
+                    out_f.write(chunk)
+            os.replace(tmp_path, dest_path)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
         return True, f"Mod '{dl_fn}' instalado correctamente en mods/ (requiere reinicio)"
     except Exception as e:
         return False, f"Error descargando mod: {e}"
@@ -2598,10 +2677,11 @@ def mca_delete_chunks(dim_id, chunks):
                 tlk = _cl.nullcontext()
             with tlk:
                 bak = fp + ".bak"
-                try:
-                    _sh.copyfile(fp, bak)
-                except Exception:
-                    pass
+                if not os.path.exists(bak):  # conservar la copia original entre borrados sucesivos
+                    try:
+                        _sh.copyfile(fp, bak)
+                    except Exception:
+                        pass
                 n = mca_zero_chunks(fp, idxs)
                 try:
                     m = re.match(r"^r\.(-?\d+)\.(-?\d+)\.mca$", fn)
@@ -3154,7 +3234,7 @@ def get_world_summary():
                         sz = os.path.getsize(fp)
                         d_size += sz
                         m = re.match(r"r\.(-?\d+)\.(-?\d+)\.mca", fn)
-                        rx, rz = int(m.group(1)), int(m.group(2)) if m else (0, 0)
+                        rx, rz = (int(m.group(1)), int(m.group(2))) if m else (0, 0)
                         try:
                             mt = int(os.path.getmtime(fp))
                         except Exception:
@@ -3186,6 +3266,8 @@ def get_world_summary():
 
 def mca_delete_regions(dim_id, region_files):
     srv = S()
+    if _srv_running(srv):
+        return False, "Detén el servidor antes de borrar regiones (los archivos del mundo están en uso)"
     wname = srv.world_name or "world"
     wdir = os.path.join(srv.server_dir, wname)
     if not os.path.isdir(wdir):
@@ -3232,12 +3314,14 @@ def mca_delete_regions(dim_id, region_files):
     
     msg = f"Se eliminaron {deleted} regiones ({deleted * 1024} chunks) de {dim_id.upper()}."
     if errors:
-        msg += f" Hubo {len(errors)} errores."
-    return True, msg
+        msg += f" Hubo {len(errors)} errores: {'; '.join(errors[:3])}"
+    return (deleted > 0 or not errors), msg
 
 
 def mca_reset_dimension(dim_id):
     srv = S()
+    if _srv_running(srv):
+        return False, "Detén el servidor antes de reiniciar una dimensión"
     wname = srv.world_name or "world"
     wdir = os.path.join(srv.server_dir, wname)
     if not os.path.isdir(wdir):
@@ -3252,7 +3336,6 @@ def mca_reset_dimension(dim_id):
     
     count = 0
     try:
-        import shutil
         for item in os.listdir(target_dim):
             p = os.path.join(target_dim, item)
             if os.path.isdir(p):
@@ -3273,6 +3356,8 @@ def mca_reset_dimension(dim_id):
 
 
 def get_player_details(srv, player_name):
+    if not PLAYER_NAME_RE.match(player_name or ""):
+        return {"ok": False, "msg": "Nombre de jugador inválido"}
     uc_path = os.path.join(srv.server_dir, "usercache.json")
     uuid = None
     if os.path.isfile(uc_path):
@@ -3584,6 +3669,13 @@ def _login_ok(ip):
         _login_fails.pop(ip, None)
 
 
+def _content_disposition(name):
+    """Cabecera de descarga con el nombre saneado (sin comillas ni saltos de línea)."""
+    safe = "".join(c for c in str(name) if c.isprintable() and c not in '"\\/;')
+    return f'attachment; filename="{safe or "descarga"}"'
+
+
+MAX_JSON_BODY = 2 * 1024 * 1024
 PUBLIC_PATHS = ("/login", "/api/login", "/manifest.webmanifest", "/sw.js", "/icon.svg")
 
 
@@ -3628,7 +3720,7 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
     def _need_auth(self):
         if self.authed():
             return False
-        if self.path == "/" or self.path.startswith("/index.html"):
+        if urlparse(self.path).path in ("/", "/index.html"):
             try:
                 body = LOGIN_PAGE.encode()
                 self.send_response(200)
@@ -3752,7 +3844,7 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "application/octet-stream")
                 self.send_header("Content-Length", str(len(body)))
                 self.send_header("Content-Disposition",
-                                 f'attachment; filename="{os.path.basename(target)}"')
+                                 _content_disposition(os.path.basename(target)))
                 self.end_headers()
                 try:
                     self.wfile.write(body)
@@ -3766,7 +3858,10 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
         if u.path == "/api/browse":
             qs = parse_qs(u.query)
             raw = ((qs.get("path", [""]) or [""])[0] or "").strip() or "~"
+            home = os.path.realpath(os.path.expanduser("~"))
             p = os.path.realpath(os.path.expanduser(raw))
+            if p != home and not p.startswith(home + os.sep):
+                return self.send_json({"ok": False, "msg": "Solo se puede explorar dentro de tu carpeta personal"}, code=403)
             if not os.path.isdir(p):
                 return self.send_json({"ok": False, "msg": "No existe o sin acceso"}, code=404)
             try:
@@ -3782,7 +3877,7 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
                 ready = os.path.isfile(os.path.join(full, "start.sh")) or \
                     os.path.isfile(os.path.join(full, "server.properties"))
                 dirs.append({"name": n, "ready": ready})
-            parent = os.path.dirname(p) if p != "/" else "/"
+            parent = os.path.dirname(p) if p != home else home
             return self.send_json({"ok": True, "path": p, "parent": parent,
                                    "dirs": dirs, "home": os.path.expanduser("~")})
 
@@ -3931,7 +4026,7 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header("Content-Type", "application/octet-stream")
                 self.send_header("Content-Length", str(len(body)))
-                self.send_header("Content-Disposition", f'attachment; filename="{name}"')
+                self.send_header("Content-Disposition", _content_disposition(name))
                 self.end_headers()
                 self.wfile.write(body)
             except (BrokenPipeError, ConnectionResetError):
@@ -3977,7 +4072,7 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "application/octet-stream")
                 self.send_header("Content-Length", str(len(body)))
                 self.send_header("Content-Disposition",
-                                 f'attachment; filename="{name}"')
+                                 _content_disposition(name))
                 self.end_headers()
                 try:
                     self.wfile.write(body)
@@ -4031,7 +4126,7 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header("Content-Type", "application/octet-stream")
                 self.send_header("Content-Length", str(len(body)))
-                self.send_header("Content-Disposition", f'attachment; filename="{dim}-{fn}"')
+                self.send_header("Content-Disposition", _content_disposition(f"{dim}-{fn}"))
                 self.end_headers()
                 try:
                     self.wfile.write(body)
@@ -4099,11 +4194,23 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
                 return self.send_json({"error": "servidor desconocido"}, code=404)
             qs = parse_qs(u.query)
             return handle_upload(self, qs.get("path", [""])[0])
-        length = int(self.headers.get("Content-Length", 0))
+        # Auth antes de leer el cuerpo y con tope de tamaño (evita DoS por memoria)
+        if u.path not in PUBLIC_PATHS and self._need_auth():
+            return
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except ValueError:
+            return self.send_json({"ok": False, "msg": "Content-Length inválido"}, code=400)
+        if length < 0:
+            return self.send_json({"ok": False, "msg": "Content-Length inválido"}, code=400)
+        if length > (4096 if u.path == "/api/login" else MAX_JSON_BODY):
+            return self.send_json({"ok": False, "msg": "Cuerpo demasiado grande"}, code=413)
         raw = self.rfile.read(length).decode("utf-8", errors="replace") if length else "{}"
         try:
             payload = json.loads(raw)
         except Exception:
+            payload = {}
+        if not isinstance(payload, dict):
             payload = {}
         if u.path == "/api/login":
             ip = self.client_address[0]
@@ -4112,7 +4219,7 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
                 return self.send_json({"ok": False, "msg": f"Demasiados intentos. Espera {wait} s"}, code=429)
             pre, code = payload.get("pre", ""), payload.get("code", "")
             if pre and totp_enabled():
-                if _pre_consume(pre) and totp_verify(CFG.get("totp_secret"), code):
+                if _pre_consume(pre) and totp_verify(CFG.get("totp_secret"), code, once=True):
                     tok = new_session()
                     _login_ok(ip)
                     body = json.dumps({"ok": True}).encode()
@@ -4173,6 +4280,7 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
                 return self.send_json({"ok": False, "msg": "Mínimo 8 caracteres"})
             CFG["panel_password_hash"] = hash_password(new)
             save_panel_setting("panel_password_hash", CFG["panel_password_hash"])
+            drop_other_sessions(self._cookie_token())
             return self.send_json({"ok": True, "msg": "Contraseña actualizada"})
 
         if u.path == "/api/totp":
@@ -4226,7 +4334,7 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
                 ok, msg = countdown_restart_action(minutes)
             else:
                 ok, msg = restart_server_action()
-            return self.send_json({"ok": ok, "msg": msg, "cancellable": bool(_countdown["running"])})
+            return self.send_json({"ok": ok, "msg": msg, "cancellable": bool(_countdown_of(S())["running"])})
 
         if u.path == "/api/restart/cancel":
             ok, msg = cancel_countdown_action()
@@ -4507,6 +4615,8 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
                             cand = dict(r, id=meta[0]["id"])
                     if not cand or not cand.get("url"):
                         return self.send_json({"ok": False, "msg": "Sin actualización disponible"}, code=404)
+                    if not str(cand["url"]).startswith("https://cdn.modrinth.com/"):
+                        return self.send_json({"ok": False, "msg": "URL de descarga no permitida"}, code=400)
                     req = urllib.request.Request(cand["url"], headers={"User-Agent": "PKHosting-Panel/2.0"})
                     tmp = on_f + ".dl"
                     with urllib.request.urlopen(req, timeout=60) as resp, open(tmp, "wb") as out:
