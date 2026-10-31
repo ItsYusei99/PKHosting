@@ -45,8 +45,9 @@ if [ -f "$SCRIPT_DIR/panel.py" ]; then
     cp "$SCRIPT_DIR/panel.py" "$SCRIPT_DIR/backup.py" "$SCRIPT_DIR/diagnostics.py" \
        "$SCRIPT_DIR/pkhosting.service" "$SCRIPT_DIR/pkhosting-backup.service" \
        "$SCRIPT_DIR/pkhosting-backup.timer" "$APP_DIR/"
-    rm -rf "$APP_DIR/static"
+    rm -rf "$APP_DIR/static" "$APP_DIR/pkhosting"
     cp -r "$SCRIPT_DIR/static" "$APP_DIR/static"
+    cp -r "$SCRIPT_DIR/pkhosting" "$APP_DIR/pkhosting"
     if [ -f "$SCRIPT_DIR/logo.svg" ]; then cp "$SCRIPT_DIR/logo.svg" "$APP_DIR/"; fi
   fi
   chmod +x "$APP_DIR/panel.py" "$APP_DIR/backup.py"

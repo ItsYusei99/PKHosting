@@ -149,7 +149,7 @@ class PanelProcessTest(unittest.TestCase):
 
     def test_static_assets_and_login_form(self):
         op = self._opener(login=True)
-        for path in ("/static/app.js", "/static/app.css"):
+        for path in ("/static/core.js", "/static/app.css"):
             code, _, _ = self._req(op, path)
             self.assertEqual(code, 200, path)
 

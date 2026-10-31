@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PKHosting Panel — PrankLindorf</title>
+<title>PKHosting Panel — __NAME__</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#0a0a13">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
@@ -34,7 +34,7 @@
     <div class="server-label">Servidor Activo</div>
     <div class="server-title">
       <span class="mini-dot" id="sideDot"></span>
-      <span>PrankLindorf</span>
+      <span>__NAME__</span>
     </div>
   </div>
 
@@ -83,7 +83,7 @@
   <div class="sidebar-footer">
     <button class="logout-btn" onclick="logout()" title="Cerrar sesión"><svg class="ico" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg> Cerrar sesión</button>
     <div class="ip-chip" onclick="copyIp()">
-      <span id="ipText">localhost:25566</span>
+      <span id="ipText">__IP__</span>
       <span class="copy-badge" id="copyBadge">Copiar</span>
     </div>
   </div>
@@ -114,13 +114,13 @@
   <header>
     <div class="header-info">
       <h1>
-        <span>PrankLindorf</span>
+        <span>__NAME__</span>
         <span class="status-pill OFFLINE" id="statusBadge">
           <span class="status-pulse"></span>
           <span id="statusText">OFFLINE</span>
         </span>
       </h1>
-      <div class="header-subtitle">NeoForge 1.21.1 · Java 21 · Puerto 25566</div>
+      <div class="header-subtitle">__SUBTITLE__ · Puerto __MCPORT__</div>
     </div>
 
     <div style="display:flex; align-items:center; gap:10px; position:relative">
@@ -189,7 +189,7 @@
           <span class="scard-ico"><svg class="ico" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></span>
         </div>
         <div class="scard-val" id="cardCpu">0.0%</div>
-        <div class="scard-sub">16 núcleos disponibles</div>
+        <div class="scard-sub">__CORES__ núcleos disponibles</div>
         <div class="scard-bar"><div class="scard-bar-fill" id="barCpu"></div></div>
       </div>
 
@@ -367,12 +367,12 @@
           <tr><td>Estado del Proceso</td><td id="detStatus">OFFLINE</td></tr>
           <tr><td>Identificador de Proceso (PID)</td><td id="detPid">-</td></tr>
           <tr><td>Carga del Sistema (1m, 5m, 15m)</td><td id="detLoad">-</td></tr>
-          <tr><td>Tamaño del Mundo (PrankLindorf)</td><td id="detWorld">-</td></tr>
+          <tr><td>Tamaño del Mundo (__NAME__)</td><td id="detWorld">-</td></tr>
           <tr><td>Disco usado (servidor)</td><td id="detDisk">-</td></tr>
           <tr><td>Red host (RX/TX)</td><td id="detNet">-</td></tr>
-          <tr><td>Puerto Minecraft</td><td>25566 (TCP / UDP)</td></tr>
+          <tr><td>Puerto Minecraft</td><td>__MCPORT__ (TCP / UDP)</td></tr>
           <tr><td>Entorno Java</td><td>OpenJDK 21 (64-Bit Server VM)</td></tr>
-          <tr><td>Directorio</td><td>~/PrankLindorf-NeoForge</td></tr>
+          <tr><td>Directorio</td><td>__DIR__</td></tr>
         </table>
       </div>
 
@@ -385,7 +385,7 @@
           <div class="scard" style="padding:14px">
             <div class="scard-label"><span>Local Minecraft (TCP)</span></div>
             <div class="scard-val" id="pingLocalMc" style="font-size:22px">—</div>
-            <div class="scard-sub" id="pingLocalMcSub">127.0.0.1:25566</div>
+            <div class="scard-sub" id="pingLocalMcSub">127.0.0.1:__MCPORT__</div>
           </div>
           <div class="scard" style="padding:14px">
             <div class="scard-label"><span>Local RCON</span></div>
@@ -989,6 +989,18 @@
 
 <div class="toaster" id="toaster" data-pos="top-right" data-theme="dark" aria-live="polite"></div>
 
-<script src="/static/app.js?server=__SRV__&v=__V__"></script>
+<script src="/static/core.js?server=__SRV__&v=__V__"></script>
+<script src="/static/settings.js?server=__SRV__&v=__V__"></script>
+<script src="/static/console.js?server=__SRV__&v=__V__"></script>
+<script src="/static/metrics.js?server=__SRV__&v=__V__"></script>
+<script src="/static/files.js?server=__SRV__&v=__V__"></script>
+<script src="/static/backups.js?server=__SRV__&v=__V__"></script>
+<script src="/static/mods.js?server=__SRV__&v=__V__"></script>
+<script src="/static/servers.js?server=__SRV__&v=__V__"></script>
+<script src="/static/players_net.js?server=__SRV__&v=__V__"></script>
+<script src="/static/world.js?server=__SRV__&v=__V__"></script>
+<script src="/static/ui.js?server=__SRV__&v=__V__"></script>
+<script src="/static/diagnostics.js?server=__SRV__&v=__V__"></script>
+<script src="/static/main.js?server=__SRV__&v=__V__"></script>
 </body>
 </html>

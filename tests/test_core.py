@@ -20,12 +20,12 @@ class ConfigTest(unittest.TestCase):
             with open(path, "w") as f:
                 json.dump({"panel_password_hash": "a$b", "bind": "0.0.0.0",
                            "servers": [{"id": "x"}], "mc_port": 25570}, f)
-            old = panel.CONFIG_FILE
-            panel.CONFIG_FILE = path
+            old = panel.core.CONFIG_FILE
+            panel.core.CONFIG_FILE = path
             try:
                 cfg = panel.load_config()
             finally:
-                panel.CONFIG_FILE = old
+                panel.core.CONFIG_FILE = old
         self.assertEqual(cfg["panel_password_hash"], "a$b")
         self.assertEqual(cfg["bind"], "0.0.0.0")
         self.assertEqual(cfg["servers"], [{"id": "x"}])
@@ -70,13 +70,13 @@ class ZipTest(unittest.TestCase):
     def test_zip_bomb_rejected(self):
         with tempfile.TemporaryDirectory() as d:
             zp = self._zip(d, [("a.txt", "x")])
-            old = panel.MAX_UNZIP_BYTES
-            panel.MAX_UNZIP_BYTES = 0
+            old = panel.tools.MAX_UNZIP_BYTES
+            panel.tools.MAX_UNZIP_BYTES = 0
             try:
                 with self.assertRaises(ValueError):
                     panel.safe_extract_zip(zp, d)
             finally:
-                panel.MAX_UNZIP_BYTES = old
+                panel.tools.MAX_UNZIP_BYTES = old
 
 
 class BackupTest(unittest.TestCase):
@@ -192,13 +192,13 @@ class HardeningTest(unittest.TestCase):
             for bad in ("{no es json", "[1, 2]", json.dumps({"mc_port": "abc"})):
                 with open(path, "w") as f:
                     f.write(bad)
-                old = panel.CONFIG_FILE
-                panel.CONFIG_FILE = path
+                old = panel.core.CONFIG_FILE
+                panel.core.CONFIG_FILE = path
                 try:
                     with self.assertRaises(SystemExit):
                         panel.load_config()
                 finally:
-                    panel.CONFIG_FILE = old
+                    panel.core.CONFIG_FILE = old
 
     def test_content_disposition_strips_header_injection(self):
         hdr = panel._content_disposition('a"b\r\nSet-Cookie: x=1.txt')
