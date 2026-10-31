@@ -478,7 +478,7 @@ def _parse_srv_fields(payload, exclude_id=None):
     if not 0.5 <= mem <= 64:
         return None, "RAM fuera de rango (0.5-64 GB)"
     rp = os.path.realpath(sdir)
-    for s in SERVERS.values():
+    for s in list(SERVERS.values()):
         if exclude_id is not None and s.id == exclude_id:
             continue
         if s.mc_port == mc:
@@ -606,6 +606,28 @@ def set_public_ip(ip):
     return True, f"IP pública actualizada: {ip}"
 
 
+def _ttl_cached(ttl):
+    """Cachea por servidor (S().id) el resultado de una consulta cara durante `ttl` segundos."""
+    def deco(fn):
+        cache, lock = {}, threading.Lock()
+
+        def wrapper(*a, **k):
+            key, now = S().id, time.time()
+            with lock:
+                hit = cache.get(key)
+                if hit and now - hit[0] < ttl:
+                    return hit[1]
+            val = fn(*a, **k)
+            with lock:
+                cache[key] = (now, val)
+            return val
+        wrapper.cache_clear = lambda: (lock.acquire(), cache.clear(), lock.release())
+        wrapper.__name__ = fn.__name__
+        return wrapper
+    return deco
+
+
+@_ttl_cached(10)
 def get_playit_status():
     """Best-effort: estado del agente playit sin requerir root."""
     import shutil as _sh
@@ -631,12 +653,32 @@ def get_playit_status():
     return info
 
 
+_pid_cache = {}   # id de servidor -> último pid de java encontrado
+
+
 def find_running_mc_pid(srv=None, strict=False):
-    """PID del java del servidor: coincide cwd con SERVER_DIR (genérico para
-    Vanilla/Forge/Fabric/NeoForge). Excluye lanzadores de cliente.
-    strict=True omite la heurística de respaldo (solo cwd exacto)."""
+    """PID del java del servidor. Reutiliza el pid anterior si sigue vivo y en el mismo
+    directorio (evita recorrer /proc en cada sondeo); si no, escanea."""
     s = srv or S()
     root = os.path.realpath(s.server_dir)
+    cached = _pid_cache.get(s.id)
+    if cached:
+        try:
+            if (os.path.realpath(f"/proc/{cached}/cwd") == root and
+                    os.path.basename(os.readlink(f"/proc/{cached}/exe")).startswith("java")):
+                return cached
+        except OSError:
+            pass
+        _pid_cache.pop(s.id, None)
+    pid = _scan_mc_pid(s, root, strict)
+    if pid is not None:
+        _pid_cache[s.id] = pid
+    return pid
+
+
+def _scan_mc_pid(s, root, strict=False):
+    """Escaneo de /proc: coincide cwd con server_dir (Vanilla/Forge/Fabric/NeoForge).
+    Excluye lanzadores de cliente. strict=True omite la heurística de respaldo."""
     for pid_str in os.listdir("/proc"):
         if not pid_str.isdigit():
             continue
@@ -757,6 +799,7 @@ def get_process_uptime(pid):
     except Exception:
         return "-"
 
+@_ttl_cached(60)
 def get_world_size_gb():
     s = S()
     try:
@@ -768,6 +811,7 @@ def get_world_size_gb():
     except Exception:
         return 0.0
 
+@_ttl_cached(1.5)  # varias pestañas del navegador comparten una sola consulta SLP
 def query_mc_players():
     srv = S()
     s = None
@@ -936,7 +980,7 @@ def request_tps_sample():
 def tps_worker():
     while True:
         try:
-            for srv in SERVERS.values():
+            for srv in list(SERVERS.values()):
                 _ctx.srv = srv
                 try:
                     if find_running_mc_pid() is not None:
@@ -953,7 +997,6 @@ def tps_worker():
         time.sleep(10)
 
 
-threading.Thread(target=tps_worker, daemon=True).start()
 
 
 PLAYER_NAME_RE = re.compile(r"^[A-Za-z0-9_]{3,16}$")
@@ -1112,7 +1155,7 @@ def connection_history(limit=30):
 def connections_worker():
     while True:
         try:
-            for srv in SERVERS.values():
+            for srv in list(SERVERS.values()):
                 _ctx.srv = srv
                 try:
                     _conn_scan(srv)
@@ -1123,7 +1166,6 @@ def connections_worker():
         time.sleep(15)
 
 
-threading.Thread(target=connections_worker, daemon=True).start()
 
 
 # ── Historial 24h + disco + red ────────────────────────────────
@@ -1175,7 +1217,7 @@ def history_read(srv, limit=10080):
 def history_worker():
     while True:
         try:
-            for srv in SERVERS.values():
+            for srv in list(SERVERS.values()):
                 _ctx.srv = srv
                 try:
                     m = list(srv.metrics)[-1] if srv.metrics else None
@@ -1192,7 +1234,6 @@ def history_worker():
         time.sleep(60)
 
 
-threading.Thread(target=history_worker, daemon=True).start()
 
 
 _net_prev = {}
@@ -1238,7 +1279,7 @@ def metrics_worker():
     """Hilo de fondo que muestrea métricas cada 1.5s de forma continua."""
     while True:
         try:
-            for srv in SERVERS.values():
+            for srv in list(SERVERS.values()):
                 _ctx.srv = srv
                 try:
                     pid = find_running_mc_pid()
@@ -1269,7 +1310,6 @@ def metrics_worker():
             pass
         time.sleep(1.5)
 
-threading.Thread(target=metrics_worker, daemon=True).start()
 
 
 def _persist_servers_guard(srv, mx, wn, enabled, restart):
@@ -1799,7 +1839,7 @@ def _exec_task(srv, t):
 def scheduler_worker():
     while True:
         try:
-            for srv in SERVERS.values():
+            for srv in list(SERVERS.values()):
                 try:
                     tasks = _load_schedules(srv)
                 except Exception:
@@ -1828,7 +1868,6 @@ def scheduler_worker():
         time.sleep(20)
 
 
-threading.Thread(target=scheduler_worker, daemon=True).start()
 
 _dirsize_cache = {}
 _dirsize_ttl = 30
@@ -1912,18 +1951,52 @@ def fs_list(rel=""):
     except Exception as e:
         return None, str(e)
 
-def read_console_lines(limit=250):
-    srv = S()
+CONSOLE_TAIL_BYTES = 256 * 1024
+CONSOLE_MAX_NEW = 2000
+
+
+def _console_file(srv):
     for fpath in (srv.child_log, srv.log_file):
-        if os.path.exists(fpath):
-            try:
-                with open(fpath, "r", encoding="utf-8", errors="replace") as f:
-                    lines = f.read().splitlines()
-                if lines:
-                    return lines[-limit:]
-            except Exception:
-                continue
-    return []
+        try:
+            if os.path.getsize(fpath) > 0:
+                return fpath
+        except OSError:
+            continue
+    return None
+
+
+def read_console_lines(limit=250):
+    """Últimas líneas de la consola (solo se lee el final del archivo)."""
+    return read_console_since(None, None, limit)["lines"]
+
+
+def read_console_since(since, src, limit=250):
+    """Lectura incremental: devuelve las líneas nuevas desde el offset `since` (bytes).
+    Si no hay offset, el archivo cambió/rotó o el offset es inválido → reset con las últimas `limit`."""
+    fpath = _console_file(S())
+    if not fpath:
+        return {"lines": [], "offset": 0, "src": "", "reset": True}
+    name = os.path.basename(fpath)
+    try:
+        size = os.path.getsize(fpath)
+        reset = since is None or src != name or since < 0 or since > size
+        start = max(0, size - CONSOLE_TAIL_BYTES) if reset else since
+        with open(fpath, "rb") as f:
+            f.seek(start)
+            data = f.read(size - start)
+    except OSError:
+        return {"lines": [], "offset": 0, "src": name, "reset": True}
+    if reset:
+        if start > 0:  # empezamos a mitad del archivo: descartar la línea cortada
+            nl = data.find(b"\n")
+            data = data[nl + 1:] if nl >= 0 else b""
+        lines = data.decode("utf-8", "replace").splitlines()[-limit:]
+        return {"lines": lines, "offset": size, "src": name, "reset": True}
+    end = data.rfind(b"\n")  # solo líneas completas; el resto se lee en el siguiente sondeo
+    if end < 0:
+        return {"lines": [], "offset": since, "src": name, "reset": False}
+    lines = data[:end].decode("utf-8", "replace").splitlines()[-CONSOLE_MAX_NEW:]
+    return {"lines": lines, "offset": since + end + 1, "src": name, "reset": False}
 
 # ══════════════════════════════════════════════════════════════════
 # PLANTILLA HTML/CSS/JS (tema Liquid Glass)
@@ -1991,7 +2064,7 @@ def build_page(srv=None):
     if len(SERVERS) > 1:
         opts = "".join(
             f'<option value="{html.escape(s.id)}"{" selected" if s.id == srv.id else ""}>{html.escape(s.name)}</option>'
-            for s in SERVERS.values())
+            for s in list(SERVERS.values()))
         switcher = (
             '<div class="server-switcher">'
             '<select id="srvSel" onchange="location.search=\'?server=\'+encodeURIComponent(this.value)" '
@@ -2637,6 +2710,19 @@ def mca_world_dirs(srv):
     }
 
 
+def _invalidates_world(fn):
+    """Tras editar el mundo, descarta el resumen y el tamaño cacheados."""
+    def wrapper(*a, **k):
+        try:
+            return fn(*a, **k)
+        finally:
+            get_world_summary.cache_clear()
+            get_world_size_gb.cache_clear()
+    wrapper.__name__ = fn.__name__
+    return wrapper
+
+
+@_invalidates_world
 def mca_delete_chunks(dim_id, chunks):
     """Borra chunks sueltos (requiere servidor detenido). chunks: [{file, cx, cz}]."""
     srv = S()
@@ -2885,6 +2971,7 @@ def _mca_copy_chunk(dst_fp, src_fp, idx):
     return True
 
 
+@_invalidates_world
 def mca_restore_chunks(dim_id, chunks):
     """Restaura chunks sueltos desde los .bak (requiere servidor detenido)."""
     srv = S()
@@ -3205,6 +3292,7 @@ def mca_region_detail(dim_id, filename):
         return None, str(e)
 
 
+@_ttl_cached(15)  # lee la cabecera de cada región: no repetirlo en cada vista
 def get_world_summary():
     srv = S()
     wname = srv.world_name or "world"
@@ -3264,6 +3352,7 @@ def get_world_summary():
     }
 
 
+@_invalidates_world
 def mca_delete_regions(dim_id, region_files):
     srv = S()
     if _srv_running(srv):
@@ -3318,6 +3407,7 @@ def mca_delete_regions(dim_id, region_files):
     return (deleted > 0 or not errors), msg
 
 
+@_invalidates_world
 def mca_reset_dimension(dim_id):
     srv = S()
     if _srv_running(srv):
@@ -3767,6 +3857,27 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
                 pass
         return True
 
+    def _stream_file(self, path, name):
+        """Envía un archivo en bloques de 1 MB (no lo carga entero en memoria)."""
+        try:
+            f = open(path, "rb")
+        except OSError:
+            return self.send_json({"ok": False, "msg": "no se pudo leer"}, code=500)
+        with f:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(os.fstat(f.fileno()).st_size))
+            self.send_header("Content-Disposition", _content_disposition(name))
+            self.end_headers()
+            try:
+                while True:
+                    chunk = f.read(1 << 20)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
     def send_json(self, data, code=200):
         try:
             body = json.dumps(data).encode("utf-8")
@@ -3832,7 +3943,12 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
             return self.send_json(get_server_stats_data())
 
         if u.path == "/api/console":
-            return self.send_json({"lines": read_console_lines(250)})
+            qs = parse_qs(u.query)
+            try:
+                since = int(qs["since"][0]) if "since" in qs else None
+            except ValueError:
+                since = None
+            return self.send_json(read_console_since(since, (qs.get("src") or [""])[0], 250))
 
         if u.path == "/api/files":
             qs = parse_qs(u.query)
@@ -3867,22 +3983,7 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
                 self.send_response(404)
                 self.end_headers()
                 return
-            try:
-                with open(target, "rb") as f:
-                    body = f.read()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/octet-stream")
-                self.send_header("Content-Length", str(len(body)))
-                self.send_header("Content-Disposition",
-                                 _content_disposition(os.path.basename(target)))
-                self.end_headers()
-                try:
-                    self.wfile.write(body)
-                except (BrokenPipeError, ConnectionResetError):
-                    pass
-            except Exception:
-                self.send_response(500)
-                self.end_headers()
+            return self._stream_file(target, os.path.basename(target))
             return
 
         if u.path == "/api/browse":
@@ -3917,7 +4018,7 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
                 {"id": s.id, "name": s.name, "mc_port": s.mc_port,
                  "rcon_port": s.rcon_port, "max_mem_gb": s.max_mem_gb,
                  "server_dir": s.server_dir, "running": _srv_running(s),
-                 "current": s.id == cur} for s in SERVERS.values()],
+                 "current": s.id == cur} for s in list(SERVERS.values())],
                 "auth": auth_enabled()})
 
         if u.path == "/manifest.webmanifest":
@@ -4050,20 +4151,7 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
             name = qs.get("name", ["latest.log"])[0]
             if name not in {x["name"] for x in dg.logs_list(S().server_dir)}:
                 return self.send_json({"ok": False, "msg": "log no encontrado"}, code=404)
-            try:
-                with open(os.path.join(dg.logs_dir(S().server_dir), name), "rb") as f:
-                    body = f.read()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/octet-stream")
-                self.send_header("Content-Length", str(len(body)))
-                self.send_header("Content-Disposition", _content_disposition(name))
-                self.end_headers()
-                self.wfile.write(body)
-            except (BrokenPipeError, ConnectionResetError):
-                pass
-            except OSError:
-                return self.send_json({"ok": False, "msg": "no se pudo leer"}, code=500)
-            return
+            return self._stream_file(os.path.join(dg.logs_dir(S().server_dir), name), name)
 
         if u.path == "/api/mods":
             return self.send_json({"ok": True, "mods": list_mods()})
@@ -4095,22 +4183,7 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
                 self.send_response(404)
                 self.end_headers()
                 return
-            try:
-                with open(target, "rb") as f:
-                    body = f.read()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/octet-stream")
-                self.send_header("Content-Length", str(len(body)))
-                self.send_header("Content-Disposition",
-                                 _content_disposition(name))
-                self.end_headers()
-                try:
-                    self.wfile.write(body)
-                except (BrokenPipeError, ConnectionResetError):
-                    pass
-            except Exception:
-                self.send_response(500)
-                self.end_headers()
+            return self._stream_file(target, name)
             return
 
         if u.path == "/api/backup-cfg":
@@ -4150,21 +4223,7 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
             fp = os.path.join(target_dir, fn) if target_dir else None
             if not fp or not os.path.isfile(fp):
                 return self.send_json({"ok": False, "msg": "No existe"}, code=404)
-            try:
-                with open(fp, "rb") as f:
-                    body = f.read()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/octet-stream")
-                self.send_header("Content-Length", str(len(body)))
-                self.send_header("Content-Disposition", _content_disposition(f"{dim}-{fn}"))
-                self.end_headers()
-                try:
-                    self.wfile.write(body)
-                except (BrokenPipeError, ConnectionResetError):
-                    pass
-            except Exception:
-                self.send_response(500)
-                self.end_headers()
+            return self._stream_file(fp, f"{dim}-{fn}")
             return
 
         if u.path == "/api/world/players":
@@ -4863,7 +4922,22 @@ e.respondWith(fetch(e.request).then(r=>{const c=r.clone();
 caches.open('pk1').then(ch=>ch.put(e.request,c)).catch(()=>{});return r;}).catch(()=>caches.match(e.request)));});"""
 PWA_ICON = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none"><defs><linearGradient id="pk_bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1f1138"/><stop offset="50%" stop-color="#0e071c"/><stop offset="100%" stop-color="#05020a"/></linearGradient><linearGradient id="pk_top" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#f5d0fe"/><stop offset="35%" stop-color="#d8b4fe"/><stop offset="100%" stop-color="#9333ea"/></linearGradient><linearGradient id="pk_left" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#7e22ce"/><stop offset="100%" stop-color="#3b0764"/></linearGradient><linearGradient id="pk_right" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#581c87"/><stop offset="100%" stop-color="#1e0538"/></linearGradient><linearGradient id="pk_cyan" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#7dd3fc"/><stop offset="100%" stop-color="#38bdf8"/></linearGradient><linearGradient id="pk_purple" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#e9d5ff"/></linearGradient><filter id="pk_glow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="1.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><rect width="64" height="64" rx="15" fill="url(#pk_bg)" stroke="rgba(168,85,247,0.38)" stroke-width="1.2"/><circle cx="32" cy="32" r="24" fill="rgba(168,85,247,0.12)" filter="url(#pk_glow)"/><g transform="translate(0, 1)"><polygon points="32,9 53,21 32,33 11,21" fill="url(#pk_top)"/><path d="M24,17 L40,26 M28,14 L44,23 M17,25 L33,33" stroke="rgba(255,255,255,0.4)" stroke-width="0.8"/><circle cx="32" cy="21" r="2.2" fill="#38bdf8" filter="url(#pk_glow)"/><polygon points="11,21 32,33 32,55 11,43" fill="url(#pk_left)"/><polygon points="32,33 53,21 53,43 32,55" fill="url(#pk_right)"/><g filter="url(#pk_glow)"><path d="M18,31 L23,34 L23,48 L18,45 Z" fill="url(#pk_purple)"/><path d="M23,34 L29,37 L29,43 L23,40 Z" fill="url(#pk_purple)"/><polygon points="23,36 26.5,38 26.5,41 23,39" fill="#7e22ce"/></g><g filter="url(#pk_glow)"><path d="M35,37 L40,34 L40,48 L35,51 Z" fill="url(#pk_cyan)"/><path d="M40,40 L47,35 L48.5,36.5 L42.5,42.5 Z" fill="url(#pk_cyan)"/><path d="M41,41.5 L48.5,47.5 L46.5,49 L39.5,43.5 Z" fill="url(#pk_cyan)"/></g><polyline points="11,21 32,9 53,21" stroke="rgba(255,255,255,0.65)" stroke-width="0.9"/><line x1="32" y1="33" x2="32" y2="55" stroke="rgba(192,132,252,0.5)" stroke-width="0.9"/><polyline points="11,21 11,43 32,55 53,43 53,21" stroke="rgba(168,85,247,0.3)" stroke-width="0.8"/></g></svg>"""
 
+_workers_started = False
+
+
+def start_workers():
+    """Hilos de fondo (TPS, conexiones, historial, métricas, tareas). Se arrancan desde
+    __main__ y no al importar el módulo (importarlo, p. ej. en tests, no lanza hilos)."""
+    global _workers_started
+    if _workers_started:
+        return
+    _workers_started = True
+    for fn in (tps_worker, connections_worker, history_worker, metrics_worker, scheduler_worker):
+        threading.Thread(target=fn, daemon=True, name=fn.__name__).start()
+
+
 if __name__ == "__main__":
+    start_workers()
     bind = CFG.get("bind", "127.0.0.1")
     server = ThreadingHTTPServer((bind, PORT), PKHostingPanelHandler)
     cert, key = CFG.get("ssl_cert"), CFG.get("ssl_key")

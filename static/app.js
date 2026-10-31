@@ -632,15 +632,30 @@ function renderConsole() {
     body.scrollTop = Math.max(0, prevT + (body.scrollHeight - prevH));
   }
 }
+let consoleOffset = null, consoleSrc = '';
+const CONSOLE_KEEP = 1000;
 async function refreshConsole() {
   try {
-    const res = await fetch(U('/api/console'));
-    const data = await res.json();
-    if (data.lines && data.lines.length) {
-      termLines = data.lines;
-      renderConsole();
+    const qs = consoleOffset == null ? '' : '?since=' + consoleOffset + '&src=' + encodeURIComponent(consoleSrc);
+    const data = await (await fetch(U('/api/console' + qs))).json();
+    consoleOffset = data.offset; consoleSrc = data.src || '';
+    const add = data.lines || [];
+    if (data.reset) {
+      if (add.length) { termLines = add; renderConsole(); }
+    } else if (add.length) {
+      termLines = termLines.concat(add);
+      const plain = !logFilter && !document.getElementById('logSearch').value;
+      if (plain && termLines.length <= CONSOLE_KEEP) appendConsole(add);   // sin reconstruir: conserva la selección
+      else { termLines = termLines.slice(-CONSOLE_KEEP); renderConsole(); }
     }
   } catch (e) {}
+}
+function appendConsole(lines) {
+  const body = document.getElementById('termBody');
+  if (!body.innerHTML || body.querySelector('.log-info') && body.textContent.includes('Sin coincidencias')) { renderConsole(); return; }
+  const near = body.scrollHeight - body.scrollTop - body.clientHeight < 60;
+  body.insertAdjacentHTML('beforeend', '<br>' + lines.map(highlightLogLine).join('<br>'));
+  if (autoScroll && (stickBottom || near)) body.scrollTop = body.scrollHeight;
 }
 function refreshCmdList() {
   const seen = new Set();
@@ -748,8 +763,10 @@ async function refreshStats() {
         ? d.player_names.map(n => `<span class="p-chip" style="cursor:pointer" onclick="openPlayerModal(${jsArg(n)})"><img src="https://mc-heads.net/avatar/${encodeURIComponent(n)}/18" class="p-avatar" style="width:16px;height:16px" alt="" onerror="this.style.display='none'">${escHtml(n)}</span>`).join(' ')
         : '<div class="empty-state">Nadie conectado</div>';
     }
-    if (rows && !hasPlayers) rows.innerHTML = '<div class="empty-state">Nadie conectado</div>';
-    if (rows && hasPlayers) {
+    if (rows && !hasPlayers) { window._plSig = ''; rows.innerHTML = '<div class="empty-state">Nadie conectado</div>'; }
+    const plSig = hasPlayers ? d.player_names.join('|') + '#' + d.player_names.map(n => Math.floor(((d.sessions || {})[n] || 0) / 60)).join(',') : '';
+    if (rows && hasPlayers && plSig !== window._plSig) {
+      window._plSig = plSig;
       const sess = d.sessions || {};
       rows.innerHTML = d.player_names.map(n => {
         const safe = escHtml(n);
@@ -3093,8 +3110,10 @@ function syncHash(name) {
   } catch (e) {}
 }
 window.addEventListener('hashchange', () => { const t = tabFromHash(); if (t) switchTab(t, true); });
-setInterval(refreshStats, 2000);
-setInterval(refreshConsole, 2500);
+// No consultar con la pestaña oculta: ahorra CPU del panel y del servidor
+setInterval(() => { if (!document.hidden) refreshStats(); }, 2000);
+setInterval(() => { if (!document.hidden) refreshConsole(); }, 2500);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { refreshStats(); refreshConsole(); } });
 refreshStats();
 refreshConsole();
 

@@ -159,6 +159,28 @@ class PanelProcessTest(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertEqual(hdr["Content-Disposition"], 'attachment; filename="server.properties"')
 
+    def test_console_is_incremental(self):
+        op = self._opener(login=True)
+        logs = os.path.join(self.tmp.name, "srv", "logs")
+        os.makedirs(logs, exist_ok=True)
+        path = os.path.join(logs, "panel-child.log")
+        with open(path, "w") as f:
+            f.write("a\nb\n")
+        d = json.loads(self._req(op, "/api/console")[1])
+        self.assertEqual((d["lines"], d["offset"], d["reset"]), (["a", "b"], 4, True))
+        with open(path, "a") as f:
+            f.write("c\npartial")
+        d = json.loads(self._req(op, f"/api/console?since=4&src={d['src']}")[1])
+        self.assertEqual((d["lines"], d["offset"], d["reset"]), (["c"], 6, False))
+        with open(path, "a") as f:
+            f.write("!\n")
+        d = json.loads(self._req(op, f"/api/console?since=6&src={d['src']}")[1])
+        self.assertEqual(d["lines"], ["partial!"])
+        with open(path, "w") as f:  # truncado/rotado: offset mayor que el tamaño → reset
+            f.write("z\n")
+        d = json.loads(self._req(op, f"/api/console?since=999&src={d['src']}")[1])
+        self.assertEqual((d["lines"], d["reset"]), (["z"], True))
+
     def test_world_edit_blocked_paths(self):
         op = self._opener(login=True)
         code, body, _ = self._req(op, "/api/world/mca", {"action": "reset_dimension", "dimension": "overworld"})
