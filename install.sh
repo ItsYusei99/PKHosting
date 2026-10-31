@@ -263,6 +263,6 @@ cat <<EOF
   Opcional:   expónlo con playit.gg y pega la IP en Configuración.
   Multi-server: añade un bloque en "servers" de config.json (ver README).
 EOF
-if [ -n "${PANEL_GEN:-}" ] || [ -n "${PK_PANEL_PASSWORD:-}" ] && [ "$NON_INT" = 1 ]; then
+if [ -n "${PANEL_GEN:-}" ] || { [ "$NON_INT" = 1 ] && [ -z "${PK_PANEL_PASSWORD:-}" ]; }; then
   echo "  ⚠️  Contraseña del panel: $PANEL_PW  (guárdala, solo se muestra una vez)"
 fi
