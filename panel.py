@@ -56,9 +56,7 @@ def load_config():
     try:
         with open(CONFIG_FILE) as f:
             user = json.load(f)
-        for k in cfg:
-            if k in user:
-                cfg[k] = user[k]
+        cfg.update(user)
     except FileNotFoundError:
         pass
     except Exception as e:
