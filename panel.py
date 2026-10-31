@@ -135,6 +135,32 @@ def drop_session(tok):
         _sessions.pop(tok, None)
 
 
+LOGIN_MAX_FAILS = 5
+LOGIN_WINDOW = 300
+_login_fails = {}
+
+
+def login_blocked(ip):
+    now = time.time()
+    with _sessions_lock:
+        fails = [t for t in _login_fails.get(ip, []) if now - t < LOGIN_WINDOW]
+        _login_fails[ip] = fails
+        return len(fails) >= LOGIN_MAX_FAILS
+
+
+def login_failed(ip):
+    with _sessions_lock:
+        _login_fails.setdefault(ip, []).append(time.time())
+
+
+def login_ok(ip):
+    with _sessions_lock:
+        _login_fails.pop(ip, None)
+
+
+HTTPS_ON = False
+
+
 CFG = load_config()
 
 SERVER_DIR = CFG["server_dir"]
@@ -4619,6 +4645,29 @@ def list_mods():
     return out
 
 
+MAX_UNZIP_BYTES = 2 * 1024 * 1024 * 1024
+MAX_UNZIP_FILES = 20000
+
+
+def safe_extract_zip(zp, dest_dir):
+    """Extrae un zip rechazando Zip-Slip, symlinks y zip bombs."""
+    import zipfile as _zf
+    root = os.path.realpath(dest_dir)
+    with _zf.ZipFile(zp) as z:
+        infos = z.infolist()
+        if len(infos) > MAX_UNZIP_FILES:
+            raise ValueError("zip con demasiados archivos")
+        if sum(i.file_size for i in infos) > MAX_UNZIP_BYTES:
+            raise ValueError("zip descomprimido excede el límite de 2 GB")
+        for m in infos:
+            if (m.external_attr >> 16) & 0o170000 == 0o120000:
+                continue  # symlink
+            target = os.path.realpath(os.path.join(root, m.filename))
+            if target != root and not target.startswith(root + os.sep):
+                continue
+            z.extract(m, root)
+
+
 def handle_upload(handler, dest_rel):
     dest_dir = safe_fs_path(dest_rel or "")
     if dest_dir is None:
@@ -4678,13 +4727,7 @@ def handle_upload(handler, dest_rel):
                 continue
             zp = os.path.join(dest_dir, fname)
             try:
-                with _zf.ZipFile(zp) as z:
-                    for m in z.infolist():
-                        # anti Zip-Slip
-                        rel = os.path.normpath(m.filename).lstrip("/")
-                        if rel.startswith("..") or os.path.isabs(m.filename):
-                            continue
-                        z.extract(m, dest_dir)
+                safe_extract_zip(zp, dest_dir)
                 os.remove(zp)
                 done.append(fname)
             except Exception as e:
@@ -4872,7 +4915,10 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
         if u.path == "/api/browse":
             qs = parse_qs(u.query)
             raw = ((qs.get("path", [""]) or [""])[0] or "").strip() or "~"
+            home = os.path.realpath(os.path.expanduser("~"))
             p = os.path.realpath(os.path.expanduser(raw))
+            if p != home and not p.startswith(home + os.sep):
+                return self.send_json({"ok": False, "msg": "Solo se puede explorar dentro de tu carpeta personal"}, code=403)
             if not os.path.isdir(p):
                 return self.send_json({"ok": False, "msg": "No existe o sin acceso"}, code=404)
             try:
@@ -4888,7 +4934,7 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
                 ready = os.path.isfile(os.path.join(full, "start.sh")) or \
                     os.path.isfile(os.path.join(full, "server.properties"))
                 dirs.append({"name": n, "ready": ready})
-            parent = os.path.dirname(p) if p != "/" else "/"
+            parent = os.path.dirname(p) if p != home else home
             return self.send_json({"ok": True, "path": p, "parent": parent,
                                    "dirs": dirs, "home": os.path.expanduser("~")})
 
@@ -5036,8 +5082,16 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
         self.send_response(404)
         self.end_headers()
 
+    def _same_origin(self):
+        origin = self.headers.get("Origin")
+        if not origin:
+            return True
+        return urlparse(origin).netloc == self.headers.get("Host", "")
+
     def do_POST(self):
         u = urlparse(self.path)
+        if not self._same_origin():
+            return self.send_json({"ok": False, "msg": "Origen no permitido"}, code=403)
         if u.path == "/api/upload":
             # binario: no pre-leer el cuerpo como texto
             if u.path not in PUBLIC_PATHS and self._need_auth():
@@ -5054,19 +5108,25 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
             payload = {}
         if u.path == "/api/login":
             pw = payload.get("password", "")
+            ip = self.client_address[0]
+            if login_blocked(ip):
+                return self.send_json({"ok": False, "msg": "Demasiados intentos. Espera 5 minutos."}, code=429)
             if auth_enabled() and verify_password(pw, CFG.get("panel_password_hash", "")):
+                login_ok(ip)
                 tok = new_session()
                 body = json.dumps({"ok": True}).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
-                self.send_header("Set-Cookie", f"pksess={tok}; HttpOnly; Path=/; SameSite=Lax")
+                self.send_header("Set-Cookie", f"pksess={tok}; HttpOnly; Path=/; SameSite=Strict; Max-Age={SESSION_TTL}"
+                                 + ("; Secure" if HTTPS_ON else ""))
                 self.end_headers()
                 try:
                     self.wfile.write(body)
                 except (BrokenPipeError, ConnectionResetError):
                     pass
                 return
+            login_failed(ip)
             time.sleep(1)
             return self.send_json({"ok": False, "msg": "Contraseña incorrecta"}, code=401)
 
@@ -5455,7 +5515,21 @@ e.respondWith(fetch(e.request).then(r=>{const c=r.clone();
 caches.open('pk1').then(ch=>ch.put(e.request,c)).catch(()=>{});return r;}).catch(()=>caches.match(e.request)));});"""
 PWA_ICON = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7c3aed"/><stop offset="1" stop-color="#a855f7"/></linearGradient></defs><rect width="64" height="64" rx="14" fill="url(#g)"/><path d="M32 12 14 22l18 10 18-10-18-10zM14 32l18 10 18-10M14 42l18 10 18-10" stroke="#fff" stroke-width="4" fill="none" stroke-linejoin="round"/></svg>"""
 
+def reset_password_cli():
+    import getpass
+    pw = getpass.getpass("Nueva contraseña del panel (mín. 8): ")
+    if len(pw) < 8:
+        sys.exit("Mínimo 8 caracteres")
+    if pw != getpass.getpass("Repite la contraseña: "):
+        sys.exit("No coinciden")
+    save_panel_setting("panel_password_hash", hash_password(pw))
+    print("Contraseña actualizada. Reinicia: systemctl --user restart pkhosting.service")
+
+
 if __name__ == "__main__":
+    if "--reset-password" in sys.argv:
+        reset_password_cli()
+        sys.exit(0)
     bind = CFG.get("bind", "127.0.0.1")
     server = ThreadingHTTPServer((bind, PORT), PKHostingPanelHandler)
     cert, key = CFG.get("ssl_cert"), CFG.get("ssl_key")
@@ -5466,6 +5540,7 @@ if __name__ == "__main__":
         ctx.load_cert_chain(cert, key)
         server.socket = ctx.wrap_socket(server.socket, server_side=True)
         scheme = "https"
+        HTTPS_ON = True
     print(f"[PKHosting] Ejecutando en {scheme}://{bind}:{PORT}", flush=True)
     try:
         server.serve_forever()
