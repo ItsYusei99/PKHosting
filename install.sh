@@ -65,7 +65,6 @@ ask RCON_PORT    "Puerto RCON"                               "${PK_RCON_PORT:-25
 ask MAX_MEM      "RAM máxima del servidor (GB, solo visual)" "${PK_MAX_MEM:-4.0}"
 
 # ── Backups diarios ──────────────────────────────────────────────
-BK_DEF=y
 if [ "$NON_INT" = 1 ]; then
   BK_ANS="${PK_BACKUP:-y}"
 else
@@ -96,28 +95,26 @@ if [ -f "$CFG_FILE" ] && [ "$FORCE" = 0 ] && [ "$NON_INT" = 0 ]; then
   [[ "$ow" =~ ^[sSyY]$ ]] || { say "conservo config existente"; }
 fi
 if [ ! -f "$CFG_FILE" ] || [ "$FORCE" = 1 ] || [[ "${ow:-}" =~ ^[sSyY]$ ]]; then
-  # start_cmd como array JSON: respeta comillas simples/dobles
-  # shellcheck disable=SC2206
-  read -r -a CMD_ARR <<< "$START_CMD"
-  START_JSON=$(printf '"%s",' "${CMD_ARR[@]}"); START_JSON="[${START_JSON%,}]"
-  cat > "$CFG_FILE" <<EOF
-{
-  "server_name": "$SERVER_NAME",
-  "server_subtitle": "$SUBTITLE",
-  "server_dir": "$SERVER_DIR",
-  "start_cmd": $START_JSON,
-  "world_name": "$WORLD",
-  "panel_port": $PANEL_PORT,
-  "mc_port": $MC_PORT,
-  "rcon_port": $RCON_PORT,
-  "max_mem_gb": $MAX_MEM,
-  "backup_enabled": $BK_ON,
-  "backup_dir": "$BACKUP_DIR",
-  "backup_time": "$BACKUP_TIME",
-  "retention_days": 7,
-  "keep_monthly": true
+  # JSON generado con python para escapar comillas y caracteres especiales
+  CFG_FILE="$CFG_FILE" SERVER_NAME="$SERVER_NAME" SUBTITLE="$SUBTITLE" SERVER_DIR="$SERVER_DIR" \
+  START_CMD="$START_CMD" WORLD="$WORLD" PANEL_PORT="$PANEL_PORT" MC_PORT="$MC_PORT" \
+  RCON_PORT="$RCON_PORT" MAX_MEM="$MAX_MEM" BK_ON="$BK_ON" BACKUP_DIR="$BACKUP_DIR" \
+  BACKUP_TIME="$BACKUP_TIME" python3 - <<'PYEOF'
+import json, os, shlex
+e = os.environ
+cfg = {
+    "server_name": e["SERVER_NAME"], "server_subtitle": e["SUBTITLE"],
+    "server_dir": e["SERVER_DIR"], "start_cmd": shlex.split(e["START_CMD"]),
+    "world_name": e["WORLD"], "panel_port": int(e["PANEL_PORT"]),
+    "mc_port": int(e["MC_PORT"]), "rcon_port": int(e["RCON_PORT"]),
+    "max_mem_gb": float(e["MAX_MEM"]), "bind": "127.0.0.1",
+    "backup_enabled": e["BK_ON"] == "true", "backup_dir": e["BACKUP_DIR"],
+    "backup_time": e["BACKUP_TIME"], "retention_days": 7, "keep_monthly": True,
 }
-EOF
+with open(e["CFG_FILE"], "w") as f:
+    json.dump(cfg, f, indent=2)
+    f.write("\n")
+PYEOF
   say "config escrita: $CFG_FILE"
 fi
 python3 -c "import json; json.load(open('$CFG_FILE'))" || die "config.json inválido"
@@ -143,13 +140,13 @@ fi
 [ ${#PANEL_PW} -ge 8 ] || die "la contraseña del panel necesita mínimo 8 caracteres"
 HAS_HASH="$(python3 -c "import json; print('y' if json.load(open('$CFG_FILE')).get('panel_password_hash') else 'n')")"
 if [ "$HAS_HASH" = n ] || [ "$FORCE" = 1 ]; then
-  PK_APP_DIR="$APP_DIR" python3 - "$CFG_FILE" "$PANEL_PW" <<'EOF'
+  PK_APP_DIR="$APP_DIR" PK_PW="$PANEL_PW" python3 - "$CFG_FILE" <<'EOF'
 import os, sys
 sys.path.insert(0, os.environ["PK_APP_DIR"])
 import panel
 panel.CONFIG_FILE = sys.argv[1]
 panel.CONFIG_DIR = os.path.dirname(sys.argv[1])
-panel.save_panel_setting("panel_password_hash", panel.hash_password(sys.argv[2]))
+panel.save_panel_setting("panel_password_hash", panel.hash_password(os.environ["PK_PW"]))
 print("hash guardado")
 EOF
   say "contraseña del panel configurada"

@@ -13,6 +13,7 @@ PK_VERSION = "1.0.0"
 
 import collections
 import datetime
+import fcntl
 import hashlib
 import hmac
 import html
@@ -20,6 +21,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import signal
 import socket
 import struct
@@ -27,6 +29,9 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.request
+import zipfile
+import ssl
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
 
@@ -133,6 +138,32 @@ def valid_session(tok):
 def drop_session(tok):
     with _sessions_lock:
         _sessions.pop(tok, None)
+
+
+LOGIN_MAX_FAILS = 5
+LOGIN_WINDOW = 300
+_login_fails = {}
+
+
+def login_blocked(ip):
+    now = time.time()
+    with _sessions_lock:
+        fails = [t for t in _login_fails.get(ip, []) if now - t < LOGIN_WINDOW]
+        _login_fails[ip] = fails
+        return len(fails) >= LOGIN_MAX_FAILS
+
+
+def login_failed(ip):
+    with _sessions_lock:
+        _login_fails.setdefault(ip, []).append(time.time())
+
+
+def login_ok(ip):
+    with _sessions_lock:
+        _login_fails.pop(ip, None)
+
+
+HTTPS_ON = False
 
 
 CFG = load_config()
@@ -393,20 +424,18 @@ def get_rcon_password():
 
 def rcon_send(cmd, timeout=5):
     """Cliente RCON minimo (stdlib). Devuelve (ok, respuesta)."""
-    import socket as _sock
-    import struct as _struct
     srv = S()
     pw = srv.rcon_password()
     if not pw:
         return False, "RCON sin password configurado"
     try:
-        s = _sock.create_connection((RCON_HOST, srv.rcon_port), timeout=timeout)
+        s = socket.create_connection((RCON_HOST, srv.rcon_port), timeout=timeout)
         s.settimeout(timeout)
         _id = 1
 
         def pkt(pid, ptype, payload):
-            body = _struct.pack("<ii", pid, ptype) + payload.encode("utf-8") + b"\x00\x00"
-            return _struct.pack("<i", len(body)) + body
+            body = struct.pack("<ii", pid, ptype) + payload.encode("utf-8") + b"\x00\x00"
+            return struct.pack("<i", len(body)) + body
 
         def read_pkt():
             hdr = b""
@@ -415,14 +444,14 @@ def rcon_send(cmd, timeout=5):
                 if not ch:
                     raise ConnectionError("RCON cerrado")
                 hdr += ch
-            (ln,) = _struct.unpack("<i", hdr)
+            (ln,) = struct.unpack("<i", hdr)
             data = b""
             while len(data) < ln:
                 ch = s.recv(ln - len(data))
                 if not ch:
                     raise ConnectionError("RCON incompleto")
                 data += ch
-            rid, rtype = _struct.unpack("<ii", data[:8])
+            rid, rtype = struct.unpack("<ii", data[:8])
             return rid, rtype, data[8:-2].decode("utf-8", "replace")
 
         s.sendall(pkt(_id, 3, pw))
@@ -440,20 +469,18 @@ def rcon_send(cmd, timeout=5):
 
 def write_stdin_fallback(pid, text):
     """Escribe a /proc/<pid>/fd/0 sin bloquear (O_NONBLOCK)."""
-    import os as _os
-    import fcntl as _fcntl
     path = f"/proc/{pid}/fd/0"
     fd = None
     try:
-        fd = _os.open(path, _os.O_WRONLY | _os.O_NONBLOCK)
-        _os.write(fd, (text + "\n").encode("utf-8"))
+        fd = os.open(path, os.O_WRONLY | os.O_NONBLOCK)
+        os.write(fd, (text + "\n").encode("utf-8"))
         return True, "enviado"
     except Exception as e:
         return False, str(e)
     finally:
         try:
             if fd is not None:
-                _os.close(fd)
+                os.close(fd)
         except Exception:
             pass
 
@@ -498,13 +525,11 @@ def set_public_ip(ip):
 
 def get_playit_status():
     """Best-effort: estado del agente playit sin requerir root."""
-    import shutil as _sh
-    import subprocess as _sp
     info = {"installed": False, "service_active": False, "reachable": False, "note": ""}
-    if _sh.which("playit"):
+    if shutil.which("playit"):
         info["installed"] = True
     try:
-        r = _sp.run(["systemctl", "is-active", "playit.service"],
+        r = subprocess.run(["systemctl", "is-active", "playit.service"],
                     capture_output=True, text=True, timeout=5)
         info["service_active"] = (r.stdout.strip() == "active")
     except Exception:
@@ -1393,7 +1418,6 @@ def _backup_worker(srv, mode, name=None):
 
 
 def backups_status():
-    import shutil as _sh
     srv = S()
     c = {"enabled": srv.backup_enabled, "dir": srv.backup_dir,
          "retention_days": srv.retention_days, "keep_monthly": srv.keep_monthly,
@@ -1415,7 +1439,7 @@ def backups_status():
         info["writable"] = False
         info["writable_msg"] = str(e)
     try:
-        info["free_gb"] = round(_sh.disk_usage(c["dir"]).free / 1e9, 1) if os.path.isdir(c["dir"]) else 0
+        info["free_gb"] = round(shutil.disk_usage(c["dir"]).free / 1e9, 1) if os.path.isdir(c["dir"]) else 0
     except Exception:
         info["free_gb"] = 0
     try:
@@ -1448,10 +1472,9 @@ def discord_send(text):
     if not url:
         return False, "sin webhook configurado"
     try:
-        import urllib.request as _url
-        req = _url.Request(url, data=json.dumps({"content": text[:1800]}).encode(),
+        req = urllib.request.Request(url, data=json.dumps({"content": text[:1800]}).encode(),
                            headers={"Content-Type": "application/json"})
-        with _url.urlopen(req, timeout=8):
+        with urllib.request.urlopen(req, timeout=8):
             pass
         return True, "enviado"
     except Exception as e:
@@ -1677,8 +1700,6 @@ HTML_PAGE = """<!doctype html>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{});}</script>
 <script>window.onerror=function(){/* noop: sin telemetría */};</script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root {
   --bg-main: #050508;
@@ -1825,7 +1846,7 @@ nav {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
   color: var(--accent-cyan);
   cursor: pointer;
@@ -2070,7 +2091,7 @@ header {
   flex: 1;
   overflow-y: auto;
   padding: 16px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12.5px;
   line-height: 1.5;
   white-space: pre-wrap;
@@ -2086,7 +2107,7 @@ header {
   align-items: center;
 }
 .cmd-prompt {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: var(--accent-cyan);
   font-weight: 700;
 }
@@ -2095,7 +2116,7 @@ header {
   background: transparent;
   border: none;
   outline: none;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 13px;
   color: #fff;
 }
@@ -2112,7 +2133,7 @@ header {
 }
 .cmd-btn:hover { background: #c084fc; }
 /* Cuadros de texto */
-.tin { background: var(--bg-terminal); border: 1px solid var(--border-color); border-radius: 10px; padding: 9px 12px; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; outline: none; caret-color: #c084fc; transition: border-color 0.15s, box-shadow 0.15s, background 0.15s; }
+.tin { background: var(--bg-terminal); border: 1px solid var(--border-color); border-radius: 10px; padding: 9px 12px; color: #fff; font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; outline: none; caret-color: #c084fc; transition: border-color 0.15s, box-shadow 0.15s, background 0.15s; }
 .tin::placeholder { color: var(--text-dim); }
 .tin:hover { border-color: rgba(168,85,247,0.45); }
 .tin:focus { background: rgba(168,85,247,0.05); }
@@ -2146,7 +2167,7 @@ header {
 .chart-title { font-size: 15px; font-weight: 700; }
 .chart-badge {
   font-size: 12px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: var(--accent-cyan);
 }
 canvas {
@@ -2178,7 +2199,7 @@ canvas {
   width: 200px;
 }
 .details-table td:last-child {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: var(--text-main);
   text-align: right;
 }
@@ -2201,7 +2222,7 @@ canvas {
   transition: background 0.15s;
 }
 .file-row:hover { background: var(--bg-card-hover); }
-.file-name { flex: 1; font-family: 'JetBrains Mono', monospace; }
+.file-name { flex: 1; font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .file-size { color: var(--text-dim); font-size: 12px; }
 .file-icon { display: inline-flex; flex-shrink: 0; }
 .file-icon svg { width: 20px; height: 20px; }
@@ -2229,7 +2250,7 @@ svg.ico { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: r
 .cmd-btn { display: inline-flex; align-items: center; gap: 6px; }
 .cmd-btn svg { width: 14px; height: 14px; }
 .fs-toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; align-items: center; }
-.fs-crumb { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-muted); }
+.fs-crumb { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: var(--text-muted); }
 .fs-crumb a { color: var(--accent-cyan); cursor: pointer; text-decoration: none; }
 .seg { display: inline-flex; background: var(--bg-terminal); border: 1px solid var(--border-color); border-radius: 9px; padding: 3px; gap: 2px; }
 .seg button { background: transparent; border: 0; color: var(--text-muted); font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-family: inherit; transition: all 0.15s; }
@@ -2258,7 +2279,7 @@ svg.ico { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: r
 .mod-row:hover .mod-ico { transform: scale(1.12); }
 .mod-row.is-off .mod-ico { color: #64748b; filter: none; }
 .mod-main { flex: 1; min-width: 0; }
-.mod-name { display: block; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mod-name { display: block; font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mod-meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 11px; color: var(--text-dim); }
 .mchip { font-size: 10px; font-weight: 800; letter-spacing: 0.03em; padding: 1px 8px; border-radius: 999px; border: 1px solid; white-space: nowrap; }
 .mchip.ver { color: #93c5fd; border-color: rgba(147,197,253,0.35); background: rgba(147,197,253,0.08); }
@@ -2552,10 +2573,58 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
 .dur { display: inline-flex; align-items: stretch; border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; background: var(--bg-terminal); }
 .dur button { background: rgba(168,85,247,0.12); color: #d8b4fe; border: 0; width: 30px; font-size: 15px; cursor: pointer; }
 .dur button:hover { background: rgba(168,85,247,0.3); }
-.dur input { width: 56px; text-align: center; background: transparent; border: 0; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; padding: 9px 2px; outline: none; }
+.dur input { width: 56px; text-align: center; background: transparent; border: 0; color: #fff; font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; padding: 9px 2px; outline: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .orbs i, .g-letter, .file-icon.is-folder svg, .toast, .toaster { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+</style>
+<style>
+/* ═══ Accesibilidad, móvil y tema claro ═══ */
+:focus-visible { outline: 2px solid #c084fc; outline-offset: 2px; }
+.nav-item:focus-visible { background: var(--bg-card); color: var(--text-main); }
+@media (max-width: 820px) {
+  body { flex-direction: column; }
+  aside { width: 100%; flex-direction: row; align-items: center; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--glass-border); position: sticky; top: 0; z-index: 20; }
+  .sidebar-header { padding: 8px 12px; border: 0; flex-shrink: 0; }
+  .brand-sub, .server-selector, .ip-chip { display: none; }
+  nav { display: flex; flex-direction: row; padding: 6px; gap: 2px; flex: 1; overflow-x: auto; }
+  .nav-item { margin-bottom: 0; padding: 9px 12px; white-space: nowrap; gap: 8px; }
+  .nav-item.active { border-left: 0; }
+  .sidebar-footer { padding: 6px 10px; border: 0; flex-shrink: 0; }
+  .logout-btn { padding: 8px 10px; font-size: 0; gap: 0; }
+  .logout-btn .ico { margin: 0; }
+  main { max-height: none; overflow-y: visible; }
+  header { padding: 12px 14px; flex-wrap: wrap; gap: 10px; }
+  .stats-cards { grid-template-columns: repeat(2, 1fr) !important; }
+  #modLists, [style*="repeat(3,1fr)"] { grid-template-columns: 1fr !important; }
+  aside, header, .scard, .terminal-wrapper, .chart-card, .system-details-card, .file-list, .ip-chip, .power-btn-group {
+    -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg-main: #f6f3ff; --bg-sidebar: #ffffff; --bg-card: #ffffff; --bg-card-hover: #f0eaff;
+    --border-color: #d9cdf5; --border-subtle: #e8e0fa;
+    --text-main: #1b1530; --text-muted: #4b4268; --text-dim: #6d6490;
+    --accent-cyan: #7c3aed; --accent-soft: #6d28d9;
+    --glass-bg: linear-gradient(155deg, rgba(255,255,255,0.9), rgba(255,255,255,0.7));
+    --glass-border: rgba(124,58,237,0.18); --glass-hi: inset 0 1px 0 #fff;
+    --glass-shadow: 0 8px 28px rgba(76,29,149,0.10);
+  }
+  :root:not([data-theme="dark"]) body { background: radial-gradient(900px 480px at 12% -8%, rgba(167,139,250,0.25), transparent 65%), #f6f3ff; }
+  :root:not([data-theme="dark"]) aside { background: rgba(255,255,255,0.85); }
+  :root:not([data-theme="dark"]) .nav-item.active { background: rgba(124,58,237,0.10); }
+  :root:not([data-theme="dark"]) .scard-val { background: linear-gradient(180deg, #1b1530 20%, #6d28d9 100%); -webkit-background-clip: text; background-clip: text; filter: none; }
+  :root:not([data-theme="dark"]) .brand-name { color: var(--text-main); }
+  :root:not([data-theme="dark"]) .server-selector { background: rgba(124,58,237,0.06); }
+  :root:not([data-theme="dark"]) .pbtn-restart, :root:not([data-theme="dark"]) .pbtn-stop,
+  :root:not([data-theme="dark"]) .pbtn-kill { color: var(--text-main); }
+  :root:not([data-theme="dark"]) .pbtn-kill { color: #b91c1c; }
+  :root:not([data-theme="dark"]) .pbtn:disabled { opacity: 0.55; }
+  :root:not([data-theme="dark"]) .file-row:hover .file-name { color: var(--accent-soft); }
+  :root:not([data-theme="dark"]) .terminal-body { background: #0b0a14; border-radius: 0 0 var(--r-lg) var(--r-lg); }
+  :root:not([data-theme="dark"]) .sidebar-footer { background: transparent; }
+  :root:not([data-theme="dark"]) .scard:hover { box-shadow: var(--glass-hi), 0 14px 36px rgba(76,29,149,0.16); }
 }
 </style>
 </head>
@@ -2581,32 +2650,32 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
     </div>
   </div>
 
-  <nav>
-    <a class="nav-item active" onclick="switchTab('console')">
+  <nav aria-label="Secciones">
+    <a class="nav-item active" role="button" tabindex="0" onclick="switchTab('console')">
       <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></span> Consola
     </a>
-    <a class="nav-item" onclick="switchTab('metrics')">
+    <a class="nav-item" role="button" tabindex="0" onclick="switchTab('metrics')">
       <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span> Métricas del Sistema
     </a>
-    <a class="nav-item" onclick="switchTab('files')">
+    <a class="nav-item" role="button" tabindex="0" onclick="switchTab('files')">
       <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span> Archivos
-    <a class="nav-item" onclick="switchTab('backups')">
+    <a class="nav-item" role="button" tabindex="0" onclick="switchTab('backups')">
       <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><rect x="1" y="3" width="22" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><line x1="10" y1="12" x2="14" y2="12"/></svg></span> Backups
     </a>
-    <a class="nav-item" onclick="switchTab('tasks')">
+    <a class="nav-item" role="button" tabindex="0" onclick="switchTab('tasks')">
       <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span> Tareas
     </a>
-    <a class="nav-item" onclick="switchTab('history')">
+    <a class="nav-item" role="button" tabindex="0" onclick="switchTab('history')">
       <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><polyline points="12 7 12 12 15 15"/></svg></span> Historial
     </a>
     </a>
-    <a class="nav-item" onclick="switchTab('settings')">
+    <a class="nav-item" role="button" tabindex="0" onclick="switchTab('settings')">
       <span class="nav-icon"><svg class="ico" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span> Configuración
     </a>
   </nav>
 
   <div class="sidebar-footer">
-    <button class="logout-btn" onclick="logout()" title="Cerrar sesión"><svg class="ico" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg> Cerrar sesión</button>
+    <button class="logout-btn" onclick="logout()" title="Cerrar sesión" aria-label="Cerrar sesión"><svg class="ico" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg> Cerrar sesión</button>
     <div class="ip-chip" onclick="copyIp()">
       <span id="ipText">localhost:25566</span>
       <span class="copy-badge" id="copyBadge">Copiar</span>
@@ -3002,7 +3071,7 @@ canvas { filter: drop-shadow(0 0 10px rgba(139,92,246,0.25)); }
       </div>
       <div class="system-details-card">
         <h3 style="margin-bottom:12px">Configuración del Servidor (server.properties)</h3>
-        <textarea id="propsText" style="width:100%; height:320px; background:var(--bg-terminal); color:#cbd5e1; border:1px solid var(--border-color); border-radius:8px; padding:12px; font-family:'JetBrains Mono', monospace; font-size:12px"></textarea>
+        <textarea id="propsText" style="width:100%; height:320px; background:var(--bg-terminal); color:#cbd5e1; border:1px solid var(--border-color); border-radius:8px; padding:12px; font-family:'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px"></textarea>
         <div style="margin-top:10px; display:flex; gap:10px">
           <button class="cmd-btn" onclick="saveProps()">Guardar server.properties</button>
           <button class="term-tool-btn" onclick="loadProps()">Recargar</button>
@@ -3094,7 +3163,7 @@ const SILEO_ICONS = {
 };
 const SILEO_POS = ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right'];
 let sileoDefaultPos = 'top-right';
-function escToast(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function escToast(s) { return escHtml(s == null ? '' : s); }
 function sileoBox(pos) {
   pos = SILEO_POS.includes(pos) ? pos : sileoDefaultPos;
   let box = document.querySelector(`.toaster[data-pos="${pos}"]`);
@@ -4496,6 +4565,9 @@ function syncHash(name) {
   } catch (e) {}
 }
 window.addEventListener('hashchange', () => { const t = tabFromHash(); if (t) switchTab(t, true); });
+document.querySelectorAll('.nav-item').forEach(el => el.addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.click(); }
+}));
 setInterval(refreshStats, 2000);
 setInterval(refreshConsole, 2500);
 refreshStats();
@@ -4619,6 +4691,28 @@ def list_mods():
     return out
 
 
+MAX_UNZIP_BYTES = 2 * 1024 * 1024 * 1024
+MAX_UNZIP_FILES = 20000
+
+
+def safe_extract_zip(zp, dest_dir):
+    """Extrae un zip rechazando Zip-Slip, symlinks y zip bombs."""
+    root = os.path.realpath(dest_dir)
+    with zipfile.ZipFile(zp) as z:
+        infos = z.infolist()
+        if len(infos) > MAX_UNZIP_FILES:
+            raise ValueError("zip con demasiados archivos")
+        if sum(i.file_size for i in infos) > MAX_UNZIP_BYTES:
+            raise ValueError("zip descomprimido excede el límite de 2 GB")
+        for m in infos:
+            if (m.external_attr >> 16) & 0o170000 == 0o120000:
+                continue  # symlink
+            target = os.path.realpath(os.path.join(root, m.filename))
+            if target != root and not target.startswith(root + os.sep):
+                continue
+            z.extract(m, root)
+
+
 def handle_upload(handler, dest_rel):
     dest_dir = safe_fs_path(dest_rel or "")
     if dest_dir is None:
@@ -4671,20 +4765,13 @@ def handle_upload(handler, dest_rel):
     except Exception:
         want_unzip = False
     if want_unzip:
-        import zipfile as _zf
         done = []
         for fname in saved:
             if not fname.lower().endswith(".zip"):
                 continue
             zp = os.path.join(dest_dir, fname)
             try:
-                with _zf.ZipFile(zp) as z:
-                    for m in z.infolist():
-                        # anti Zip-Slip
-                        rel = os.path.normpath(m.filename).lstrip("/")
-                        if rel.startswith("..") or os.path.isabs(m.filename):
-                            continue
-                        z.extract(m, dest_dir)
+                safe_extract_zip(zp, dest_dir)
                 os.remove(zp)
                 done.append(fname)
             except Exception as e:
@@ -4872,7 +4959,10 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
         if u.path == "/api/browse":
             qs = parse_qs(u.query)
             raw = ((qs.get("path", [""]) or [""])[0] or "").strip() or "~"
+            home = os.path.realpath(os.path.expanduser("~"))
             p = os.path.realpath(os.path.expanduser(raw))
+            if p != home and not p.startswith(home + os.sep):
+                return self.send_json({"ok": False, "msg": "Solo se puede explorar dentro de tu carpeta personal"}, code=403)
             if not os.path.isdir(p):
                 return self.send_json({"ok": False, "msg": "No existe o sin acceso"}, code=404)
             try:
@@ -4888,7 +4978,7 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
                 ready = os.path.isfile(os.path.join(full, "start.sh")) or \
                     os.path.isfile(os.path.join(full, "server.properties"))
                 dirs.append({"name": n, "ready": ready})
-            parent = os.path.dirname(p) if p != "/" else "/"
+            parent = os.path.dirname(p) if p != home else home
             return self.send_json({"ok": True, "path": p, "parent": parent,
                                    "dirs": dirs, "home": os.path.expanduser("~")})
 
@@ -5036,8 +5126,16 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
         self.send_response(404)
         self.end_headers()
 
+    def _same_origin(self):
+        origin = self.headers.get("Origin")
+        if not origin:
+            return True
+        return urlparse(origin).netloc == self.headers.get("Host", "")
+
     def do_POST(self):
         u = urlparse(self.path)
+        if not self._same_origin():
+            return self.send_json({"ok": False, "msg": "Origen no permitido"}, code=403)
         if u.path == "/api/upload":
             # binario: no pre-leer el cuerpo como texto
             if u.path not in PUBLIC_PATHS and self._need_auth():
@@ -5054,19 +5152,25 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
             payload = {}
         if u.path == "/api/login":
             pw = payload.get("password", "")
+            ip = self.client_address[0]
+            if login_blocked(ip):
+                return self.send_json({"ok": False, "msg": "Demasiados intentos. Espera 5 minutos."}, code=429)
             if auth_enabled() and verify_password(pw, CFG.get("panel_password_hash", "")):
+                login_ok(ip)
                 tok = new_session()
                 body = json.dumps({"ok": True}).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
-                self.send_header("Set-Cookie", f"pksess={tok}; HttpOnly; Path=/; SameSite=Lax")
+                self.send_header("Set-Cookie", f"pksess={tok}; HttpOnly; Path=/; SameSite=Strict; Max-Age={SESSION_TTL}"
+                                 + ("; Secure" if HTTPS_ON else ""))
                 self.end_headers()
                 try:
                     self.wfile.write(body)
                 except (BrokenPipeError, ConnectionResetError):
                     pass
                 return
+            login_failed(ip)
             time.sleep(1)
             return self.send_json({"ok": False, "msg": "Contraseña incorrecta"}, code=401)
 
@@ -5389,14 +5493,13 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
                     os.rename(src, dst)
                     return self.send_json({"ok": True, "msg": "Renombrado"})
                 if action == "delete":
-                    import shutil as _shutil
                     target = safe_fs_path(rel)
                     if target is None or os.path.realpath(target) == S().fs_root:
                         return self.send_json({"ok": False, "msg": "No se puede borrar la raíz"}, code=400)
                     if not os.path.exists(target):
                         return self.send_json({"ok": False, "msg": "No existe"}, code=404)
                     if os.path.isdir(target) and not os.path.islink(target):
-                        _shutil.rmtree(target)
+                        shutil.rmtree(target)
                     else:
                         os.remove(target)
                     return self.send_json({"ok": True, "msg": "Eliminado"})
@@ -5455,17 +5558,31 @@ e.respondWith(fetch(e.request).then(r=>{const c=r.clone();
 caches.open('pk1').then(ch=>ch.put(e.request,c)).catch(()=>{});return r;}).catch(()=>caches.match(e.request)));});"""
 PWA_ICON = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7c3aed"/><stop offset="1" stop-color="#a855f7"/></linearGradient></defs><rect width="64" height="64" rx="14" fill="url(#g)"/><path d="M32 12 14 22l18 10 18-10-18-10zM14 32l18 10 18-10M14 42l18 10 18-10" stroke="#fff" stroke-width="4" fill="none" stroke-linejoin="round"/></svg>"""
 
+def reset_password_cli():
+    import getpass
+    pw = getpass.getpass("Nueva contraseña del panel (mín. 8): ")
+    if len(pw) < 8:
+        sys.exit("Mínimo 8 caracteres")
+    if pw != getpass.getpass("Repite la contraseña: "):
+        sys.exit("No coinciden")
+    save_panel_setting("panel_password_hash", hash_password(pw))
+    print("Contraseña actualizada. Reinicia: systemctl --user restart pkhosting.service")
+
+
 if __name__ == "__main__":
+    if "--reset-password" in sys.argv:
+        reset_password_cli()
+        sys.exit(0)
     bind = CFG.get("bind", "127.0.0.1")
     server = ThreadingHTTPServer((bind, PORT), PKHostingPanelHandler)
     cert, key = CFG.get("ssl_cert"), CFG.get("ssl_key")
     scheme = "http"
     if cert and key and os.path.isfile(cert) and os.path.isfile(key):
-        import ssl as _ssl
-        ctx = _ssl.SSLContext(_ssl.PROTOCOL_TLS_SERVER)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(cert, key)
         server.socket = ctx.wrap_socket(server.socket, server_side=True)
         scheme = "https"
+        HTTPS_ON = True
     print(f"[PKHosting] Ejecutando en {scheme}://{bind}:{PORT}", flush=True)
     try:
         server.serve_forever()
