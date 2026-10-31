@@ -10,7 +10,11 @@ TPS, archivos, mods, backups, tareas programadas y avisos a Discord.
 - **Multi-servidor & Dashboard de Flota:** añade, edita y elimina servidores desde Configuración,
   vista panorámica de toda tu flota con conmutación en 1-click.
 - **Acceso con contraseña** (hash PBKDF2 + sesiones, se crea desde
-  Configuración) y **HTTPS** opcional. Botón **Cerrar sesión** en la barra lateral.
+  Configuración), **2FA TOTP** opcional, límite de intentos por IP y **HTTPS** opcional.
+  Botón **Cerrar sesión** en la barra lateral.
+- **Inicio** con el estado del servidor, jugadores en línea y accesos rápidos; pestañas propias de
+  **Consola**, **Jugadores** y **Mods**.
+- **Temas** claro/oscuro con 5 colores de acento.
 - **Paleta de Comandos Global (`Ctrl+K` / `Cmd+K`):** buscador rápido flotante
   para navegar a cualquier sección, conmutar instancias o ejecutar acciones con atajos de teclado.
 - **Consola Pro con Temas & Pantalla Completa:** autocompletado, filtros INFO/WARN/ERROR, búsqueda,
@@ -25,6 +29,9 @@ TPS, archivos, mods, backups, tareas programadas y avisos a Discord.
 - **Rendimiento Spark & Monitor de Red:** diagnósticos de salud del servidor (CPU, GC, pools de memoria),
   grabación de muestreo con subida automática a `spark.lucko.me`, medición de latencia TCP (Minecraft, RCON y túnel playit.gg)
   y alerta de rendimiento en cabecera si el TPS cae o la RAM satura.
+- **Actualizaciones de mods** (Modrinth, con copia `.prev` para revertir; solo con el servidor detenido),
+  **poda de chunks por tiempo de uso**, restauración de chunks desde `.bak` y exportación de regiones.
+- **Diagnóstico:** crash-reports, guarda anti-bucle de reinicios, argumentos JVM, `server.properties` y visor de logs.
 - **Editor de Archivos Mejorado:** contador de líneas y caracteres, tamaño de tipografía ajustable y tabulación con tecla Tab.
 - **Centro de Notificaciones:** registro de actividad en tiempo real con indicador luminoso en cabecera.
 - Alias de nivel panel: `start`, `stop`, `restart`, `reload`, `kill`.
@@ -44,7 +51,7 @@ TPS, archivos, mods, backups, tareas programadas y avisos a Discord.
 ## Requisitos
 
 - Linux con **systemd** (sesión de usuario).
-- **Python 3.8+** (`python3 --version`).
+- **Python 3.12+** (`python3 --version`; los backups usan `tarfile` con `filter="data"`).
 - **Java** acorde a tu versión de Minecraft (`java -version`).
 - Un servidor Minecraft funcional con script de arranque (ej. `start.sh`).
 - Opcional: `openssl` (HTTPS autofirmado).
@@ -142,10 +149,14 @@ funciona como antes con un solo servidor.
 ## Backups
 
 `pkhosting-AAAAMMDD-HHMMSS.tar.gz` (mundo + `server.properties` + bans/ops +
-`user_jvm_args.txt`) congelando el guardado. Retención: borra lo de más de
-`retention_days`, excepto el **último de cada mes** (12 al año). Todo editable
-en la pestaña Backups. Timer: `pkhosting-backup.timer`. CLI:
-`backup.py --run/--prune/--list`.
+`user_jvm_args.txt`) congelando el guardado; si el servidor está encendido y no se puede congelar, el
+backup se aborta. Se escribe como `.partial` y solo se publica tras verificarlo. Retención: borra lo de
+más de `retention_days`, excepto el **último de cada mes** (12 al año), y siempre conserva las 3 copias
+más recientes. Un lock evita que el panel y el timer corran a la vez.
+
+Al **restaurar**, el mundo actual se aparta antes de extraer (no se mezclan chunks nuevos y viejos) y se
+hace un backup previo. Todo editable en la pestaña Backups. Timer: `pkhosting-backup.timer` (respeta
+`backup_enabled` de cada servidor). CLI: `backup.py --run [--force] / --prune / --list / --restore ARCHIVO`.
 
 ## Tareas programadas
 
@@ -170,9 +181,9 @@ backup fallido, joins/leaves) y usa Probar.
 | Acción | Dónde |
 |---|---|
 | Encender / apagar / reiniciar | Botones de energía o alias en consola |
-| Moderar jugadores | Consola → Gestión / Moderación |
+| Moderar jugadores | Jugadores |
 | Ver TPS, 24 h, disco, red | Métricas |
-| Mods y archivos | Archivos (descomprime .zip al subir) |
+| Archivos y mods | Archivos (descomprime .zip al subir) · Mods |
 | Backup manual / restaurar | Backups |
 | Cambiar contraseña | Configuración |
 
@@ -189,7 +200,7 @@ journalctl --user -u pkhosting.service -f
 | `puerto ocupado` al iniciar | Otro proceso usa `mc_port`. |
 | Comandos sin respuesta | RCON mal configurado (ver sección RCON). |
 | `RCON auth fallida` | Password de `server.properties` ≠ archivo `rcon-password`. |
-| Olvidé la contraseña del panel | Regenera el hash con `install.sh` o edítalo vía script (ver código `hash_password`). |
+| Olvidé la contraseña del panel | `python3 ~/PKHosting/panel.py --reset-password` (también desactiva el 2FA). |
 | La RAM supera el `-Xmx` | Normal: `-Xmx` limita solo el heap; el panel mide RSS total. |
 | Contador de jugadores en 0 | El ping necesita `enable-status=true` (va por defecto). |
 
@@ -204,13 +215,31 @@ rm -rf ~/PKHosting ~/.config/pkhosting
 ## Estructura del repo
 
 ```
-panel.py                   # panel completo (backend + frontend)
+panel.py                   # punto de entrada: login, servidor HTTP y arranque
+pkhosting/                 # núcleo, dividido por responsabilidad
+  core.py                  #   config, autenticación, clase Server, RCON, procesos
+  ops.py                   #   métricas, jugadores, arranque/parada, backups, Discord, tareas
+  content.py               #   consola, plantillas estáticas, mods y Modrinth
+  world.py                 #   NBT/MCA, mapa de terreno, poda y restauración de chunks
+  tools.py                 #   fichas de jugador, ping, Spark, flota, subida de archivos
+diagnostics.py             # crash-reports, JVM, server.properties y logs
 backup.py                  # motor de backups (también CLI)
+static/                    # interfaz: index.html, app.css y scripts por sección (*.js)
+tests/                     # pruebas unitarias y de humo HTTP
 install.sh                 # instalador interactivo / no interactivo
 pkhosting.service          # plantilla systemd --user
 pkhosting-backup.service   # unidad oneshot de backup
 pkhosting-backup.timer     # plantilla del timer diario
 config.example.json        # ejemplo de configuración
-README.md                  # esta guía
 docs/architecture/         # mapa interactivo del sistema (pkhosting.html)
 ```
+
+## Desarrollo
+
+```bash
+python3 -m unittest discover -s tests -v   # unitarias + humo HTTP (arranca el panel con un HOME temporal)
+ruff check .                               # lint (reglas en ruff.toml)
+node --check static/*.js                   # sintaxis del frontend
+```
+
+El CI (`.github/workflows/ci.yml`) ejecuta lo mismo con Python 3.12 y 3.13 y revisa `install.sh` con shellcheck.

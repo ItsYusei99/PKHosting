@@ -1276,7 +1276,27 @@ def start_workers():
         threading.Thread(target=fn, daemon=True, name=fn.__name__).start()
 
 
+def _reset_password_cli():
+    """Restablece la contraseña del panel (y desactiva el 2FA) sin arrancar el servidor web."""
+    import getpass
+    pw = getpass.getpass("Nueva contraseña del panel (mín. 8 caracteres): ")
+    if len(pw) < 8:
+        print("Mínimo 8 caracteres")
+        return 1
+    if getpass.getpass("Repite la contraseña: ") != pw:
+        print("No coinciden")
+        return 1
+    save_panel_setting("panel_password_hash", hash_password(pw))
+    if totp_enabled():
+        save_panel_setting("totp_enabled", False)
+        print("2FA desactivado (vuelve a activarlo desde Configuración).")
+    print("Contraseña actualizada. Reinicia el panel para aplicarla.")
+    return 0
+
+
 if __name__ == "__main__":
+    if "--reset-password" in sys.argv:
+        raise SystemExit(_reset_password_cli())
     start_workers()
     bind = CFG.get("bind", "127.0.0.1")
     server = ThreadingHTTPServer((bind, PORT), PKHostingPanelHandler)

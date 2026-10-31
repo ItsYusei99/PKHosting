@@ -7,11 +7,19 @@ Wants=network-online.target
 Type=simple
 # PK panel.py (ruta de instalación, la escribe install.sh)
 ExecStart=%h/PKHosting/panel.py
+WorkingDirectory=%h
+Environment=PYTHONUNBUFFERED=1
 Restart=on-failure
 RestartSec=10
+TimeoutStopSec=15
 # No matar el servidor Minecraft al reiniciar/detener el panel:
 # el MC queda adoptado y el panel lo re-detecta via /proc + RCON.
 KillMode=process
+# Endurecimiento compatible con servicios de usuario (sin namespaces, para no limitar a Java):
+NoNewPrivileges=yes
+UMask=0077
+LockPersonality=yes
+RestrictSUIDSGID=yes
 
 [Install]
 WantedBy=default.target
