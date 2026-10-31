@@ -13,6 +13,7 @@ PK_VERSION = "1.0.0"
 
 import collections
 import datetime
+import fcntl
 import hashlib
 import hmac
 import html
@@ -20,6 +21,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import signal
 import socket
 import struct
@@ -27,6 +29,9 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.request
+import zipfile
+import ssl
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
 
@@ -419,20 +424,18 @@ def get_rcon_password():
 
 def rcon_send(cmd, timeout=5):
     """Cliente RCON minimo (stdlib). Devuelve (ok, respuesta)."""
-    import socket as _sock
-    import struct as _struct
     srv = S()
     pw = srv.rcon_password()
     if not pw:
         return False, "RCON sin password configurado"
     try:
-        s = _sock.create_connection((RCON_HOST, srv.rcon_port), timeout=timeout)
+        s = socket.create_connection((RCON_HOST, srv.rcon_port), timeout=timeout)
         s.settimeout(timeout)
         _id = 1
 
         def pkt(pid, ptype, payload):
-            body = _struct.pack("<ii", pid, ptype) + payload.encode("utf-8") + b"\x00\x00"
-            return _struct.pack("<i", len(body)) + body
+            body = struct.pack("<ii", pid, ptype) + payload.encode("utf-8") + b"\x00\x00"
+            return struct.pack("<i", len(body)) + body
 
         def read_pkt():
             hdr = b""
@@ -441,14 +444,14 @@ def rcon_send(cmd, timeout=5):
                 if not ch:
                     raise ConnectionError("RCON cerrado")
                 hdr += ch
-            (ln,) = _struct.unpack("<i", hdr)
+            (ln,) = struct.unpack("<i", hdr)
             data = b""
             while len(data) < ln:
                 ch = s.recv(ln - len(data))
                 if not ch:
                     raise ConnectionError("RCON incompleto")
                 data += ch
-            rid, rtype = _struct.unpack("<ii", data[:8])
+            rid, rtype = struct.unpack("<ii", data[:8])
             return rid, rtype, data[8:-2].decode("utf-8", "replace")
 
         s.sendall(pkt(_id, 3, pw))
@@ -466,20 +469,18 @@ def rcon_send(cmd, timeout=5):
 
 def write_stdin_fallback(pid, text):
     """Escribe a /proc/<pid>/fd/0 sin bloquear (O_NONBLOCK)."""
-    import os as _os
-    import fcntl as _fcntl
     path = f"/proc/{pid}/fd/0"
     fd = None
     try:
-        fd = _os.open(path, _os.O_WRONLY | _os.O_NONBLOCK)
-        _os.write(fd, (text + "\n").encode("utf-8"))
+        fd = os.open(path, os.O_WRONLY | os.O_NONBLOCK)
+        os.write(fd, (text + "\n").encode("utf-8"))
         return True, "enviado"
     except Exception as e:
         return False, str(e)
     finally:
         try:
             if fd is not None:
-                _os.close(fd)
+                os.close(fd)
         except Exception:
             pass
 
@@ -524,13 +525,11 @@ def set_public_ip(ip):
 
 def get_playit_status():
     """Best-effort: estado del agente playit sin requerir root."""
-    import shutil as _sh
-    import subprocess as _sp
     info = {"installed": False, "service_active": False, "reachable": False, "note": ""}
-    if _sh.which("playit"):
+    if shutil.which("playit"):
         info["installed"] = True
     try:
-        r = _sp.run(["systemctl", "is-active", "playit.service"],
+        r = subprocess.run(["systemctl", "is-active", "playit.service"],
                     capture_output=True, text=True, timeout=5)
         info["service_active"] = (r.stdout.strip() == "active")
     except Exception:
@@ -1419,7 +1418,6 @@ def _backup_worker(srv, mode, name=None):
 
 
 def backups_status():
-    import shutil as _sh
     srv = S()
     c = {"enabled": srv.backup_enabled, "dir": srv.backup_dir,
          "retention_days": srv.retention_days, "keep_monthly": srv.keep_monthly,
@@ -1441,7 +1439,7 @@ def backups_status():
         info["writable"] = False
         info["writable_msg"] = str(e)
     try:
-        info["free_gb"] = round(_sh.disk_usage(c["dir"]).free / 1e9, 1) if os.path.isdir(c["dir"]) else 0
+        info["free_gb"] = round(shutil.disk_usage(c["dir"]).free / 1e9, 1) if os.path.isdir(c["dir"]) else 0
     except Exception:
         info["free_gb"] = 0
     try:
@@ -1474,10 +1472,9 @@ def discord_send(text):
     if not url:
         return False, "sin webhook configurado"
     try:
-        import urllib.request as _url
-        req = _url.Request(url, data=json.dumps({"content": text[:1800]}).encode(),
+        req = urllib.request.Request(url, data=json.dumps({"content": text[:1800]}).encode(),
                            headers={"Content-Type": "application/json"})
-        with _url.urlopen(req, timeout=8):
+        with urllib.request.urlopen(req, timeout=8):
             pass
         return True, "enviado"
     except Exception as e:
@@ -3166,7 +3163,7 @@ const SILEO_ICONS = {
 };
 const SILEO_POS = ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right'];
 let sileoDefaultPos = 'top-right';
-function escToast(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function escToast(s) { return escHtml(s == null ? '' : s); }
 function sileoBox(pos) {
   pos = SILEO_POS.includes(pos) ? pos : sileoDefaultPos;
   let box = document.querySelector(`.toaster[data-pos="${pos}"]`);
@@ -4700,9 +4697,8 @@ MAX_UNZIP_FILES = 20000
 
 def safe_extract_zip(zp, dest_dir):
     """Extrae un zip rechazando Zip-Slip, symlinks y zip bombs."""
-    import zipfile as _zf
     root = os.path.realpath(dest_dir)
-    with _zf.ZipFile(zp) as z:
+    with zipfile.ZipFile(zp) as z:
         infos = z.infolist()
         if len(infos) > MAX_UNZIP_FILES:
             raise ValueError("zip con demasiados archivos")
@@ -4769,7 +4765,6 @@ def handle_upload(handler, dest_rel):
     except Exception:
         want_unzip = False
     if want_unzip:
-        import zipfile as _zf
         done = []
         for fname in saved:
             if not fname.lower().endswith(".zip"):
@@ -5498,14 +5493,13 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
                     os.rename(src, dst)
                     return self.send_json({"ok": True, "msg": "Renombrado"})
                 if action == "delete":
-                    import shutil as _shutil
                     target = safe_fs_path(rel)
                     if target is None or os.path.realpath(target) == S().fs_root:
                         return self.send_json({"ok": False, "msg": "No se puede borrar la raíz"}, code=400)
                     if not os.path.exists(target):
                         return self.send_json({"ok": False, "msg": "No existe"}, code=404)
                     if os.path.isdir(target) and not os.path.islink(target):
-                        _shutil.rmtree(target)
+                        shutil.rmtree(target)
                     else:
                         os.remove(target)
                     return self.send_json({"ok": True, "msg": "Eliminado"})
@@ -5584,8 +5578,7 @@ if __name__ == "__main__":
     cert, key = CFG.get("ssl_cert"), CFG.get("ssl_key")
     scheme = "http"
     if cert and key and os.path.isfile(cert) and os.path.isfile(key):
-        import ssl as _ssl
-        ctx = _ssl.SSLContext(_ssl.PROTOCOL_TLS_SERVER)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(cert, key)
         server.socket = ctx.wrap_socket(server.socket, server_side=True)
         scheme = "https"
