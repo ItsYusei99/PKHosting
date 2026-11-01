@@ -5,6 +5,10 @@ negro + morado. Administra **uno o varios servidores**
 (Vanilla, Forge, Fabric, NeoForge) desde el navegador: consola, jugadores,
 TPS, archivos, mods, backups, tareas programadas y avisos a Discord.
 
+![Demo del panel: encender el servidor, consola en vivo y jugadores](docs/demo/demo.gif)
+
+> Ilustración animada del flujo de Inicio; el vídeo está en [`docs/demo/demo.mp4`](docs/demo/demo.mp4).
+
 ## Funciones
 
 - **Multi-servidor & Dashboard de Flota:** añade, edita y elimina servidores desde Configuración,
