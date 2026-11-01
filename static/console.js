@@ -69,7 +69,7 @@ let _wlOn = false;
 async function loadModeration() {
   try {
     const d = await api('/api/lists');
-    const chip = (n, act, danger) => `<button class="p-chip"${danger ? ' style="color:#f87171;border-color:#7f1d1d"' : ''} title="${act}" onclick="modAct(${jsArg(act)},${jsArg(n)})"><img src="https://mc-heads.net/avatar/${encodeURIComponent(n)}/18" class="p-avatar" style="width:16px;height:16px" onerror="this.style.display='none'">${escHtml(n)} ✕</button>`;
+    const chip = (n, act, danger) => `<button class="p-chip"${danger ? ' style="color:var(--bad);border-color:#7f1d1d"' : ''} title="${act}" onclick="modAct(${jsArg(act)},${jsArg(n)})"><img src="https://mc-heads.net/avatar/${encodeURIComponent(n)}/18" class="p-avatar" style="width:16px;height:16px" onerror="this.style.display='none'">${escHtml(n)} ✕</button>`;
     document.getElementById('modOps').innerHTML = (d.ops && d.ops.length) ? d.ops.map(n => chip(n, 'deop')).join(' ') : '—';
     document.getElementById('modBans').innerHTML = (d.banned && d.banned.length) ? d.banned.map(b => chip(b.name, 'pardon', true)).join(' ') : '—';
     _wlOn = !!d.whitelist_on;

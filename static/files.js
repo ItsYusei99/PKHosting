@@ -82,7 +82,7 @@ async function loadFiles(push = true) {
       container.innerHTML = files.map(f => {
         const full = escHtml(fsJoin(fsPath, f.name));
         const link = f.is_dir
-          ? `<a href="#" data-path="${full}" onclick="fsEnter(this.dataset.path);return false" style="color:#93c5fd">${escHtml(f.name)}/</a>`
+          ? `<a href="#" data-path="${full}" onclick="fsEnter(this.dataset.path);return false" style="color:var(--info)">${escHtml(f.name)}/</a>`
           : escHtml(f.name);
         const editable = !f.is_dir && (f.size_b || 0) <= 2 * 1024 * 1024;
         const dt = f.mtime ? new Date(f.mtime * 1000).toLocaleString() : '';

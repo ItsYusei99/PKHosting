@@ -275,7 +275,7 @@
         <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:10px" id="modLists">
           <div><div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;margin-bottom:4px">OPs</div><div id="modOps" style="font-size:12.5px">—</div></div>
           <div><div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;margin-bottom:4px">Baneados</div><div id="modBans" style="font-size:12.5px">—</div></div>
-          <div><div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;margin-bottom:4px">Whitelist <a onclick="wlToggle()" style="color:var(--accent-cyan);cursor:pointer" id="wlState"></a></div><div id="modWl" style="font-size:12.5px">—</div></div>
+          <div><div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;margin-bottom:4px">Whitelist <a onclick="wlToggle()" style="color:var(--ac-text);cursor:pointer" id="wlState"></a></div><div id="modWl" style="font-size:12.5px">—</div></div>
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap">
           <input id="wlName" class="tin" maxlength="16" placeholder="Añadir a whitelist" style="flex:1; min-width:160px" aria-label="Añadir a whitelist">
@@ -346,7 +346,7 @@
         </div>
         <div class="heat" id="heatMap" style="height:74px"></div>
         <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--text-dim); margin-top:6px">
-          <span>menos</span><span><span style="color:var(--acsoft)">■</span> joins · <span style="color:#34d399">■</span> día con backup</span><span>más</span>
+          <span>menos</span><span><span style="color:var(--acsoft)">■</span> joins · <span style="color:var(--ok)">■</span> día con backup</span><span>más</span>
         </div>
       </div>
 
@@ -404,7 +404,7 @@
           <button class="btn-ghost" onclick="sparkAction('tps')">Ver TPS Spark</button>
           <button class="term-tool-btn" onclick="sparkAction('gc')">Forzar GC</button>
         </div>
-        <div id="sparkResultBox" style="display:none; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:10px; padding:14px; font-family:var(--font-mono); font-size:12px; white-space:pre-wrap; max-height:280px; overflow-y:auto; color:#d8b4fe"></div>
+        <div id="sparkResultBox" style="display:none; background:var(--bg-terminal); border:1px solid var(--border-color); border-radius:10px; padding:14px; font-family:var(--font-mono); font-size:12px; white-space:pre-wrap; max-height:280px; overflow-y:auto; color:var(--ac-text)"></div>
       </div>
     </div></div>
 
@@ -444,8 +444,8 @@
           <input class="mod-search" id="modSearch" placeholder="Buscar mod..." oninput="renderMods()" autocomplete="off" aria-label="Buscar mod...">
           <button class="btn-ghost" onclick="modBulk(true)">Activar todos</button>
           <button class="btn-ghost" onclick="modBulk(false)">Desactivar todos</button>
-          <button class="btn-ghost" onclick="toggleModrinthView()" style="color:#38bdf8; border-color:rgba(56,189,248,0.4)">🌐 Explorador Modrinth</button>
-          <button class="btn-ghost" onclick="modCheckUpdates(true)" style="color:#4ade80; border-color:rgba(74,222,80,0.4)">↻ Actualizaciones</button>
+          <button class="btn-ghost" onclick="toggleModrinthView()" style="color:var(--info); border-color:rgba(56,189,248,0.4)">🌐 Explorador Modrinth</button>
+          <button class="btn-ghost" onclick="modCheckUpdates(true)" style="color:var(--ok); border-color:rgba(74,222,80,0.4)">↻ Actualizaciones</button>
         </div>
         <div id="modUpdBar" style="font-size:12px; color:var(--text-dim); margin:6px 0"></div>
         <div class="file-list" id="modsList"><div class="file-row"><span class="file-name">Cargando mods...</span></div></div>
@@ -463,7 +463,7 @@
       <div class="legacy"><div id="fsEditModal" role="dialog" aria-modal="true" aria-label="Editor de archivos" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:200; align-items:center; justify-content:center; padding:20px">
         <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:12px; width:min(860px,100%); max-height:90vh; display:flex; flex-direction:column; overflow:hidden">
           <div style="display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--border-color)">
-            <span style="font-family:var(--font-mono); font-size:12.5px; color:#93c5fd; flex:1; overflow:hidden; text-overflow:ellipsis" id="fsEditPath">—</span>
+            <span style="font-family:var(--font-mono); font-size:12.5px; color:var(--info); flex:1; overflow:hidden; text-overflow:ellipsis" id="fsEditPath">—</span>
             <span id="fsEditStats" style="font-size:11px; color:var(--text-dim)">0 líneas</span>
             <button class="term-tool-btn" onclick="fsChangeFontSize(1)" title="Aumentar texto">A+</button>
             <button class="term-tool-btn" onclick="fsChangeFontSize(-1)" title="Reducir texto">A-</button>
@@ -485,7 +485,7 @@
           <div style="display:flex; justify-content:space-between; align-items:flex-start">
             <div>
               <div style="font-size:11px; color:var(--text-muted); font-weight:700">DIMENSIÓN 0</div>
-              <div style="font-size:18px; font-weight:800; color:#34d399; margin:4px 0">Overworld</div>
+              <div style="font-size:18px; font-weight:800; color:var(--ok); margin:4px 0">Overworld</div>
               <div style="font-size:11.5px; color:var(--text-dim)">Superficie principal</div>
             </div>
             <span class="mchip ld" id="dimOwRegions">0 regiones</span>
@@ -500,7 +500,7 @@
           <div style="display:flex; justify-content:space-between; align-items:flex-start">
             <div>
               <div style="font-size:11px; color:var(--text-muted); font-weight:700">DIMENSIÓN -1</div>
-              <div style="font-size:18px; font-weight:800; color:#f87171; margin:4px 0">The Nether</div>
+              <div style="font-size:18px; font-weight:800; color:var(--bad); margin:4px 0">The Nether</div>
               <div style="font-size:11.5px; color:var(--text-dim)">Inframundo (DIM-1)</div>
             </div>
             <span class="mchip ld" id="dimNetherRegions">0 regiones</span>
@@ -508,7 +508,7 @@
           <div style="margin-top:14px; display:flex; justify-content:space-between; align-items:center">
             <span style="font-size:18px; font-weight:800; color:var(--text-bright)" id="dimNetherSize">—</span>
             <div style="display:flex; gap:6px">
-              <button class="term-tool-btn" style="color:#f87171; border-color:#7f1d1d; font-size:11px" onclick="mcaResetDim('nether')">Reiniciar</button>
+              <button class="term-tool-btn" style="color:var(--bad); border-color:#7f1d1d; font-size:11px" onclick="mcaResetDim('nether')">Reiniciar</button>
               <button class="cmd-btn" style="padding:4px 12px; font-size:11.5px" onclick="selectMcaDim('nether')">Explorar</button>
             </div>
           </div>
@@ -526,7 +526,7 @@
           <div style="margin-top:14px; display:flex; justify-content:space-between; align-items:center">
             <span style="font-size:18px; font-weight:800; color:var(--text-bright)" id="dimEndSize">—</span>
             <div style="display:flex; gap:6px">
-              <button class="term-tool-btn" style="color:#f87171; border-color:#7f1d1d; font-size:11px" onclick="mcaResetDim('end')">Reiniciar</button>
+              <button class="term-tool-btn" style="color:var(--bad); border-color:#7f1d1d; font-size:11px" onclick="mcaResetDim('end')">Reiniciar</button>
               <button class="cmd-btn" style="padding:4px 12px; font-size:11.5px" onclick="selectMcaDim('end')">Explorar</button>
             </div>
           </div>
@@ -585,10 +585,10 @@
 
         <!-- Calculadora de Coordenadas -->
         <div style="background:rgba(168,85,247,0.06); border:1px solid rgba(168,85,247,0.2); border-radius:10px; padding:12px; margin-bottom:12px; margin-top:12px; display:flex; align-items:center; gap:12px; flex-wrap:wrap">
-          <span style="font-size:12px; font-weight:700; color:#d8b4fe">Calculadora de Coordenadas:</span>
+          <span style="font-size:12px; font-weight:700; color:var(--ac-text)">Calculadora de Coordenadas:</span>
           <input type="number" id="calcCoordX" class="tin" placeholder="Bloque X" style="width:110px; padding:6px 10px; font-size:12px" oninput="calcMcaFromCoords()" aria-label="Bloque X">
           <input type="number" id="calcCoordZ" class="tin" placeholder="Bloque Z" style="width:110px; padding:6px 10px; font-size:12px" oninput="calcMcaFromCoords()" aria-label="Bloque Z">
-          <span id="calcMcaResult" style="font-size:12.5px; font-family:var(--font-mono); color:#38bdf8">Introduce X y Z</span>
+          <span id="calcMcaResult" style="font-size:12.5px; font-family:var(--font-mono); color:var(--info)">Introduce X y Z</span>
           <button class="term-tool-btn" style="font-size:11px" onclick="selectCalculatedMca()">Marcar en lista</button>
         </div>
 
@@ -597,7 +597,7 @@
             <label style="font-size:12px; color:var(--text-muted); cursor:pointer; display:inline-flex; align-items:center; gap:6px"><input type="checkbox" id="mcaSelectAll" onchange="toggleSelectAllMca(this.checked)"> Seleccionar todos</label>
             <span id="mcaSelectedCount" style="font-size:12px; color:var(--acsoft); font-weight:700">0 regiones seleccionadas</span>
           </div>
-          <button class="cmd-btn danger" id="mcaDeleteBtn" style="background:#dc2626; color:var(--text-bright)" onclick="deleteSelectedMca()">Borrar regiones seleccionadas</button>
+          <button class="cmd-btn danger" id="mcaDeleteBtn" onclick="deleteSelectedMca()">Borrar regiones seleccionadas</button>
           <button class="term-tool-btn" id="mcaRestoreBtn" onclick="restoreSelectedChunks()" title="Restaura los chunks sueltos seleccionados desde sus .bak (servidor detenido)">Restaurar chunks (.bak)</button>
         </div>
 
@@ -942,10 +942,10 @@
     </div>
 
     <div id="pmLiveSection" style="background:rgba(255,255,255,0.03); border:1px solid var(--border-color); border-radius:12px; padding:12px; margin-bottom:14px">
-      <div style="font-size:12px; font-weight:700; color:#38bdf8; margin-bottom:6px">Estado en Vivo (RCON):</div>
+      <div style="font-size:12px; font-weight:700; color:var(--info); margin-bottom:6px">Estado en Vivo (RCON):</div>
       <div style="display:flex; justify-content:space-between; font-size:12.5px; flex-wrap:wrap; gap:8px">
         <span>Coordenadas: <b id="pmCoords" style="color:var(--text-bright); font-family:var(--font-mono)">—</b></span>
-        <span>Nivel Exp: <b id="pmLevel" style="color:#22c55e">—</b></span>
+        <span>Nivel Exp: <b id="pmLevel" style="color:var(--ok)">—</b></span>
       </div>
     </div>
 

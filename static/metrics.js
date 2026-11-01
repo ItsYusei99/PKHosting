@@ -92,7 +92,7 @@ async function refreshStats() {
             <button class="term-tool-btn" title="Dar OP" onclick="playerAction('op', ${jsArg(n)})">OP</button>
             <button class="term-tool-btn" title="Quitar OP" onclick="playerAction('deop', ${jsArg(n)})">DeOP</button>
             <button class="term-tool-btn" title="Expulsar" onclick="playerAction('kick', ${jsArg(n)})">Kick</button>
-            <button class="term-tool-btn" style="color:#f87171; border-color:#7f1d1d" title="Banear" onclick="playerAction('ban', ${jsArg(n)})">Ban</button>
+            <button class="term-tool-btn" style="color:var(--bad); border-color:#7f1d1d" title="Banear" onclick="playerAction('ban', ${jsArg(n)})">Ban</button>
           </span>
         </div>`;
       }).join('');

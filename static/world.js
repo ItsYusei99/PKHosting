@@ -73,9 +73,9 @@ function renderMcaList() {
     const pct = Math.round(((r.present || 0) / 1024) * 100);
     return `<div class="mca-row">
       <input type="checkbox" class="mca-chk" data-file="${escHtml(r.file)}"${sel.has(r.file) ? ' checked' : ''} onchange="mcaChkToggle(this)">
-      <span style="color:#e2e8f0; font-weight:700; width:130px">${escHtml(r.file)}</span>
+      <span style="color:var(--text); font-weight:700; width:130px">${escHtml(r.file)}</span>
       <span style="color:var(--text-dim); flex:1">Bloques: [X ${x0}..${x1}, Z ${z0}..${z1}] · ${r.present || 0}/1024 chunks (${pct}%)</span>
-      <span style="color:#93c5fd">${mb(r.size)}</span>
+      <span style="color:var(--info)">${mb(r.size)}</span>
       <button class="icon-btn" title="Descargar ${escHtml(r.file)}" onclick="event.stopPropagation();mcaExport(${jsArg(r.file)})">\u2B07</button>
     </div>`;
   }).join('');
@@ -155,10 +155,10 @@ function mapRegionColor(r, tmin, tmax) {
     return { fill: 'rgba(251,191,36,0.28)', edge: 'rgba(251,191,36,0.45)' };
   }
   const t = r.mtime || 0;
-  if (!t || tmax <= tmin) return { fill: 'rgba(168,85,247,0.5)', edge: 'rgba(168,85,247,0.7)' };
+  if (!t || tmax <= tmin) return { fill: acRgba(0.5), edge: acRgba(0.7) };
   const k = (t - tmin) / (tmax - tmin);
   if (k > 0.66) return { fill: 'rgba(52,211,153,0.85)', edge: 'rgba(52,211,153,0.95)' };
-  if (k > 0.33) return { fill: 'rgba(168,85,247,0.6)', edge: 'rgba(168,85,247,0.8)' };
+  if (k > 0.33) return { fill: acRgba(0.6), edge: acRgba(0.8) };
   return { fill: 'rgba(100,116,139,0.5)', edge: 'rgba(100,116,139,0.7)' };
 }
 function initWorldMap() {
@@ -401,7 +401,7 @@ function drawChunkOverlay(ctx, r, x, y, s) {
   const cs = s / 32;
   if (!det || !det.grid) {
     if (!det) MAP_NEED_DETAILS.push({ key, file: r.file, d: (r.x - MCA_VIEW.cx) * (r.x - MCA_VIEW.cx) + (r.z - MCA_VIEW.cz) * (r.z - MCA_VIEW.cz) });
-    ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+    ctx.strokeStyle = cssVar('--chart-grid', 'rgba(255,255,255,0.1)');
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (let i = 1; i < 32; i++) {
@@ -416,20 +416,20 @@ function drawChunkOverlay(ctx, r, x, y, s) {
       const gen = det.grid[cz * 32 + cx];
       const ck = r.file + ':' + cx + ':' + cz;
       if (chunkSel.has(ck)) {
-        ctx.fillStyle = 'rgba(168,85,247,0.55)';
+        ctx.fillStyle = acRgba(0.55);
         ctx.fillRect(x + cx * cs + 0.5, y + cz * cs + 0.5, cs - 1, cs - 1);
       } else if (!gen) {
         ctx.fillStyle = 'rgba(0,0,0,0.35)';
         ctx.fillRect(x + cx * cs + 0.5, y + cz * cs + 0.5, cs - 1, cs - 1);
       }
       if (MCA_HOVER_CHUNK && MCA_HOVER_CHUNK.file === r.file && MCA_HOVER_CHUNK.cx === cx && MCA_HOVER_CHUNK.cz === cz) {
-        ctx.strokeStyle = '#fff';
+        ctx.strokeStyle = cssVar('--text', '#fff');
         ctx.lineWidth = 1.5;
         ctx.strokeRect(x + cx * cs + 1, y + cz * cs + 1, cs - 2, cs - 2);
       }
     }
   }
-  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  ctx.strokeStyle = cssVar('--chart-grid', 'rgba(255,255,255,0.1)');
   ctx.lineWidth = 1;
   ctx.beginPath();
   for (let i = 1; i < 32; i++) {
@@ -438,6 +438,7 @@ function drawChunkOverlay(ctx, r, x, y, s) {
   }
   ctx.stroke();
 }
+const acRgba = a => 'rgba(' + cssVar('--ac-rgb', '168,85,247') + ',' + a + ')';
 function drawWorldMap() {
   const cv = document.getElementById('worldMapCanvas');
   if (!cv) return;
@@ -455,11 +456,11 @@ function drawWorldMap() {
   const tmin = times.length ? Math.min.apply(null, times) : 0;
   const tmax = times.length ? Math.max.apply(null, times) : 0;
   const s = MCA_VIEW.scale;
-  ctx.strokeStyle = 'rgba(168,85,247,0.25)';
+  ctx.strokeStyle = acRgba(0.25);
   ctx.lineWidth = 1;
   const ox = (0 - MCA_VIEW.cx) * s + w / 2, oy = (0 - MCA_VIEW.cz) * s + h / 2;
   ctx.beginPath(); ctx.moveTo(ox, 0); ctx.lineTo(ox, h); ctx.moveTo(0, oy); ctx.lineTo(w, oy); ctx.stroke();
-  ctx.fillStyle = 'rgba(192,132,252,0.9)';
+  ctx.fillStyle = acRgba(0.9);
   ctx.font = '10px ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace';
   ctx.fillText('0,0 spawn', ox + 5, oy - 5);
   const terrain = MCA_MAP_MODE === 'terrain';
@@ -487,18 +488,18 @@ function drawWorldMap() {
     }
     if (sel.has(r.file)) {
       ctx.save();
-      ctx.shadowColor = 'rgba(168,85,247,0.9)';
+      ctx.shadowColor = acRgba(0.9);
       ctx.shadowBlur = 8;
-      ctx.strokeStyle = '#c084fc';
+      ctx.strokeStyle = cssVar('--acsoft', '#c084fc');
       ctx.lineWidth = 2;
       ctx.strokeRect(x + 1, y + 1, s - 2, s - 2);
       ctx.restore();
     } else if (MCA_HOVER && MCA_HOVER.file === r.file) {
-      ctx.strokeStyle = '#fff';
+      ctx.strokeStyle = cssVar('--text', '#fff');
       ctx.lineWidth = 1.5;
       ctx.strokeRect(x + 0.5, y + 0.5, s - 1, s - 1);
     } else {
-      ctx.strokeStyle = terrain ? 'rgba(255,255,255,0.14)' : mapRegionColor(r, tmin, tmax).edge;
+      ctx.strokeStyle = terrain ? cssVar('--chart-grid', 'rgba(255,255,255,0.1)') : mapRegionColor(r, tmin, tmax).edge;
       ctx.lineWidth = 1;
       ctx.strokeRect(x + 0.5, y + 0.5, s - 1, s - 1);
     }
@@ -509,9 +510,9 @@ function drawWorldMap() {
   if (MCA_MARQUEE) {
     const mx = Math.min(MCA_MARQUEE.x0, MCA_MARQUEE.x1), my = Math.min(MCA_MARQUEE.y0, MCA_MARQUEE.y1);
     const mw = Math.abs(MCA_MARQUEE.x1 - MCA_MARQUEE.x0), mh = Math.abs(MCA_MARQUEE.y1 - MCA_MARQUEE.y0);
-    ctx.fillStyle = MCA_MARQUEE.sub ? 'rgba(248,113,113,0.12)' : 'rgba(168,85,247,0.15)';
+    ctx.fillStyle = MCA_MARQUEE.sub ? 'rgba(248,113,113,0.12)' : acRgba(0.15);
     ctx.fillRect(mx, my, mw, mh);
-    ctx.strokeStyle = MCA_MARQUEE.sub ? '#f87171' : '#c084fc';
+    ctx.strokeStyle = MCA_MARQUEE.sub ? '#f87171' : cssVar('--acsoft', '#c084fc');
     ctx.lineWidth = 1.5;
     ctx.setLineDash([6, 4]);
     ctx.strokeRect(mx + 0.5, my + 0.5, mw - 1, mh - 1);
@@ -581,7 +582,7 @@ function updateRegionPreview() {
   if (cv.width !== size) { cv.width = size; cv.height = size; }
   const ctx = cv.getContext('2d');
   ctx.clearRect(0, 0, size, size);
-  ctx.fillStyle = '#06060b';
+  ctx.fillStyle = cssVar('--bg-sunken', '#09080c');
   ctx.fillRect(0, 0, size, size);
   const key = MCA_ACTIVE_DIM + ':' + MCA_DETAIL_FILE;
   const tkey = MCA_ACTIVE_DIM + ':' + rx + ':' + rz;
@@ -593,12 +594,12 @@ function updateRegionPreview() {
       for (let cx = 0; cx < 32; cx++) {
         if (csel.has(MCA_DETAIL_FILE + ':' + cx + ':' + cz)) {
           anySel = true;
-          ctx.fillStyle = 'rgba(168,85,247,0.55)';
+          ctx.fillStyle = acRgba(0.55);
           ctx.fillRect(cx * cs + 0.5, cz * cs + 0.5, cs - 1, cs - 1);
         }
       }
     }
-    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.strokeStyle = cssVar('--chart-grid', 'rgba(255,255,255,0.1)');
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (let i = 1; i < 32; i++) {
@@ -626,7 +627,7 @@ function updateRegionPreview() {
     const cs = size / 32;
     for (let cz = 0; cz < 32; cz++) {
       for (let cx = 0; cx < 32; cx++) {
-        ctx.fillStyle = det.grid[cz * 32 + cx] ? '#34d399' : 'rgba(255,255,255,0.05)';
+        ctx.fillStyle = det.grid[cz * 32 + cx] ? '#34d399' : cssVar('--chart-grid', 'rgba(255,255,255,0.1)');
         ctx.fillRect(cx * cs + 0.5, cz * cs + 0.5, cs - 1, cs - 1);
       }
     }
@@ -705,7 +706,7 @@ async function prunePreview() {
         const files = Object.keys(d.per_file || {}).length;
         st.textContent = d.scanned_files + ' regiones, ' + d.present_chunks + ' chunks (' + (d.truncated ? 'lista truncada a ' + PRUNE_CANDS.length : PRUNE_CANDS.length + ' candidatos') + ')';
         box.innerHTML = '<div>' + PRUNE_CANDS.length + ' chunks con menos de lo indicado en ' + files + ' regiones. Spawn: (' + d.spawn[0] + ', ' + d.spawn[1] + '), radio protegido ' + d.radius_blocks + ' bloques.</div>' +
-          (PRUNE_CANDS.length ? '<button class="cmd-btn danger" style="background:#dc2626;color:#fff;margin-top:8px" onclick="pruneApply()">Aplicar poda (' + PRUNE_CANDS.length + ' chunks, servidor detenido, .bak)</button>' : '<div style="color:#4ade80">Nada que podar.</div>');
+          (PRUNE_CANDS.length ? '<button class="cmd-btn danger" style="margin-top:8px" onclick="pruneApply()">Aplicar poda (' + PRUNE_CANDS.length + ' chunks, servidor detenido, .bak)</button>' : '<div style="color:var(--ok)">Nada que podar.</div>');
         btn.disabled = false;
         return;
       }
@@ -858,7 +859,7 @@ async function loadFleetView() {
       return;
     }
     box.innerHTML = srvs.map(s => `
-      <div class="scard" style="padding:18px; display:flex; flex-direction:column; justify-content:space-between; ${s.current ? 'border-color:#a855f7; box-shadow:0 0 20px rgba(168,85,247,0.3)' : ''}">
+      <div class="scard" style="padding:18px; display:flex; flex-direction:column; justify-content:space-between; ${s.current ? 'border-color:var(--ac); box-shadow:0 0 20px rgba(168,85,247,0.3)' : ''}">
         <div>
           <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px">
             <div>
@@ -884,3 +885,5 @@ async function loadFleetView() {
     box.innerHTML = '<div class="scard" style="padding:16px">Error al cargar flota de servidores.</div>';
   }
 }
+
+document.addEventListener('pk-theme', () => { if (document.getElementById('worldMapCanvas')) drawWorldMap(); });

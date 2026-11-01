@@ -86,8 +86,8 @@ function renderMods() {
         <span class="mod-meta">${chips}<span>${mb(m.size)}</span></span>
       </span>
       <span class="mod-state ${m.enabled ? 's-on' : 's-off'}">${m.enabled ? 'ON' : 'OFF'}</span>
-      ${MOD_UPDATES[m.name] ? `<button class="icon-btn" title="Actualizar a ${escHtml(MOD_UPDATES[m.name].latest)} (${escHtml(MOD_UPDATES[m.name].date)})" onclick="modUpdateIdx(${i})" style="color:#4ade80">\u2191</button>` : ''}
-      ${m.prev ? `<button class="icon-btn" title="Revertir a la copia anterior" onclick="modRollbackIdx(${i})" style="color:#facc15">\u21a9</button>` : ''}
+      ${MOD_UPDATES[m.name] ? `<button class="icon-btn" title="Actualizar a ${escHtml(MOD_UPDATES[m.name].latest)} (${escHtml(MOD_UPDATES[m.name].date)})" onclick="modUpdateIdx(${i})" style="color:var(--ok)">\u2191</button>` : ''}
+      ${m.prev ? `<button class="icon-btn" title="Revertir a la copia anterior" onclick="modRollbackIdx(${i})" style="color:var(--warn)">\u21a9</button>` : ''}
       <button class="msw" role="switch" aria-checked="${m.enabled}" aria-label="Activar o desactivar ${escHtml(m.name)}" title="${m.enabled ? 'Desactivar' : 'Activar'} (requiere reinicio)" onclick="modToggleIdx(${i})"></button>
       <button class="icon-btn danger" title="Eliminar" onclick="modDelIdx(${i})">${SVG_TRASH}</button>
     </div>`;

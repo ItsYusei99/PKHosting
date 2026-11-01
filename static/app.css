@@ -101,8 +101,8 @@ body[data-theme="light"] {
   --text: #1c1824;
   --text-2: #4a4256;
   --text-3: #665d73;
-  --ac-text: var(--ac2);
-  --ok: #15803d;
+  --ac-text: #6d28d9;
+  --ok: #137336;
   --warn: #a16207;
   --bad: #c81e1e;
   --info: #2648c4;
@@ -869,4 +869,35 @@ body {
   --border-color: var(--line); --border-subtle: var(--line);
   --text-main: var(--text); --text-muted: var(--text-2); --text-dim: var(--text-3); --text-bright: var(--text);
   --glass-bg: var(--surface); --glass-border: var(--line); --glass-shadow: var(--shadow-1);
+}
+
+/* ── Pestañas con marcado antiguo: mismo cristal, volumen y tipografía ── */
+.legacy .scard, .legacy .chart-card, .legacy .system-details-card, .legacy .file-list,
+.legacy .dim-card, .legacy .mr-card, .legacy .p-stat-card, .legacy .glass-card {
+  background: var(--lg-sheen), var(--lg-fill);
+  -webkit-backdrop-filter: var(--lg-blur);
+  backdrop-filter: var(--lg-blur);
+  border-color: var(--lg-rim);
+  border-radius: var(--r-lg);
+  box-shadow: inset 0 1px 0 var(--lg-hi), inset 0 0 0 1px var(--lg-rim), var(--lg-depth);
+}
+.legacy .scard { transition: transform .18s var(--ease), box-shadow .18s var(--ease); }
+.legacy .scard:hover { transform: translateY(-2px); box-shadow: inset 0 1px 0 var(--lg-hi), inset 0 0 0 1px rgba(var(--ac-rgb), .35), var(--lg-lift); }
+.legacy .chart-title, .legacy h3, .legacy .card-title { font-family: var(--font-pixel); font-weight: 600; letter-spacing: .01em; }
+.legacy .scard-val { font-family: var(--font-pixel); }
+.legacy .btn-ghost, .legacy .term-tool-btn, .legacy .icon-btn:hover {
+  border-radius: var(--r);
+}
+.legacy .term-tool-btn, .legacy .btn-ghost {
+  box-shadow: inset 0 1px 0 var(--lg-hi), inset 0 -3px 0 var(--bevel-lo), 0 4px 10px -4px rgba(0, 0, 0, .45);
+}
+.legacy .term-tool-btn:active, .legacy .btn-ghost:active { transform: translateY(1px); box-shadow: inset 0 1px 0 var(--lg-hi), inset 0 -1px 0 var(--bevel-lo); }
+
+.cmd-btn.danger, .btn-danger, .legacy .cmd-btn.danger { background: color-mix(in srgb, var(--bad) 88%, #000); color: #fff; }
+
+/* Ajustes finales de responsive con la tipografía pixel */
+.inv-slot { aspect-ratio: auto; min-height: 88px; }
+@media (max-width: 768px) {
+  .nav-item { font-size: 11px; min-width: 76px; white-space: nowrap; letter-spacing: 0; padding: 6px 6px; }
+  .inv { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 }

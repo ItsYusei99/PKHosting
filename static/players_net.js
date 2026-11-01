@@ -202,7 +202,7 @@ async function searchModrinth() {
             <div style="font-size:11px; color:var(--text-dim)">por ${escHtml(h.author || 'Desconocido')} · ${dlK} descargas</div>
           </div>
         </div>
-        <p style="font-size:11.5px; color:#cbd5e1; margin:10px 0 14px; line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden">${safeDesc}</p>
+        <p style="font-size:11.5px; color:var(--text-2); margin:10px 0 14px; line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden">${safeDesc}</p>
         <div style="display:flex; justify-content:space-between; align-items:center">
           <span class="mchip ld">NeoForge</span>
           <button class="cmd-btn" style="padding:4px 12px; font-size:11.5px" onclick="installModrinth(${jsArg(h.slug || h.id)}, ${jsArg(h.title)})">Instalar</button>
@@ -210,7 +210,7 @@ async function searchModrinth() {
       </div>`;
     }).join('');
   } catch (e) {
-    box.innerHTML = '<div style="color:#f87171;font-size:12px;padding:12px">Error conectando con la API de Modrinth.</div>';
+    box.innerHTML = '<div style="color:var(--bad);font-size:12px;padding:12px">Error conectando con la API de Modrinth.</div>';
   }
 }
 async function installModrinth(slug, title) {
