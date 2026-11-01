@@ -514,6 +514,7 @@ def start_server_action(auto=False):
         try:
             s.started_at = time.time()
             s.stop_pending = False
+            os.makedirs(os.path.dirname(s.child_log), exist_ok=True)   # servidor nuevo: aún sin logs/
             try:  # rotación simple: el log del hijo crecía sin límite
                 if os.path.getsize(s.child_log) > 5 * 1024 * 1024:
                     os.replace(s.child_log, s.child_log + ".1")

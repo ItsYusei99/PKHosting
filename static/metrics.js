@@ -8,15 +8,17 @@ async function refreshStats() {
     const stText = document.getElementById('statusText');
     const sideDot = document.getElementById('sideDot');
     badge.className = 'status-pill ' + d.status;
-    stText.textContent = d.status;
-    
+    stText.textContent = STATUS_LABEL[d.status] || d.status;
+    const hs = document.getElementById('heroStatus');
+    if (hs) { hs.textContent = STATUS_LABEL[d.status] || d.status; hs.dataset.status = d.status; }
+
     const colorMap = {
-      'RUNNING': 'var(--color-online)',
-      'STARTING': 'var(--color-starting)',
-      'STOPPING': 'var(--color-stopping)',
-      'OFFLINE': 'var(--color-offline)'
+      'RUNNING': 'var(--ok)',
+      'STARTING': 'var(--warn)',
+      'STOPPING': 'var(--warn)',
+      'OFFLINE': 'var(--bad)'
     };
-    sideDot.style.background = colorMap[d.status] || 'var(--color-offline)';
+    sideDot.style.background = colorMap[d.status] || 'var(--bad)';
 
     // Buttons Disable
     document.getElementById('btnStart').disabled = (d.status !== 'OFFLINE');
@@ -24,15 +26,11 @@ async function refreshStats() {
     document.getElementById('btnRestart').disabled = (d.status === 'OFFLINE');
     document.getElementById('btnReload').disabled = (d.status !== 'RUNNING');
     document.getElementById('btnKill').disabled = (d.status === 'OFFLINE');
-    if (d.public_ip) {
-      currentPublicIp = d.public_ip;
-      const ipEl = document.getElementById('ipText');
-      if (ipEl) ipEl.textContent = d.public_ip;
-    }
+    if (d.public_ip) setPublicIp(d.public_ip);
 
     // Cards
-    document.getElementById('cardUptime').textContent = d.uptime;
-    document.getElementById('cardUptimeSub').textContent = d.status === 'RUNNING' ? 'En línea y respondiendo' : (d.status === 'STARTING' ? 'Cargando mods y mundo...' : 'Servidor detenido');
+    document.getElementById('cardUptime').textContent = d.status === 'OFFLINE' ? '—' : d.uptime;
+    document.getElementById('cardUptimeSub').textContent = d.status === 'RUNNING' ? 'En línea y respondiendo' : (d.status === 'STARTING' ? 'Cargando mods y mundo…' : 'Servidor detenido');
     
     // Color por nivel de uso: verde < umbral1, ámbar < umbral2, rojo arriba
     const cpuPct = Math.max(0, d.cpu || 0);
@@ -49,9 +47,13 @@ async function refreshStats() {
     const cardMem = document.getElementById('cardMem');
     cardMem.textContent = (d.mem_mb >= 1024 ? d.mem_gb + ' GB' : d.mem_mb + ' MB');
     paintUsage(cardMem, document.getElementById('barMem'), Math.min(100, memPct), memColor);
-    document.getElementById('cardMemSub').textContent = `Límite: ${d.max_mem_gb} GB (${d.mem_mb} MB)`;
+    document.getElementById('cardMemSub').textContent = `de ${d.max_mem_gb} GB asignados`;
+    setText('homeCpuNow', d.cpu.toFixed(1) + '%');
+    setText('homeMemNow', d.mem_gb + ' GB');
 
-    document.getElementById('cardPlayers').textContent = `${d.online_players} / ${d.max_players}`;
+    document.getElementById('cardPlayers').innerHTML = `${d.online_players}<small>/ ${d.max_players}</small>`;
+    const bp = document.getElementById('barPlayers');
+    if (bp) bp.style.width = (d.max_players ? Math.min(100, d.online_players / d.max_players * 100) : 0) + '%';
     const mgmt = document.getElementById('playerMgmt');
     const rows = document.getElementById('playerRows');
     const hasPlayers = d.online_players > 0 && d.player_names && d.player_names.length;
@@ -59,9 +61,20 @@ async function refreshStats() {
     const homeCnt = document.getElementById('homePlayersCount');
     if (homeCnt) homeCnt.textContent = hasPlayers ? String(d.player_names.length) : '';
     if (homeBox) {
-      homeBox.innerHTML = hasPlayers
-        ? d.player_names.map(n => `<span class="p-chip" style="cursor:pointer" onclick="openPlayerModal(${jsArg(n)})"><img src="https://mc-heads.net/avatar/${encodeURIComponent(n)}/18" class="p-avatar" style="width:16px;height:16px" alt="" onerror="this.style.display='none'">${escHtml(n)}</span>`).join(' ')
-        : '<div class="empty-state">Nadie conectado</div>';
+      // Inventario: una ranura por jugador y ranuras vacías hasta completar la fila de 9
+      const names = hasPlayers ? d.player_names : [];
+      const sess = d.sessions || {};
+      const sig = names.join('|') + '#' + names.map(n => Math.floor((sess[n] || 0) / 60)).join(',');
+      if (sig !== homeBox.dataset.sig) {
+        homeBox.dataset.sig = sig;
+        const slots = names.map(n => `<button type="button" class="inv-slot" onclick="openPlayerModal(${jsArg(n)})" title="Ver ficha de ${escHtml(n)}">`
+          + `<img src="https://mc-heads.net/avatar/${encodeURIComponent(n)}/36" alt="" onerror="this.src='/icon.svg'">`
+          + `<span class="inv-name">${escHtml(n)}</span>`
+          + (sess[n] != null ? `<span class="inv-time">${fmtSess(sess[n])}</span>` : '') + '</button>');
+        const pad = Math.max(0, (Math.ceil(Math.max(names.length, 1) / 9) * 9) - names.length);
+        for (let i = 0; i < pad; i++) slots.push('<div class="inv-slot empty" aria-hidden="true"></div>');
+        homeBox.innerHTML = (names.length ? '' : '<div class="empty-state inv-empty">Nadie conectado ahora mismo</div>') + slots.join('');
+      }
     }
     if (rows && !hasPlayers) { window._plSig = ''; rows.innerHTML = '<div class="empty-state">Nadie conectado</div>'; }
     const plSig = hasPlayers ? d.player_names.join('|') + '#' + d.player_names.map(n => Math.floor(((d.sessions || {})[n] || 0) / 60)).join(',') : '';
@@ -79,7 +92,7 @@ async function refreshStats() {
             <button class="term-tool-btn" title="Dar OP" onclick="playerAction('op', ${jsArg(n)})">OP</button>
             <button class="term-tool-btn" title="Quitar OP" onclick="playerAction('deop', ${jsArg(n)})">DeOP</button>
             <button class="term-tool-btn" title="Expulsar" onclick="playerAction('kick', ${jsArg(n)})">Kick</button>
-            <button class="term-tool-btn" style="color:#f87171; border-color:#7f1d1d" title="Banear" onclick="playerAction('ban', ${jsArg(n)})">Ban</button>
+            <button class="term-tool-btn" style="color:var(--bad); border-color:#7f1d1d" title="Banear" onclick="playerAction('ban', ${jsArg(n)})">Ban</button>
           </span>
         </div>`;
       }).join('');
@@ -92,8 +105,17 @@ async function refreshStats() {
     // TPS + MSPT (muestreo `tick query` cada 60 s)
     const t = d.tps || {};
     const tpsVal = document.getElementById('tpsVal');
+    const homeTps = document.getElementById('homeTps');
+    const homeTpsBar = document.getElementById('homeTpsBar');
+    if (homeTps) {
+      const ok = t.ok && t.tps != null;
+      homeTps.textContent = ok ? t.tps.toFixed(1) : (d.status === 'RUNNING' ? '…' : '—');
+      homeTps.dataset.level = ok ? (t.tps >= 19 ? 'ok' : (t.tps >= 15 ? 'warn' : 'bad')) : '';
+      homeTpsBar.style.width = ok ? Math.min(100, t.tps / 20 * 100) + '%' : '0%';
+      homeTpsBar.style.setProperty('--fill', cssVar('--' + (homeTps.dataset.level || 'ok'), '#4ade80'));
+    }
     if (t.ok && t.tps != null) {
-      const tc = t.tps >= 19 ? '#34d399' : (t.tps >= 15 ? '#fbbf24' : '#f87171');
+      const tc = cssVar(t.tps >= 19 ? '--ok' : (t.tps >= 15 ? '--warn' : '--bad'), '#4ade80');
       tpsVal.textContent = t.tps.toFixed(1);
       tpsVal.style.backgroundImage = `linear-gradient(180deg, #ffffff 15%, ${tc} 95%)`;
       tpsVal.style.filter = `drop-shadow(0 0 14px ${tc}59)`;
@@ -142,6 +164,7 @@ async function refreshStats() {
     if (document.getElementById('tab-metrics').classList.contains('active')) {
       renderCharts();
     }
+    if (document.getElementById('tab-home').classList.contains('active')) renderHomeCharts();
   } catch (e) {}
 }
 
@@ -158,14 +181,14 @@ function drawSmoothChart(canvasId, values, maxVal, colorStroke, colorFill, unit)
 
   ctx.clearRect(0, 0, w, h);
   if (!values || values.length < 2) {
-    ctx.fillStyle = '#64748b';
-    ctx.font = '12px Inter';
-    ctx.fillText('Esperando datos de telemetría...', 20, h / 2);
+    ctx.fillStyle = cssVar('--text-3', '#8f86a4');
+    ctx.font = '12px ' + cssVar('--font-sans', 'sans-serif');
+    ctx.fillText('Esperando datos…', 4, h / 2);
     return;
   }
 
   // Gridlines
-  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+  ctx.strokeStyle = cssVar('--chart-grid', 'rgba(255,255,255,0.06)');
   ctx.lineWidth = 1;
   for (let y = 0; y <= 4; y++) {
     const yPos = (h / 4) * y;
@@ -191,11 +214,9 @@ function drawSmoothChart(canvasId, values, maxVal, colorStroke, colorFill, unit)
   // Stroke con resplandor
   ctx.save();
   ctx.strokeStyle = colorStroke;
-  ctx.lineWidth = 2.5;
+  ctx.lineWidth = 2;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
-  ctx.shadowColor = colorStroke;
-  ctx.shadowBlur = 12;
   ctx.stroke();
   ctx.restore();
 
@@ -219,22 +240,30 @@ function chartPeakAvg(vals, digits) {
 
 let cpuStrokeColor = '#a855f7', memStrokeColor = '#7c3aed';
 let MEM_MAX_GB = 8;   // se actualiza con max_mem_gb del servidor activo
-function cssVar(n, fb) { try { return getComputedStyle(document.documentElement).getPropertyValue(n).trim() || fb; } catch (e) { return fb; } }
+const STATUS_LABEL = { RUNNING: 'En línea', STARTING: 'Iniciando', STOPPING: 'Deteniendo', OFFLINE: 'Apagado' };
+function setText(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
+// Los colores salen de los tokens del tema (body[data-theme] los redefine), no de hex fijos
+function cssVar(n, fb) { try { return getComputedStyle(document.body).getPropertyValue(n).trim() || fb; } catch (e) { return fb; } }
+function usageLevel(pct, warnAt, critAt) { return pct >= critAt ? 'bad' : (pct >= warnAt ? 'warn' : 'ok'); }
 function usageColor(pct, warnAt, critAt) {
-  if (pct >= critAt) return '#f87171';
-  if (pct >= warnAt) return '#fbbf24';
-  return '#34d399';
+  return cssVar('--' + usageLevel(pct, warnAt, critAt), '#4ade80');
 }
 function paintUsage(valEl, barEl, pct, color) {
-  // Solo el TEXTO de color: backgroundImage no resetea background-clip:text
-  // (el shorthand `background` sí lo hacía y pintaba toda la caja como barra).
-  valEl.style.backgroundImage = `linear-gradient(180deg, #ffffff 15%, ${color} 95%)`;
-  valEl.style.webkitBackgroundClip = 'text';
-  valEl.style.backgroundClip = 'text';
-  valEl.style.filter = `drop-shadow(0 0 14px ${color}59)`;
+  const lvl = color === cssVar('--bad') ? 'bad' : (color === cssVar('--warn') ? 'warn' : 'ok');
+  valEl.dataset.level = lvl;
   barEl.style.width = pct + '%';
-  barEl.style.background = `linear-gradient(90deg, ${color}99, ${color})`;
+  barEl.style.setProperty('--fill', color);
 }
+function renderHomeCharts() {
+  if (!historyBuffer || historyBuffer.length < 2) return;
+  const cpu = historyBuffer.map(h => h.cpu || 0);
+  const mem = historyBuffer.map(h => (h.mem || 0) / 1024.0);
+  const c1 = cssVar('--ac', '#a855f7'), c2 = cssVar('--info', '#7c9cff');
+  drawSmoothChart('canvasHomeCpu', cpu, 100.0, c1, c1 + '33', '%');
+  drawSmoothChart('canvasHomeMem', mem, MEM_MAX_GB, c2, c2 + '33', 'GB');
+}
+// Al cambiar de tema o acento, las gráficas se repintan con los colores nuevos
+document.addEventListener('pk-theme', () => { h24At = 0; renderHomeCharts(); if (document.getElementById('tab-metrics').classList.contains('active')) renderCharts(); });
 function paintBadge(el, text, color) {
   if (!el) return;
   el.textContent = text;

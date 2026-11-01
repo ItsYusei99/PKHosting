@@ -6,9 +6,9 @@ async function loadCrashes() {
     const g = d.guard || {};
     const badge = document.getElementById('crashGuardBadge');
     if (g.blocked) {
-      badge.innerHTML = '<span style="color:#f87171;font-weight:700">\u{1f6d1} Bucle de crash \u2014 inicios autom\u00e1ticos bloqueados</span> <button class="term-tool-btn" onclick="crashUnblock()" style="margin-left:6px">Desbloquear</button>';
+      badge.innerHTML = '<span style="color:var(--bad);font-weight:700">\u{1f6d1} Bucle de crash \u2014 inicios autom\u00e1ticos bloqueados</span> <button class="term-tool-btn" onclick="crashUnblock()" style="margin-left:6px">Desbloquear</button>';
     } else if (g.enabled) {
-      badge.innerHTML = '<span style="color:#4ade80;font-size:12px">\u2713 Guarda activa (' + g.recent + '/' + g.max + ' en ' + g.window_min + ' min)</span>';
+      badge.innerHTML = '<span style="color:var(--ok);font-size:12px">\u2713 Guarda activa (' + g.recent + '/' + g.max + ' en ' + g.window_min + ' min)</span>';
     } else {
       badge.innerHTML = '<span style="color:var(--text-dim);font-size:12px">Guarda desactivada</span>';
     }
@@ -32,7 +32,7 @@ async function loadCrashes() {
         '<div style="font-size:11.5px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' +
         (kindLabel[c.kind]||'') + ' \u00b7 ' + escHtml(c.summary) + '</div></div>' +
         '<div style="display:flex;align-items:center;gap:8px">' +
-        (c.suspect ? '<span class="file-badge" style="background:rgba(248,113,113,.15);color:#f87171">' + escHtml(c.suspect) + '</span>' : '') +
+        (c.suspect ? '<span class="file-badge" style="background:rgba(248,113,113,.15);color:var(--bad)">' + escHtml(c.suspect) + '</span>' : '') +
         '<span style="font-size:11px;color:var(--text-dim)">' + ts + '</span>' +
         '<button class="icon-btn" title="Eliminar" onclick="event.stopPropagation();crashDel(\'' + escHtml(c.name) + '\')">\u{1f5d1}</button>' +
         '</div></div>';
@@ -48,7 +48,7 @@ async function openCrash(name) {
     let h = '<h3 style="margin-bottom:8px">' + escHtml(c.name) + '</h3>';
     h += '<div style="display:flex;gap:12px;flex-wrap:wrap;font-size:12.5px;margin-bottom:10px">';
     h += '<span><b>Tipo:</b> ' + escHtml(c.kind) + '</span>';
-    if (c.suspect) h += '<span><b>Sospechoso:</b> <span style="color:#f87171">' + escHtml(c.suspect) + '</span></span>';
+    if (c.suspect) h += '<span><b>Sospechoso:</b> <span style="color:var(--bad)">' + escHtml(c.suspect) + '</span></span>';
     h += '</div>';
     if (c.mods && c.mods.length) {
       h += '<div class="system-details-card" style="margin-bottom:8px;padding:10px"><h4 style="margin-bottom:6px">Mods implicados</h4>';
@@ -56,14 +56,14 @@ async function openCrash(name) {
         h += '<div style="margin-bottom:4px"><b>' + escHtml(m.id || '?') + '</b>';
         if (m.version) h += ' <span style="color:var(--text-dim)">' + escHtml(m.version) + '</span>';
         if (m.file) h += ' <span style="color:var(--text-dim)">(' + escHtml(m.file) + ')</span>';
-        if (m.detail) h += '<div style="font-size:12px;color:#facc15">' + escHtml(m.detail) + '</div>';
+        if (m.detail) h += '<div style="font-size:12px;color:var(--warn)">' + escHtml(m.detail) + '</div>';
         h += '</div>';
       });
       h += '</div>';
     }
     if (c.hints && c.hints.length) {
       h += '<div style="margin-bottom:8px">';
-      c.hints.forEach(t => { h += '<div style="font-size:12.5px;padding:6px 10px;border-radius:8px;background:rgba(74,222,128,.08);color:#4ade80;margin-bottom:4px">\u{1f4a1} ' + escHtml(t) + '</div>'; });
+      c.hints.forEach(t => { h += '<div style="font-size:12.5px;padding:6px 10px;border-radius:8px;background:rgba(74,222,128,.08);color:var(--ok);margin-bottom:4px">\u{1f4a1} ' + escHtml(t) + '</div>'; });
       h += '</div>';
     }
     if (c.involved && c.involved.length) {
@@ -149,9 +149,9 @@ async function jvmValidate() {
   try {
     const r = await (await fetch(U('/api/jvm/validate'), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text:document.getElementById('jvmText').value})})).json();
     let h = '';
-    if (r.errors && r.errors.length) h += r.errors.map(e => '<div style="color:#f87171">\u274c ' + escHtml(e) + '</div>').join('');
-    if (r.warnings && r.warnings.length) h += r.warnings.map(w => '<div style="color:#facc15">\u26a0 ' + escHtml(w) + '</div>').join('');
-    if (r.ok && !h) h = '<div style="color:#4ade80">\u2713 V\u00e1lido</div>';
+    if (r.errors && r.errors.length) h += r.errors.map(e => '<div style="color:var(--bad)">\u274c ' + escHtml(e) + '</div>').join('');
+    if (r.warnings && r.warnings.length) h += r.warnings.map(w => '<div style="color:var(--warn)">\u26a0 ' + escHtml(w) + '</div>').join('');
+    if (r.ok && !h) h = '<div style="color:var(--ok)">\u2713 V\u00e1lido</div>';
     document.getElementById('jvmValidation').innerHTML = h;
   } catch (e) {}
 }
@@ -160,7 +160,7 @@ async function jvmSave() {
     const r = await (await fetch(U('/api/jvm'), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text:document.getElementById('jvmText').value})})).json();
     showToast(r.msg || (r.ok ? 'Guardado' : 'Error'), r.ok ? 'success' : 'error');
     let h = '';
-    if (r.warnings && r.warnings.length) h = r.warnings.map(w => '<div style="color:#facc15">\u26a0 ' + escHtml(w) + '</div>').join('');
+    if (r.warnings && r.warnings.length) h = r.warnings.map(w => '<div style="color:var(--warn)">\u26a0 ' + escHtml(w) + '</div>').join('');
     document.getElementById('jvmValidation').innerHTML = h;
     if (r.ok) jvmLoad();
   } catch (e) { showToast('Error al guardar'); }
@@ -182,7 +182,7 @@ async function propsLoad() {
         const id = 'prop_' + it.key.replace(/[.]/g, '_');
         h += '<div style="padding:6px 0">';
         h += '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:2px" for="' + id + '">' + escHtml(it.key);
-        if (it.restart) h += ' <span style="color:#facc15;font-size:10px" title="Requiere reinicio">\u27f3</span>';
+        if (it.restart) h += ' <span style="color:var(--warn);font-size:10px" title="Requiere reinicio">\u27f3</span>';
         h += '</label>';
         if (it.desc) h += '<div style="font-size:11px;color:var(--text-dim);margin-bottom:2px">' + escHtml(it.desc) + '</div>';
         if (it.type === 'bool') {
@@ -215,7 +215,7 @@ async function propsSave() {
   try {
     const r = await (await fetch(U('/api/props'), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({changes})})).json();
     let msg = escHtml(r.msg || '');
-    if (r.restart && r.restart.length) msg += ' <span style="color:#facc15">\u27f3 Requiere reinicio: ' + r.restart.map(escHtml).join(', ') + '</span>';
+    if (r.restart && r.restart.length) msg += ' <span style="color:var(--warn)">\u27f3 Requiere reinicio: ' + r.restart.map(escHtml).join(', ') + '</span>';
     document.getElementById('propsMsg').innerHTML = msg;
     showToast(r.msg, r.ok ? 'success' : 'error');
     if (r.ok) propsLoad();
@@ -250,7 +250,7 @@ async function logsLoad() {
       Object.entries(counts).map(([k,v]) => {
         const colors = {INFO:'#94a3b8',WARN:'#facc15',ERROR:'#f87171',FATAL:'#ef4444',DEBUG:'#64748b',TRACE:'#475569'};
         return '<span style="color:' + (colors[k]||'#ccc') + '">' + k + ': ' + v + '</span>';
-      }).join(' \u00b7 ') + (d.truncated ? ' <span style="color:#facc15">(truncado a ' + d.shown + ' de ' + d.total + ')</span>' : '');
+      }).join(' \u00b7 ') + (d.truncated ? ' <span style="color:var(--warn)">(truncado a ' + d.shown + ' de ' + d.total + ')</span>' : '');
     const box = document.getElementById('dgLogEntries');
     if (!d.entries.length) { box.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-dim)">Sin entradas para este filtro</div>'; return; }
     const levelCls = {INFO:'log-info',WARN:'log-warn',ERROR:'log-err',FATAL:'log-err',DEBUG:'log-info'};
