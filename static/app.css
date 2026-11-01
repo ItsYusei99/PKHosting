@@ -746,3 +746,127 @@ dialog.pk-dialog form { display: flex; flex-direction: column; gap: 16px; paddin
 }
 
 .inv-empty { grid-column: 1 / -1; padding: 0 2px 4px; text-align: left; }
+
+/* ════════════════════════════════════════════════════════════════
+   Profundidad y "liquid glass"
+   Fondo ambiental con luz amatista + superficies de cristal translúcido
+   (desenfoque, borde especular, brillo diagonal y sombras en capas).
+   Los botones, barras XP y ranuras conservan su bisel pixelado.
+   ════════════════════════════════════════════════════════════════ */
+:root {
+  --lg-fill: rgba(30, 24, 44, .50);
+  --lg-fill-strong: rgba(22, 18, 32, .74);
+  --lg-sheen: linear-gradient(150deg, rgba(255, 255, 255, .11) 0%, rgba(255, 255, 255, .03) 38%, rgba(255, 255, 255, 0) 60%);
+  --lg-rim: rgba(255, 255, 255, .10);
+  --lg-hi: rgba(255, 255, 255, .22);
+  --lg-blur: blur(20px) saturate(1.7);
+  --lg-depth: 0 1px 2px rgba(0, 0, 0, .4), 0 12px 32px -10px rgba(0, 0, 0, .55);
+  --lg-lift: 0 2px 4px rgba(0, 0, 0, .4), 0 22px 44px -14px rgba(var(--ac-rgb), .35);
+  --blob-a: rgba(var(--ac-rgb), .46);
+  --blob-b: rgba(56, 120, 255, .34);
+  --blob-c: rgba(34, 197, 140, .22);
+}
+body[data-theme="light"] {
+  --lg-fill: rgba(255, 253, 248, .58);
+  --lg-fill-strong: rgba(255, 253, 248, .82);
+  --lg-sheen: linear-gradient(150deg, rgba(255, 255, 255, .85) 0%, rgba(255, 255, 255, .25) 40%, rgba(255, 255, 255, 0) 62%);
+  --lg-rim: rgba(255, 255, 255, .8);
+  --lg-hi: rgba(255, 255, 255, 1);
+  --lg-depth: 0 1px 2px rgba(60, 45, 20, .10), 0 12px 30px -10px rgba(80, 55, 120, .22);
+  --lg-lift: 0 2px 4px rgba(60, 45, 20, .12), 0 22px 44px -14px rgba(var(--ac-rgb), .38);
+  --blob-a: rgba(var(--ac-rgb), .34);
+  --blob-b: rgba(80, 150, 255, .30);
+  --blob-c: rgba(250, 190, 90, .32);
+}
+
+/* Luz ambiental detrás de todo: es lo que el cristal desenfoca */
+body::before {
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(34vmax 26vmax at 38% 22%, var(--blob-a), transparent 66%),
+    radial-gradient(30vmax 24vmax at 84% 46%, var(--blob-b), transparent 66%),
+    radial-gradient(34vmax 28vmax at 52% 88%, var(--blob-a), transparent 66%),
+    radial-gradient(26vmax 22vmax at 14% 70%, var(--blob-c), transparent 66%),
+    radial-gradient(40vmax 32vmax at 100% -10%, var(--blob-b), transparent 62%),
+    var(--bg);
+}
+body { background: transparent; }
+
+/* Superficies de cristal */
+.card, .kpi, .hero, .server-selector, .ip-chip, .ip-big,
+.toast, .mc-frame, dialog.pk-dialog, .cp-box {
+  background: var(--lg-sheen), var(--lg-fill);
+  -webkit-backdrop-filter: var(--lg-blur);
+  backdrop-filter: var(--lg-blur);
+  border-color: var(--lg-rim);
+  box-shadow: inset 0 1px 0 var(--lg-hi), inset 0 0 0 1px var(--lg-rim), var(--lg-depth);
+}
+.mc-frame, dialog.pk-dialog, .cp-box, .toast {
+  background: var(--lg-sheen), var(--lg-fill-strong);
+  box-shadow: inset 0 1px 0 var(--lg-hi), inset 0 0 0 2px rgba(var(--ac-rgb), .5), var(--lg-depth), 0 24px 60px rgba(0, 0, 0, .45);
+}
+.toast { border-left: 4px solid var(--tk); }
+.ip-big, .ip-chip { background: var(--lg-sheen), var(--lg-fill-strong); }
+
+aside.sidebar {
+  background: var(--lg-fill-strong);
+  -webkit-backdrop-filter: var(--lg-blur);
+  backdrop-filter: var(--lg-blur);
+  border-right-color: var(--lg-rim);
+  box-shadow: inset -1px 0 0 var(--lg-rim), 8px 0 30px -12px rgba(0, 0, 0, .45);
+}
+.topbar {
+  background: var(--lg-fill);
+  -webkit-backdrop-filter: var(--lg-blur);
+  backdrop-filter: var(--lg-blur);
+  border-bottom-color: var(--lg-rim);
+  box-shadow: inset 0 -1px 0 var(--lg-rim), 0 10px 30px -14px rgba(0, 0, 0, .4);
+}
+.spark { background: transparent; }
+.spark-grid { background: var(--lg-rim); }
+
+/* Elevación al pasar: las tarjetas flotan y toman luz del acento */
+.kpi, .card { transition: transform .18s var(--ease), box-shadow .18s var(--ease); }
+.kpi:hover { transform: translateY(-2px); box-shadow: inset 0 1px 0 var(--lg-hi), inset 0 0 0 1px rgba(var(--ac-rgb), .35), var(--lg-lift); }
+
+/* Botones y ranuras: bloques con volumen (cristal + bisel) */
+.btn, .tool-btn, .term-tool-btn, .pbtn:not(.pbtn-start), .hot-slot, .server-switcher select {
+  background: var(--lg-sheen), var(--surface-2);
+  border-color: var(--lg-rim);
+  box-shadow: inset 0 1px 0 var(--lg-hi), inset 0 -3px 0 var(--bevel-lo), 0 4px 10px -4px rgba(0, 0, 0, .45);
+}
+.btn:hover, .tool-btn:hover, .term-tool-btn:hover, .pbtn:hover:not(:disabled) { background: var(--lg-sheen), var(--surface-3); }
+.hot-slot { box-shadow: inset 0 1px 0 var(--lg-hi), inset 0 -4px 0 var(--bevel-lo), 0 6px 14px -6px rgba(0, 0, 0, .5); }
+.hot-slot:hover { transform: translateY(-2px); box-shadow: inset 0 1px 0 var(--lg-hi), inset 0 -4px 0 var(--bevel-lo), 0 10px 22px -8px rgba(var(--ac-rgb), .55); }
+.hot-slot:active { transform: translateY(1px); box-shadow: inset 0 1px 0 var(--lg-hi), inset 0 -1px 0 var(--bevel-lo); }
+.cmd-btn, .btn-primary {
+  background: linear-gradient(180deg, rgba(255, 255, 255, .28), rgba(255, 255, 255, 0) 55%), var(--ac2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .4), inset 0 -3px 0 rgba(0, 0, 0, .3), 0 6px 16px -6px rgba(var(--ac-rgb), .7);
+}
+.pbtn-start { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), inset 0 -3px 0 rgba(0, 0, 0, .25), 0 6px 16px -6px var(--ok); }
+.inv-slot { background: rgba(0, 0, 0, .22); box-shadow: inset 2px 2px 0 rgba(0, 0, 0, .35), inset -1px -1px 0 var(--lg-rim); }
+body[data-theme="light"] .inv-slot { background: rgba(60, 45, 20, .06); }
+.nav-item.active {
+  background: var(--lg-sheen), rgba(var(--ac-rgb), .2);
+  box-shadow: inset 0 1px 0 var(--lg-hi), inset 0 0 0 1px rgba(var(--ac-rgb), .4), 0 6px 16px -8px rgba(var(--ac-rgb), .7);
+}
+.nav-item:hover:not(.active) { background: var(--lg-sheen), rgba(255, 255, 255, .05); }
+.status-pill { box-shadow: inset 0 1px 0 var(--lg-hi), 0 0 14px -4px currentColor; }
+
+/* Barra lateral con tipografía pixel */
+.nav-item { font: 500 15px/1.2 var(--font-pixel); letter-spacing: .01em; padding: 8px 10px; }
+.nav-item.active { font-weight: 600; }
+.nav-group { font: 600 12px var(--font-pixel); letter-spacing: .12em; }
+.server-label { font: 500 11px var(--font-pixel); letter-spacing: .1em; }
+.server-title { font: 600 15px var(--font-pixel); }
+.brand-sub { font-family: var(--font-pixel); font-size: 12px; }
+.logout-btn, .copy-badge { font-family: var(--font-pixel); font-size: 13px; }
+
+/* Los alias de legacy.css se resuelven en <body>, donde el tema claro redefine los tokens */
+body {
+  --bg-main: var(--bg); --bg-sidebar: var(--bg-sunken); --bg-card: var(--surface);
+  --bg-card-hover: var(--surface-2); --bg-terminal: var(--bg-sunken);
+  --border-color: var(--line); --border-subtle: var(--line);
+  --text-main: var(--text); --text-muted: var(--text-2); --text-dim: var(--text-3); --text-bright: var(--text);
+  --glass-bg: var(--surface); --glass-border: var(--line); --glass-shadow: var(--shadow-1);
+}
