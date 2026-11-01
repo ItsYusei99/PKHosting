@@ -44,20 +44,28 @@ const ACCENTS = {
   rosa: { ac: '#db2777', ac2: '#be185d', rgb: '219,39,119', soft: '#f9a8d4', label: 'Rosa' }
 };
 function applyTheme() {
-  let th = 'dark', ac = 'morado';
-  try { th = localStorage.getItem('pkTheme') || 'dark'; ac = localStorage.getItem('pkAccent') || 'morado'; } catch (e) {}
+  // Sin preferencia guardada se sigue la del sistema
+  let th = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark', ac = 'morado';
+  try { th = localStorage.getItem('pkTheme') || th; ac = localStorage.getItem('pkAccent') || 'morado'; } catch (e) {}
   document.body.dataset.theme = th;
   const a = ACCENTS[ac] || ACCENTS.morado;
   const r = document.documentElement.style;
   r.setProperty('--ac', a.ac); r.setProperty('--ac2', a.ac2);
   r.setProperty('--ac-rgb', a.rgb); r.setProperty('--acsoft', a.soft);
   renderAccentRow(ac);
+  paintThemeBtn(th);
+  document.dispatchEvent(new Event('pk-theme'));
+}
+function paintThemeBtn(th) {
+  const use = document.querySelector('#themeBtn use');
+  if (use) use.setAttribute('href', '/static/icons.svg?v=__V__#i-' + (th === 'light' ? 'moon' : 'sun'));
 }
 function toggleTheme() {
   const next = (document.body.dataset.theme === 'light') ? 'dark' : 'light';
   try { localStorage.setItem('pkTheme', next); } catch (e) {}
   document.body.dataset.theme = next;
-  showToast(next === 'light' ? 'Tema claro' : 'Tema oscuro');
+  paintThemeBtn(next);
+  document.dispatchEvent(new Event('pk-theme'));
 }
 function setAccent(name) {
   try { localStorage.setItem('pkAccent', name); } catch (e) {}

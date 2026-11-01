@@ -165,6 +165,11 @@ let logFilter = '';
 const CMD_BASE = ['help', 'list', 'say ', 'op ', 'deop ', 'kick ', 'ban ', 'pardon ', 'stop', 'save-all', 'save-on', 'save-off', 'reload', 'whitelist ', 'start', 'restart', 'reload', 'kill', 'tick query', 'profile entities'];
 function setLogFilter(f) {
   logFilter = (logFilter === f) ? '' : f;
+  document.querySelectorAll('#logFilterSeg button').forEach(b => {
+    const on = b.dataset.f === logFilter;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
   renderConsole();
 }
 function renderConsole() {

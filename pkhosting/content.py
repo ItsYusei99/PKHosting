@@ -59,7 +59,10 @@ MAX_UPLOAD = 300 * 1024 * 1024  # 300 MB
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
-                ".js": "application/javascript; charset=utf-8"}
+                ".js": "application/javascript; charset=utf-8",
+                ".svg": "image/svg+xml", ".ttf": "font/ttf"}
+# Se sirven tal cual: sin plantilla __X__ (la fuente es binaria; el sprite no lleva tokens)
+STATIC_RAW = {".svg", ".ttf"}
 _static_cache = {}
 
 

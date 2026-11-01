@@ -28,35 +28,55 @@ LOGIN_PAGE = """<!doctype html><html lang="es"><head><meta charset="utf-8">
 <title>PKHosting — Acceso</title>
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <style>
+@font-face{font-family:"Pixelify Sans";src:url("/static/pixelify.ttf") format("truetype");font-weight:400 700;font-display:swap}
+:root{color-scheme:dark;--bg:#0e0c12;--sunken:#09080c;--surface:#16131c;--surface-2:#1d1925;--line:#2a2434;--line-strong:#3b3448;
+--text:#ece8f4;--text-2:#b9b0ca;--text-3:#8f86a4;--ac:#a855f7;--ac2:#7c3aed;--ac-text:#c084fc;--bad:#f05252;--hi:rgba(255,255,255,.08);--lo:rgba(0,0,0,.45)}
+html[data-theme=light]{color-scheme:light;--bg:#f3f0e8;--sunken:#e9e4d8;--surface:#fffdf8;--surface-2:#f6f2e9;--line:#ddd5c5;--line-strong:#c9bfac;
+--text:#1c1824;--text-2:#4a4256;--text-3:#665d73;--ac-text:#7c3aed;--bad:#c81e1e;--hi:rgba(255,255,255,.9);--lo:rgba(60,45,20,.18)}
 *{box-sizing:border-box;margin:0;padding:0}
-body{min-height:100vh;display:flex;align-items:center;justify-content:center;color:#f5f3ff;
-font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',system-ui,sans-serif;
-background:radial-gradient(900px 480px at 12% -8%,rgba(124,58,237,.22),transparent 65%),radial-gradient(760px 520px at 88% 4%,rgba(168,85,247,.16),transparent 60%),#050508}
-.card{width:min(380px,92vw);padding:32px 28px;border-radius:24px;background:linear-gradient(155deg,rgba(255,255,255,.09),rgba(255,255,255,.02) 55%,rgba(168,85,247,.06));border:1px solid rgba(255,255,255,.12);box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 12px 40px rgba(0,0,0,.55);-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px);text-align:center}
-.login-logo{width:64px;height:64px;margin:0 auto 16px;border-radius:16px;box-shadow:0 8px 28px rgba(168,85,247,.45)}
-.login-logo img{width:100%;height:100%;display:block;border-radius:16px}
-h1{font-size:22px;letter-spacing:-.5px}h1 span span.g-letter{background:linear-gradient(90deg,#c084fc,#a855f7);-webkit-background-clip:text;background-clip:text;color:transparent}
-p{font-size:13px;color:#a89fc7;margin:6px 0 18px}
-input{width:100%;background:#06060b;border:1px solid #2b2440;border-radius:12px;padding:11px 13px;color:#fff;font-size:14px;outline:none;margin-bottom:10px}
-input:focus{border-color:rgba(168,85,247,.6);box-shadow:0 0 0 3px rgba(168,85,247,.22)}
-button{width:100%;border:0;border-radius:12px;padding:11px;font-size:14px;font-weight:700;color:#fff;cursor:pointer;background:linear-gradient(135deg,#a855f7,#7c3aed);box-shadow:0 4px 16px rgba(168,85,247,.4)}
-#err{color:#f87171;font-size:12.5px;min-height:18px;margin-top:8px}
-.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+body{min-height:100vh;display:grid;place-items:center;padding:24px;background:var(--bg);color:var(--text);
+font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+background-size:32px 32px;background-position:-1px -1px}
+body::before{content:"";position:fixed;inset:0;background:radial-gradient(60% 50% at 50% 40%,transparent,var(--bg) 75%);pointer-events:none}
+.card{position:relative;width:min(380px,100%);padding:30px 28px 26px;background:var(--surface);border:2px solid #120a1c;
+box-shadow:inset 0 0 0 2px rgba(168,85,247,.55),0 24px 60px rgba(0,0,0,.45);border-radius:6px}
+html[data-theme=light] .card{border-color:#d8cfe8;box-shadow:inset 0 0 0 2px rgba(124,58,237,.35),0 24px 60px rgba(60,45,20,.18)}
+.login-logo{width:56px;height:56px;margin:0 auto 14px}
+.login-logo img{width:100%;height:100%;display:block;image-rendering:pixelated}
+h1{text-align:center;font:600 28px/1.1 "Pixelify Sans",ui-monospace,monospace;letter-spacing:.01em}
+h1 span{color:var(--ac-text)}
+p{text-align:center;font-size:13px;color:var(--text-2);margin:6px 0 20px}
+input{width:100%;min-height:40px;padding:0 12px;margin-bottom:10px;font:inherit;color:var(--text);background:var(--sunken);
+border:1px solid var(--line-strong);border-radius:5px;outline:none;box-shadow:inset 0 2px 0 rgba(0,0,0,.18)}
+input::placeholder{color:var(--text-3)}
+input:focus{border-color:var(--ac);box-shadow:0 0 0 3px rgba(168,85,247,.22)}
+#code{font:600 18px ui-monospace,monospace;letter-spacing:.4em;text-align:center}
+button{width:100%;min-height:40px;font:600 14px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#fff;cursor:pointer;background:var(--ac2);
+border:1px solid #4c1d95;border-radius:5px;box-shadow:inset 0 1px 0 rgba(255,255,255,.25),inset 0 -3px 0 rgba(0,0,0,.3)}
+button:hover{background:#8b4cf0}
+button:active{transform:translateY(1px);box-shadow:inset 0 1px 0 rgba(255,255,255,.25),inset 0 -1px 0 rgba(0,0,0,.3)}
 button:disabled{opacity:.6;cursor:wait}
-:focus-visible{outline:2px solid #c084fc;outline-offset:2px}
-</style></head><body>
+#err{color:var(--bad);font-size:12.5px;min-height:18px;margin-top:10px;text-align:center}
+.foot{margin-top:14px;text-align:center;font-size:11.5px;color:var(--text-3)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+</style>
+<script>try{var t=localStorage.getItem('pkTheme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');document.documentElement.dataset.theme=t}catch(e){}</script>
+</head><body>
 <main class="card">
 <div class="login-logo"><img src="/icon.svg" alt=""></div>
-<h1 class="brand-grav" aria-label="PKHosting"><span class="g-letter">P</span><span class="g-letter">K</span><span><span class="g-letter">H</span><span class="g-letter">o</span><span class="g-letter">s</span><span class="g-letter">t</span><span class="g-letter">i</span><span class="g-letter">n</span><span class="g-letter">g</span></span></h1><p id="hint">Introduce la contraseña del panel</p>
+<h1 aria-label="PKHosting">PK<span>Hosting</span></h1><p id="hint">Introduce la contraseña del panel</p>
 <form id="step1" autocomplete="on">
 <label for="pw" class="sr">Contraseña</label>
 <input type="password" id="pw" name="password" placeholder="Contraseña" autocomplete="current-password" required autofocus>
 <button type="submit" id="go1">Entrar</button></form>
 <form id="step2" autocomplete="off" style="display:none">
 <label for="code" class="sr">Código de verificación de 6 dígitos</label>
-<input type="text" id="code" name="code" placeholder="Código 6 dígitos" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required>
+<input type="text" id="code" name="code" placeholder="000000" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required>
 <button type="submit" id="go2">Verificar</button></form>
-<div id="err" role="alert" aria-live="assertive"></div></main>
+<div id="err" role="alert" aria-live="assertive"></div>
+<div class="foot">Panel de servidores de Minecraft</div></main>
 <script>
 let preTok = '';
 const err = document.getElementById('err');
@@ -136,7 +156,8 @@ def _content_disposition(name):
 
 
 MAX_JSON_BODY = 2 * 1024 * 1024
-PUBLIC_PATHS = ("/login", "/api/login", "/manifest.webmanifest", "/sw.js", "/icon.svg")
+PUBLIC_PATHS = ("/login", "/api/login", "/manifest.webmanifest", "/sw.js", "/icon.svg",
+                "/static/pixelify.ttf")   # la fuente la usa también la página de login
 
 
 class PKHostingPanelHandler(BaseHTTPRequestHandler):
@@ -268,11 +289,15 @@ class PKHostingPanelHandler(BaseHTTPRequestHandler):
             if ext not in STATIC_TYPES or not os.path.isfile(os.path.join(STATIC_DIR, name)):
                 return self.send_json({"error": "no existe"}, code=404)
             try:
-                body = render_static(name).encode("utf-8")
+                if ext in STATIC_RAW:
+                    with open(os.path.join(STATIC_DIR, name), "rb") as f:
+                        body = f.read()
+                else:
+                    body = render_static(name).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", STATIC_TYPES[ext])
                 self.send_header("Content-Length", str(len(body)))
-                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Cache-Control", "max-age=86400" if ext in STATIC_RAW else "no-cache")
                 self.end_headers()
                 self.wfile.write(body)
             except (BrokenPipeError, ConnectionResetError):

@@ -46,7 +46,7 @@ function renderCmdPalette() {
   PALETTE_ACTIVE_IDX = 0;
   const list = document.getElementById('cpList');
   if (!PALETTE_FILTERED.length) {
-    list.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-dim);font-size:13px">Sin coincidencias</div>';
+    list.innerHTML = '<div class="empty-state">Sin coincidencias</div>';
     return;
   }
   list.innerHTML = PALETTE_FILTERED.map((item, idx) => `
@@ -167,13 +167,12 @@ function renderNotifs() {
   const list = document.getElementById('notifList');
   if (!list) return;
   if (!NOTIFS.length) {
-    list.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-dim);font-size:12px">Sin notificaciones pendientes</div>';
+    list.innerHTML = '<div class="empty-state">Sin notificaciones pendientes</div>';
     return;
   }
   list.innerHTML = NOTIFS.map(n => `
     <div class="notif-item">
-      <span style="color:#c084fc; font-size:14px">●</span>
-      <div style="flex:1">
+      <div class="grow">
         <div>${escHtml(n.title)}</div>
         <div class="notif-time">${escHtml(n.time)}</div>
       </div>

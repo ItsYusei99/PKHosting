@@ -137,6 +137,17 @@ async function deleteBackup(name) {
   loadBackups();
 }
 setInterval(() => { const t = document.getElementById('tab-backups'); if (t && t.classList.contains('active')) loadBackups(); }, 5000);
+// Resumen de backups en Inicio (próxima copia y número de copias)
+async function loadHomeBackup() {
+  try {
+    const d = await api('/api/backups');
+    const nx = d.enabled ? bkNextRun(d.time) : null;
+    setText('homeBkNext', d.enabled ? (nx ? bkCountdown(nx).replace(/^en /, '') : '—') : 'Desactivado');
+    setText('homeBkCount', String((d.items || []).length));
+  } catch (e) {}
+}
+loadHomeBackup();
+setInterval(() => { if (!document.hidden && document.getElementById('tab-home').classList.contains('active')) loadHomeBackup(); }, 60000);
 setInterval(() => { const t = document.getElementById('tab-console'); if (t && t.classList.contains('active')) loadModeration(); }, 10000);
 setInterval(() => { const t = document.getElementById('tab-history'); if (t && t.classList.contains('active')) loadHistory(); }, 10000);
 
