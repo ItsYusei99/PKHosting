@@ -1,4 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+<symbol id="i-more" viewBox="0 0 24 24"><path d="M3 10h4v4H3zm7 0h4v4h-4zm7 0h4v4h-4z"/></symbol>
 <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 20h16v2H4zm16-10h2v10h-2zM2 10h2v10H2zm2-2h2v2H4zm2-2h2v2H6zm2-2h2v2H8zm2-2h4v2h-4zm4 2h2v2h-2zm2 2h2v2h-2zm2 2h2v2h-2zM8 14h2v6H8zm2-2h4v2h-4zm4 2h2v6h-2z"/></symbol>
 <symbol id="i-terminal" viewBox="0 0 24 24"><path d="M4 2h16v2H4zm0 18h16v2H4zM2 4h2v16H2zm18 0h2v16h-2zM6 16h2v2H6zm2-2h2v2H8zm-2-2h2v2H6z"/></symbol>
 <symbol id="i-users" viewBox="0 0 24 24"><path d="M5 2h6v2H5zm10 0h4v2h-4zM5 10h6v2H5zm10 0h4v2h-4zm4-6h2v6h-2zm-8 0h2v6h-2zM3 4h2v6H3zM0 18h2v4H0zm14 0h2v4h-2zm8 0h2v4h-2zM4 14h8v2H4zm12 0h4v2h-4zM2 16h2v2H2zm10 0h2v2h-2zm8 0h2v2h-2z"/></symbol>

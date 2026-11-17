@@ -26,6 +26,13 @@ async function refreshStats() {
     document.getElementById('btnRestart').disabled = (d.status === 'OFFLINE');
     document.getElementById('btnReload').disabled = (d.status !== 'RUNNING');
     document.getElementById('btnKill').disabled = (d.status === 'OFFLINE');
+    // Solo las acciones relevantes al estado: OFFLINE -> Iniciar; el resto -> Detener + Reiniciar + menú "⋯"
+    const offline = d.status === 'OFFLINE';
+    document.getElementById('btnStart').hidden = !offline;
+    document.getElementById('btnStop').hidden = offline;
+    document.getElementById('btnRestart').hidden = offline;
+    document.getElementById('moreWrap').hidden = offline;
+    if (offline) closeMoreMenu();
     if (d.public_ip) setPublicIp(d.public_ip);
 
     // Cards

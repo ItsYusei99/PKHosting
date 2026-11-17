@@ -34,28 +34,28 @@
     <div class="server-label">Servidor activo</div>
     <div class="server-title">
       <span class="mini-dot" id="sideDot"></span>
-      <span>__NAME__</span>
+      <span class="server-name">__NAME__</span>
     </div>
   </div>
 
   <nav role="tablist" aria-label="Secciones del panel" aria-orientation="vertical">
     <div class="nav-group" role="presentation">Servidor</div>
-    <button type="button" class="nav-item active" role="tab" data-tab="home" aria-controls="tab-home" aria-selected="true" onclick="switchTab('home')"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-home"/></svg>Inicio</button>
-    <button type="button" class="nav-item" role="tab" data-tab="console" aria-controls="tab-console" aria-selected="false" onclick="switchTab('console')"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-terminal"/></svg>Consola</button>
-    <button type="button" class="nav-item" role="tab" data-tab="players" aria-controls="tab-players" aria-selected="false" onclick="switchTab('players')"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-users"/></svg>Jugadores</button>
-    <button type="button" class="nav-item" role="tab" data-tab="metrics" aria-controls="tab-metrics" aria-selected="false" onclick="switchTab('metrics')"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-chart"/></svg>Métricas</button>
+    <button type="button" class="nav-item active" role="tab" data-tab="home" aria-controls="tab-home" aria-selected="true" onclick="switchTab('home')" title="Inicio"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-home"/></svg><span class="nav-label">Inicio</span></button>
+    <button type="button" class="nav-item" role="tab" data-tab="console" aria-controls="tab-console" aria-selected="false" onclick="switchTab('console')" title="Consola"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-terminal"/></svg><span class="nav-label">Consola</span></button>
+    <button type="button" class="nav-item" role="tab" data-tab="players" aria-controls="tab-players" aria-selected="false" onclick="switchTab('players')" title="Jugadores"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-users"/></svg><span class="nav-label">Jugadores</span></button>
+    <button type="button" class="nav-item" role="tab" data-tab="metrics" aria-controls="tab-metrics" aria-selected="false" onclick="switchTab('metrics')" title="Métricas"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-chart"/></svg><span class="nav-label">Métricas</span></button>
     <div class="nav-group" role="presentation">Contenido</div>
-    <button type="button" class="nav-item" role="tab" data-tab="files" aria-controls="tab-files" aria-selected="false" onclick="switchTab('files')"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-folder"/></svg>Archivos</button>
-    <button type="button" class="nav-item" role="tab" data-tab="mods" aria-controls="tab-mods" aria-selected="false" onclick="switchTab('mods')"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-box"/></svg>Mods</button>
-    <button type="button" class="nav-item" role="tab" data-tab="worlds" aria-controls="tab-worlds" aria-selected="false" onclick="switchTab('worlds')"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-map"/></svg>Mundos</button>
-    <button type="button" class="nav-item" role="tab" data-tab="backups" aria-controls="tab-backups" aria-selected="false" onclick="switchTab('backups')"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-archive"/></svg>Backups</button>
+    <button type="button" class="nav-item" role="tab" data-tab="files" aria-controls="tab-files" aria-selected="false" onclick="switchTab('files')" title="Archivos"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-folder"/></svg><span class="nav-label">Archivos</span></button>
+    <button type="button" class="nav-item" role="tab" data-tab="mods" aria-controls="tab-mods" aria-selected="false" onclick="switchTab('mods')" title="Mods"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-box"/></svg><span class="nav-label">Mods</span></button>
+    <button type="button" class="nav-item" role="tab" data-tab="worlds" aria-controls="tab-worlds" aria-selected="false" onclick="switchTab('worlds')" title="Mundos"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-map"/></svg><span class="nav-label">Mundos</span></button>
+    <button type="button" class="nav-item" role="tab" data-tab="backups" aria-controls="tab-backups" aria-selected="false" onclick="switchTab('backups')" title="Backups"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-archive"/></svg><span class="nav-label">Backups</span></button>
     <div class="nav-group" role="presentation">Automatización</div>
-    <button type="button" class="nav-item" role="tab" data-tab="tasks" aria-controls="tab-tasks" aria-selected="false" onclick="switchTab('tasks')"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-calendar"/></svg>Tareas</button>
-    <button type="button" class="nav-item" role="tab" data-tab="history" aria-controls="tab-history" aria-selected="false" onclick="switchTab('history')"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-clock"/></svg>Historial</button>
+    <button type="button" class="nav-item" role="tab" data-tab="tasks" aria-controls="tab-tasks" aria-selected="false" onclick="switchTab('tasks')" title="Tareas"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-calendar"/></svg><span class="nav-label">Tareas</span></button>
+    <button type="button" class="nav-item" role="tab" data-tab="history" aria-controls="tab-history" aria-selected="false" onclick="switchTab('history')" title="Historial"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-clock"/></svg><span class="nav-label">Historial</span></button>
     <div class="nav-group" role="presentation">Sistema</div>
-    <button type="button" class="nav-item" role="tab" data-tab="fleet" aria-controls="tab-fleet" aria-selected="false" onclick="switchTab('fleet')"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-server"/></svg>Flota</button>
-    <button type="button" class="nav-item" role="tab" data-tab="diag" aria-controls="tab-diag" aria-selected="false" onclick="switchTab('diag')"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-bug"/></svg>Diagnóstico</button>
-    <button type="button" class="nav-item" role="tab" data-tab="settings" aria-controls="tab-settings" aria-selected="false" onclick="switchTab('settings')"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-sliders"/></svg>Configuración</button>
+    <button type="button" class="nav-item" role="tab" data-tab="fleet" aria-controls="tab-fleet" aria-selected="false" onclick="switchTab('fleet')" title="Flota"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-server"/></svg><span class="nav-label">Flota</span></button>
+    <button type="button" class="nav-item" role="tab" data-tab="diag" aria-controls="tab-diag" aria-selected="false" onclick="switchTab('diag')" title="Diagnóstico"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-bug"/></svg><span class="nav-label">Diagnóstico</span></button>
+    <button type="button" class="nav-item" role="tab" data-tab="settings" aria-controls="tab-settings" aria-selected="false" onclick="switchTab('settings')" title="Configuración"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-sliders"/></svg><span class="nav-label">Configuración</span></button>
   </nav>
 
   <div class="sidebar-footer">
@@ -63,7 +63,7 @@
       <span id="ipText">__IP__</span>
       <span class="copy-badge" id="copyBadge">Copiar</span>
     </button>
-    <button type="button" class="logout-btn" onclick="logout()"><svg class="ico ico-sm" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-logout"/></svg>Cerrar sesión</button>
+    <button type="button" class="logout-btn" onclick="logout()" title="Cerrar sesión"><svg class="ico ico-sm" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-logout"/></svg><span class="nav-label">Cerrar sesión</span></button>
   </div>
 </aside>
 
@@ -126,10 +126,17 @@
       <div class="header-actions">
         <div class="power-btn-group">
           <button class="pbtn pbtn-start" id="btnStart" onclick="serverAction('start')"><svg class="ico ico-sm" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-play"/></svg>Iniciar</button>
-          <button class="pbtn pbtn-restart" id="btnRestart" onclick="serverRestartPrompt()"><svg class="ico ico-sm" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-reload"/></svg>Reiniciar</button>
-          <button class="pbtn pbtn-restart" id="btnReload" onclick="serverAction('reload')" title="Recarga datapacks/mods (comando reload del servidor)"><svg class="ico ico-sm" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-refresh"/></svg>Reload</button>
-          <button class="pbtn pbtn-stop" id="btnStop" onclick="serverAction('stop')"><svg class="ico ico-sm" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-stop"/></svg>Detener</button>
-          <button class="pbtn pbtn-kill" id="btnKill" onclick="serverAction('kill')" title="Matar el proceso"><svg class="ico ico-sm" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-power-off"/></svg>Matar</button>
+          <button class="pbtn pbtn-stop" id="btnStop" onclick="serverAction('stop')" hidden><svg class="ico ico-sm" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-stop"/></svg>Detener</button>
+          <button class="pbtn pbtn-restart" id="btnRestart" onclick="serverRestartPrompt()" hidden><svg class="ico ico-sm" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-reload"/></svg>Reiniciar</button>
+          <span class="more-wrap" id="moreWrap" hidden>
+            <button class="pbtn icon-only" id="moreBtn" type="button" onclick="toggleMoreMenu()" title="Más acciones" aria-label="Más acciones" aria-haspopup="menu" aria-expanded="false" aria-controls="moreMenu">
+              <svg class="ico" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-more"/></svg>
+            </button>
+            <div id="moreMenu" class="mc-frame" role="menu" aria-label="Más acciones" hidden>
+              <button type="button" role="menuitem" class="pbtn pbtn-restart" id="btnReload" onclick="serverAction('reload'); closeMoreMenu()" title="Recarga datapacks/mods (comando reload del servidor)"><svg class="ico ico-sm" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-refresh"/></svg>Reload</button>
+              <button type="button" role="menuitem" class="pbtn pbtn-kill" id="btnKill" onclick="serverAction('kill'); closeMoreMenu()" title="Matar el proceso"><svg class="ico ico-sm" aria-hidden="true"><use href="/static/icons.svg?v=__V__#i-power-off"/></svg>Matar</button>
+            </div>
+          </span>
         </div>
       </div>
     </div>
@@ -295,7 +302,7 @@
               <button class="term-tool-btn" onclick="refreshTps()">Actualizar</button>
             </div>
           </div>
-          <div class="scard-val" id="tpsVal" style="font-size:34px">—</div>
+          <div class="scard-val num-lg" id="tpsVal" style="font-size:34px">—</div>
           <div class="scard-sub" id="tpsSub">Sin datos todavía</div>
           <div class="scard-bar"><div class="scard-bar-fill" id="tpsBar" style="width:0%"></div></div>
         </div>

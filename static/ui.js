@@ -187,6 +187,43 @@ function toggleNotifDropdown() {
   const dot = document.getElementById('notifDot');
   if (dot) dot.style.display = 'none';
 }
+// Menú "⋯" de la cabecera (Reload / Matar)
+function moreMenuItems() {
+  return Array.from(document.querySelectorAll('#moreMenu [role="menuitem"]:not(:disabled)'));
+}
+function closeMoreMenu(returnFocus) {
+  const m = document.getElementById('moreMenu');
+  const b = document.getElementById('moreBtn');
+  if (!m || m.hidden) return;
+  m.hidden = true;
+  if (b) { b.setAttribute('aria-expanded', 'false'); if (returnFocus) b.focus(); }
+}
+function toggleMoreMenu() {
+  const m = document.getElementById('moreMenu');
+  const b = document.getElementById('moreBtn');
+  if (!m) return;
+  if (!m.hidden) { closeMoreMenu(true); return; }
+  m.hidden = false;
+  b.setAttribute('aria-expanded', 'true');
+  const first = moreMenuItems()[0];
+  if (first) first.focus();
+}
+document.addEventListener('click', e => {
+  const w = document.getElementById('moreWrap');
+  if (w && !w.contains(e.target)) closeMoreMenu();
+});
+document.addEventListener('keydown', e => {
+  const m = document.getElementById('moreMenu');
+  if (!m || m.hidden) return;
+  if (e.key === 'Escape') { closeMoreMenu(true); return; }
+  if (e.key === 'Tab') { closeMoreMenu(); return; }
+  const items = moreMenuItems();
+  const i = items.indexOf(document.activeElement);
+  if (e.key === 'ArrowDown' && items.length) { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+  else if (e.key === 'ArrowUp' && items.length) { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+  else if (e.key === 'Home' && items.length) { e.preventDefault(); items[0].focus(); }
+  else if (e.key === 'End' && items.length) { e.preventDefault(); items[items.length - 1].focus(); }
+});
 function clearNotifs() {
   NOTIFS = [];
   renderNotifs();
